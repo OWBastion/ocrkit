@@ -28,3 +28,9 @@ def test_parse_left_panel_deaths_skips_noise() -> None:
     out = parse_left_panel(text)
     assert out.total_deaths == 114
     assert out.total_skips == 0
+
+def test_parse_left_panel_deaths_skips_guo_variant() -> None:
+    text = "英雄：51/51 挑战完成 总计阵亡过 94/0 通关总计耗时 2小时9分59秒"
+    out = parse_left_panel(text)
+    assert out.total_deaths == 94
+    assert out.total_skips == 0

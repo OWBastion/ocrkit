@@ -46,7 +46,7 @@ def test_samoa_image_expected_data() -> None:
     assert data["deaths"] == 114
     assert data["skips"] == 0
     assert data["duration_seconds"] == 8438.0
-    assert data["map_name"] == "萨摩亚：地狱"
+    assert data["map_name"] == "萨摩亚"
     assert data["difficulty"] == "地狱"
     assert data["version"] == "26.0513.6"
 

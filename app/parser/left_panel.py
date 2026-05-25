@@ -43,7 +43,7 @@ def parse_left_panel(text: str) -> LeftPanel:
 def _parse_total_deaths_skips(compact: str) -> tuple[int | None, int | None]:
     normalized = compact.translate(str.maketrans({"／": "/", "｜": "/", "|": "/", " ": ""}))
 
-    anchor = re.search(r"总计(?:死亡|阵亡)/跳过", normalized)
+    anchor = re.search(r"总计(?:死亡|阵亡)(?:/跳过|跳过|过)?", normalized)
     if not anchor:
         return None, None
 
