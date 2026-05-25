@@ -1,0 +1,9 @@
+services:
+  ocrkit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      OCRKIT_OCR_ENGINE: rapidocr
+    ports:
+      - "8001:8000"

@@ -24,11 +24,11 @@ def parse_left_panel(text: str) -> LeftPanel:
     heroes_completed = parse_int(hero_match.group(1)) if hero_match else None
     heroes_total = parse_int(hero_match.group(2)) if hero_match else None
 
-    ds_match = re.search(r"总计死亡/跳过\s*(\S+)\s*/\s*(\S+)", compact)
+    ds_match = re.search(r"总计(?:死亡|阵亡)/跳过\s*(\S+)\s*/\s*(\S+)", compact)
     deaths = parse_int(ds_match.group(1)) if ds_match else None
     skips = parse_int(ds_match.group(2)) if ds_match else None
 
-    time_match = re.search(r"通关总计时\s*([0-9OoIlSB小时分秒:\s\.]+)", compact)
+    time_match = re.search(r"通关总计(?:时|耗时)\s*([0-9OoIlSB小时分秒:\s\.]+)", compact)
     clear_time = time_match.group(1).strip() if time_match else None
 
     return LeftPanel(
