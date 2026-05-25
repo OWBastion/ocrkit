@@ -27,9 +27,9 @@ def _wait_for_health(timeout_sec: int = 60) -> None:
 def test_samoa_image_expected_data() -> None:
     _wait_for_health()
 
-    image_path = Path("tests/test-_samoa.png")
+    image_path = Path("datasets/sample_samoa.png")
     with image_path.open("rb") as f:
-        files = {"file": ("test-_samoa.png", f, "image/png")}
+        files = {"file": ("sample_samoa.png", f, "image/png")}
         with httpx.Client(timeout=30.0, trust_env=False) as client:
             res = client.post(f"{BASE_URL}/api/v1/ocr/challenge?debug=true", files=files)
 
