@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     ocr_engine: str = "rapidocr"
     roi_config_path: Path = Path("configs/roi_1280x720.yaml")
     maps_config_path: Path = Path("configs/maps.yaml")
+    r2_endpoint_url: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_region_name: str = "auto"
+    r2_default_bucket: str = ""
+    r2_allowed_buckets: str = ""
+    r2_read_timeout_seconds: int = 10
 
     model_config = SettingsConfigDict(env_prefix="OCRKIT_", extra="ignore")
 
