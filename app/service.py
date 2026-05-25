@@ -37,6 +37,8 @@ def extract_structured(
     warnings: list[str] = []
     if data.heroes_completed is None or data.heroes_total is None:
         warnings.append("left_panel.hero_progress_missing")
+    if data.deaths is None or data.skips is None:
+        warnings.append("left_panel.deaths_skips_missing")
     if data.version is None:
         warnings.append("right_panel.version_missing")
 

@@ -55,4 +55,5 @@ def test_extract_ok_with_debug() -> None:
     payload = res.json()
     assert payload["ok"] is True
     assert payload["debug"] is not None
+    assert "left_panel.deaths_skips_missing" in payload["warnings"]
     app.dependency_overrides.clear()

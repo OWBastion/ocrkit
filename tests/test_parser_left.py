@@ -21,3 +21,10 @@ def test_parse_left_panel_samoa_variant() -> None:
     assert out.total_deaths == 114
     assert out.total_skips == 0
     assert out.clear_time_seconds == 8438.0
+
+
+def test_parse_left_panel_deaths_skips_noise() -> None:
+    text = "英雄：51 / 51 挑战完成 总计阵亡/跳过\nI14／O 通关总计耗时 2小时20分38秒"
+    out = parse_left_panel(text)
+    assert out.total_deaths == 114
+    assert out.total_skips == 0
