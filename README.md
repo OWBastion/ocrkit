@@ -1,6 +1,6 @@
 # OCRKit
 
-Overwatch 自定义挑战截图结构化识别服务。
+OCR Api for [Bastion](https://github.com/OWBastion/Bastion)
 
 ## Stack
 
@@ -13,8 +13,8 @@ Overwatch 自定义挑战截图结构化识别服务。
 ## Run
 
 ```bash
-rtk uv sync
-rtk uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## API
@@ -29,19 +29,19 @@ Default engine is `rapidocr`.
 Switch to PaddleOCR (optional dependency):
 
 ```bash
-rtk uv sync --extra paddle
-OCRKIT_OCR_ENGINE=paddleocr rtk uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv sync --extra paddle
+OCRKIT_OCR_ENGINE=paddleocr uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Docker Compose
 
 ```bash
-rtk docker compose up --build -d
-rtk docker compose ps
+docker compose up --build -d
+docker compose ps
 ```
 
 ## Samoa Integration Check
 
 ```bash
-rtk uv run pytest tests/test_samoa_integration.py
+uv run pytest tests/test_samoa_integration.py
 ```
