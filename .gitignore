@@ -1,3 +1,12 @@
-.pytest_cache/
-__pycache__/
 .venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# local datasets
+datasets/raw/*
+datasets/labeled/*
+datasets/debug/*
+!datasets/raw/.gitkeep
+!datasets/labeled/.gitkeep
+!datasets/debug/.gitkeep

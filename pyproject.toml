@@ -1,21 +1,27 @@
 [project]
-name = "bastion-ocr"
+name = "ocrkit"
 version = "0.1.0"
-description = "Bastion clear/title OCR microservice"
-requires-python = ">=3.11"
+description = "Overwatch challenge HUD OCR service"
+requires-python = ">=3.12"
 dependencies = [
-  "aiohttp>=3.9.5,<4",
-  "fastapi>=0.111.0,<1",
+  "fastapi>=0.115.0,<1",
   "numpy>=1.26.4,<3",
   "opencv-python-headless>=4.10.0.84,<5",
-  "paddleocr>=2.8.1,<3",
-  "pillow>=10.4.0,<12",
-  "pydantic>=2.7.4,<3",
+  "pydantic>=2.8.0,<3",
+  "pydantic-settings>=2.4.0,<3",
+  "python-multipart>=0.0.9,<1",
+  "pyyaml>=6.0.2,<7",
+  "rapidocr-onnxruntime>=1.4.4,<2",
+  "onnxruntime>=1.19.0,<2",
   "uvicorn[standard]>=0.30.1,<1",
 ]
 
 [project.optional-dependencies]
+paddle = [
+  "paddleocr>=2.8.1,<3",
+]
 dev = [
+  "httpx>=0.27.0,<1",
   "pytest>=8.3.2,<9",
 ]
 

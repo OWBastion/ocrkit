@@ -1,0 +1,4 @@
+engine: rapidocr
+supported_engines:
+  - rapidocr
+  - paddleocr
