@@ -12,7 +12,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv export --no-dev --no-hashes --format requirements-txt > requirements.txt
 RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
-FROM python:3.12-slim AS runner
+FROM python:3.12-slim-bookworm AS runner
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -21,7 +21,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libglib2.0-0 libgl1 libxcb1 libsm6 libxext6 libxrender1 \
+    && apt-get install -y --no-install-recommends libglib2.0-0 libgl1 libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /wheels /wheels

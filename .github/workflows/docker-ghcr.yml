@@ -53,6 +53,7 @@ jobs:
             type=semver,pattern={{major}}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -64,3 +65,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Show pushed image summary
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "Digest: ${{ steps.build.outputs.digest }}"
+          docker buildx imagetools inspect ghcr.io/owbastion/ocrkit@${{ steps.build.outputs.digest }}
