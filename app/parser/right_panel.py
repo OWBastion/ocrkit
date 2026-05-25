@@ -4,9 +4,25 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 import re
 
-
 _DIFFICULTY = re.compile(r"(地狱|传奇|困难|普通|简单|无法跳过英雄)")
 _VERSION = re.compile(r"版本\s*([0-9\.OoIlSB]+)")
+_MAP_SPLIT = re.compile(r"[：:]")
+_MAP_TEXT_CLEAN = str.maketrans(
+    {
+        " ": "",
+        "\t": "",
+        "\n": "",
+        "\r": "",
+        "，": "",
+        ",": "",
+        "。": "",
+        ".": "",
+        "·": "",
+        "-": "",
+        "_": "",
+    }
+)
+_MAP_COMPAT_FIX = str.maketrans({"0": "O", "1": "I", "5": "S", "8": "B"})
 
 
 @dataclass
@@ -16,21 +32,55 @@ class RightPanel:
     version: str | None
 
 
+def _normalize_map_text(text: str) -> str:
+    return text.translate(_MAP_TEXT_CLEAN).strip()
+
+
+def _compat_map_text(text: str) -> str:
+    return _normalize_map_text(text).translate(_MAP_COMPAT_FIX)
+
+
 def _best_map(raw_text: str, map_names: list[str]) -> str | None:
     if not map_names:
         return None
+
+    map_candidates = [raw_text]
+    split = _MAP_SPLIT.split(raw_text, maxsplit=1)
+    if split:
+        map_candidates.insert(0, split[0])
+
+    normalized_to_raw: dict[str, str] = {}
+    compat_to_raw: dict[str, str] = {}
     for item in map_names:
-        if item in raw_text:
-            return item
+        normalized = _normalize_map_text(item)
+        compat = _compat_map_text(item)
+        if normalized and normalized not in normalized_to_raw:
+            normalized_to_raw[normalized] = item
+        if compat and compat not in compat_to_raw:
+            compat_to_raw[compat] = item
+
+    for candidate in map_candidates:
+        normalized_candidate = _normalize_map_text(candidate)
+        if normalized_candidate in normalized_to_raw:
+            return normalized_to_raw[normalized_candidate]
+
+        compat_candidate = _compat_map_text(candidate)
+        if compat_candidate in compat_to_raw:
+            return compat_to_raw[compat_candidate]
 
     best_name = None
     best_score = 0.0
-    for item in map_names:
-        score = SequenceMatcher(None, raw_text, item).ratio()
-        if score > best_score:
-            best_name = item
-            best_score = score
-    return best_name if best_score >= 0.45 else None
+    for candidate in map_candidates:
+        compat_candidate = _compat_map_text(candidate)
+        if not compat_candidate:
+            continue
+        for compat_name, raw_name in compat_to_raw.items():
+            score = SequenceMatcher(None, compat_candidate, compat_name).ratio()
+            if score > best_score:
+                best_name = raw_name
+                best_score = score
+
+    return best_name if best_score >= 0.6 else None
 
 
 def parse_right_panel(text: str, map_names: list[str]) -> RightPanel:
