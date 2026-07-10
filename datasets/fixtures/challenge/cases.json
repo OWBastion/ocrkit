@@ -99,5 +99,22 @@
       "difficulty": "地狱",
       "version": "26.0624.1"
     }
+  },
+  {
+    "id": "runasapi_01",
+    "image": "努纳塞庇.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 52,
+      "heroes_total": 52,
+      "player": "训犬大师",
+      "deaths": 72,
+      "skips": 0,
+      "duration_seconds": 5151.0,
+      "map_name": "鲁纳塞彼",
+      "difficulty": "地狱",
+      "version": "26.0621.3"
+    }
   }
 ]
