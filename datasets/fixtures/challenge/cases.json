@@ -116,5 +116,22 @@
       "difficulty": "地狱",
       "version": "26.0621.3"
     }
+  },
+  {
+    "id": "antarctic_peninsula_01",
+    "image": "南极岛牌没问题.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 40,
+      "heroes_total": 51,
+      "player": "训犬大师",
+      "deaths": 221,
+      "skips": 0,
+      "duration_seconds": 8089.0,
+      "map_name": "南极半岛",
+      "difficulty": "地狱",
+      "version": "26.0613.3"
+    }
   }
 ]
