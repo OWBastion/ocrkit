@@ -121,6 +121,9 @@ def parse_right_panel(text: str, map_names: list[str]) -> RightPanel:
     vm = _VERSION.search(text)
     if vm:
         version = vm.group(1).translate(str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "S": "5", "B": "8"}))
+        digits = version.replace(".", "")
+        if len(digits) == 7:
+            version = f"{digits[:2]}.{digits[2:6]}.{digits[6:]}"
 
     return RightPanel(
         map_name=map_name,

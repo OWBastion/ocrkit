@@ -256,5 +256,9 @@
   {
     "id": "ayutthaya_01", "image": "阿育陀耶.jpg", "notes": "Automatically accepted complete OCR output.",
     "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 74, "skips": 0, "duration_seconds": 4862.0, "map_name": "阿瑜陀耶", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "nepal_lucky_star_01", "image": "尼泊尔幸运星.jpg", "notes": "Manually confirmed from the screenshot.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 185, "skips": 0, "duration_seconds": 9044.0, "map_name": "尼泊尔", "difficulty": "地狱", "version": "26.0610.2"}
   }
 ]
