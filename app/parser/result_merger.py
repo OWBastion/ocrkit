@@ -8,10 +8,19 @@ from .left_panel import LeftPanel
 from .right_panel import RightPanel
 
 
-def merge_result(center: CenterSummary, left: LeftPanel, bottom_left: BottomLeftHero, right: RightPanel) -> ChallengeData:
+def merge_result(
+    center: CenterSummary,
+    left: LeftPanel,
+    bottom_left: BottomLeftHero,
+    right: RightPanel,
+    center_confidence: float,
+    bottom_left_confidence: float,
+) -> ChallengeData:
     duration_text = left.clear_time if left.clear_time_seconds is not None else center.duration_text
     duration_seconds = left.clear_time_seconds if left.clear_time_seconds is not None else center.duration_seconds
-    player = center.player if center.completed and center.player else bottom_left.player or center.player
+    player = bottom_left.player or center.player
+    if center.player and bottom_left.player and center_confidence > bottom_left_confidence:
+        player = center.player
 
     return ChallengeData(
         challenge_completed=left.challenge_completed if left.challenge_completed is not None else center.completed,

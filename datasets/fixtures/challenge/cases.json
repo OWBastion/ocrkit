@@ -280,5 +280,9 @@
   {
     "id": "hanamura_02", "image": "花村.jpg", "notes": "Manually confirmed from the screenshot.",
     "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 123, "skips": 0, "duration_seconds": 5613.0, "map_name": "花村", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "anubis_temple_01", "image": "阿努比斯神殿.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 135, "skips": 0, "duration_seconds": 7042.0, "map_name": "阿努比斯神殿", "difficulty": "地狱", "version": "26.0621.3"}
   }
 ]

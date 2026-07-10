@@ -25,10 +25,10 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     )
     right = RightPanel(map_name="萨摩亚：地狱", difficulty="地狱", version="26.0513.6")
 
-    out = merge_result(center, left, BottomLeftHero(player="bottom-player"), right)
+    out = merge_result(center, left, BottomLeftHero(player="bottom-player"), right, 0.9, 0.95)
     assert out.deaths == 114
     assert out.skips == 0
-    assert out.player == "player"
+    assert out.player == "bottom-player"
 
 
 def test_merge_result_prefers_left_duration() -> None:
@@ -51,7 +51,7 @@ def test_merge_result_prefers_left_duration() -> None:
     )
     right = RightPanel(map_name="中城", difficulty="地狱", version="26.0613.3")
 
-    out = merge_result(center, left, BottomLeftHero(player=None), right)
+    out = merge_result(center, left, BottomLeftHero(player=None), right, 0.9, 0.0)
     assert out.duration_text == "3小时18分12秒"
     assert out.duration_seconds == 11892.0
 
@@ -76,7 +76,7 @@ def test_merge_result_uses_center_deaths_skips_without_left_values() -> None:
     )
     right = RightPanel(map_name="萨摩亚：地狱", difficulty="地狱", version="26.0513.6")
 
-    out = merge_result(center, left, BottomLeftHero(player=None), right)
+    out = merge_result(center, left, BottomLeftHero(player=None), right, 0.9, 0.0)
     assert out.deaths == 94
     assert out.skips == 0
 
@@ -101,7 +101,7 @@ def test_merge_result_uses_center_completion_without_left_value() -> None:
     )
     right = RightPanel(map_name=None, difficulty=None, version=None)
 
-    out = merge_result(center, left, BottomLeftHero(player=None), right)
+    out = merge_result(center, left, BottomLeftHero(player=None), right, 0.9, 0.0)
     assert out.challenge_completed is True
 
 
@@ -125,7 +125,7 @@ def test_merge_result_uses_center_duration_when_left_time_is_invalid() -> None:
     )
     right = RightPanel(map_name=None, difficulty=None, version=None)
 
-    out = merge_result(center, left, BottomLeftHero(player=None), right)
+    out = merge_result(center, left, BottomLeftHero(player=None), right, 0.9, 0.0)
     assert out.duration_text == "1小时26分36秒"
     assert out.duration_seconds == 5196.0
 
@@ -142,5 +142,14 @@ def test_merge_result_uses_complete_center_player_to_correct_bottom_ocr() -> Non
     left = LeftPanel(None, None, None, None, None, None, None)
     right = RightPanel(map_name=None, difficulty=None, version=None)
 
-    out = merge_result(center, left, BottomLeftHero(player="订犬大师"), right)
+    out = merge_result(center, left, BottomLeftHero(player="订犬大师"), right, 0.98, 0.86)
+    assert out.player == "训犬大师"
+
+
+def test_merge_result_prefers_more_confident_bottom_player() -> None:
+    center = CenterSummary(True, "训大大师", None, None, None, None)
+    left = LeftPanel(None, None, None, None, None, None, None)
+    right = RightPanel(None, None, None)
+
+    out = merge_result(center, left, BottomLeftHero(player="训犬大师"), right, 0.94, 0.98)
     assert out.player == "训犬大师"

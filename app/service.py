@@ -35,7 +35,14 @@ def extract_structured(
     left = parse_left_panel(raw_text.get("left_panel", ""))
     bottom_left = parse_bottom_left_hero(raw_text.get("bottom_left_hero", ""))
     right = parse_right_panel(raw_text.get("right_panel", ""), map_names, map_aliases)
-    data = merge_result(center, left, bottom_left, right)
+    data = merge_result(
+        center,
+        left,
+        bottom_left,
+        right,
+        confidences.get("center_banner", 0.0),
+        confidences.get("bottom_left_hero", 0.0),
+    )
 
     warnings: list[str] = []
     if data.heroes_completed is None or data.heroes_total is None:
