@@ -184,5 +184,77 @@
       "difficulty": "地狱",
       "version": "26.0610.2"
     }
+  },
+  {
+    "id": "hollywood_01", "image": "好莱坞.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 63, "skips": 0, "duration_seconds": 4935.0, "map_name": "好莱坞", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "kings_row_01", "image": "国王大道.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 95, "skips": 0, "duration_seconds": 5469.0, "map_name": "国王大道", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "paris_01", "image": "巴黎.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 71, "skips": 0, "duration_seconds": 4556.0, "map_name": "巴黎", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "paraiso_01", "image": "帕拉伊苏倒霉蛋.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 177, "skips": 0, "duration_seconds": 11116.0, "map_name": "帕拉伊苏", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "junkertown_01", "image": "扎克真.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 109, "skips": 0, "duration_seconds": 5353.0, "map_name": "渣克镇", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "colosseo_01", "image": "斗兽场V50.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 94, "skips": 0, "duration_seconds": 5992.0, "map_name": "斗兽场", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "new_queen_street_01", "image": "新皇后街.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 202, "skips": 0, "duration_seconds": 9500.0, "map_name": "新皇后街", "difficulty": "地狱", "version": "26.0613.3"}
+  },
+  {
+    "id": "blizzard_world_01", "image": "暴雪世界.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 152, "skips": 0, "duration_seconds": 5880.0, "map_name": "暴雪世界", "difficulty": "地狱", "version": "26.0613.3"}
+  },
+  {
+    "id": "circuit_royal_01", "image": "皇家赛道V50.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 340, "skips": 0, "duration_seconds": 15083.0, "map_name": "皇家赛道", "difficulty": "地狱", "version": "26.0623.2"}
+  },
+  {
+    "id": "gibraltar_01", "image": "直布罗陀.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 199, "skips": 0, "duration_seconds": 13433.0, "map_name": "直布罗陀", "difficulty": "地狱", "version": "26.0610.2"}
+  },
+  {
+    "id": "oasis_01", "image": "绿洲成.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 159, "skips": 0, "duration_seconds": 8742.0, "map_name": "绿洲城", "difficulty": "地狱", "version": "26.0610.2"}
+  },
+  {
+    "id": "eichenwalde_01", "image": "艾兴瓦尔德.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 181, "skips": 0, "duration_seconds": 9643.0, "map_name": "艾兴瓦尔德", "difficulty": "地狱", "version": "26.0513.6"}
+  },
+  {
+    "id": "hanamura_01", "image": "花岗.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 175, "skips": 0, "duration_seconds": 8184.0, "map_name": "花冈", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "suravasa_01", "image": "苏拉哇撒.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 9, "skips": 0, "duration_seconds": 2419.0, "map_name": "苏拉瓦萨", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "samoa_02", "image": "萨摩亚.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 142, "skips": 0, "duration_seconds": 8211.0, "map_name": "萨摩亚", "difficulty": "地狱", "version": "26.0623.2"}
+  },
+  {
+    "id": "rialto_01", "image": "里阿尔托倒霉蛋.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 190, "skips": 0, "duration_seconds": 8632.0, "map_name": "里阿尔托", "difficulty": "地狱", "version": "26.0621.3"}
+  },
+  {
+    "id": "busan_01", "image": "釜山.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 162, "skips": 0, "duration_seconds": 7263.0, "map_name": "釜山", "difficulty": "地狱", "version": "26.0518.1"}
+  },
+  {
+    "id": "ayutthaya_01", "image": "阿育陀耶.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 74, "skips": 0, "duration_seconds": 4862.0, "map_name": "阿瑜陀耶", "difficulty": "地狱", "version": "26.0518.1"}
   }
 ]
