@@ -47,7 +47,7 @@ def _parse_total_deaths_skips(compact: str) -> tuple[int | None, int | None]:
     if not anchor:
         return None, None
 
-    nearby = normalized[anchor.end() : anchor.end() + 28]
+    nearby = normalized[anchor.end() : anchor.end() + 28].split("增益", 1)[0]
     nearby = nearby.replace("次", "")
     nearby = nearby.replace("O", "0").replace("o", "0").replace("I", "1").replace("l", "1")
 

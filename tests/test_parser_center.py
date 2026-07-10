@@ -22,3 +22,11 @@ def test_parse_center_summary_extracts_player_without_completion_suffix() -> Non
     out = parse_center_summary("兄贺训犬大师以182次阵亡&0次跳过耗时2小时33分53秒")
     assert out.completed is False
     assert out.player == "训犬大师"
+
+
+def test_parse_center_summary_without_player_separator() -> None:
+    out = parse_center_summary("祝贺训犬大师 92次阵亡&0次跳过耗时1小时26分36秒通关！")
+    assert out.player == "训犬大师"
+    assert out.deaths == 92
+    assert out.skips == 0
+    assert out.duration_seconds == 5196.0

@@ -39,3 +39,9 @@ def test_parse_left_panel_deaths_skips_guo_variant() -> None:
 def test_parse_left_panel_time_without_clear_prefix() -> None:
     out = parse_left_panel("英雄:51/51 挑战完成 通美总计耗时 1小时27分45秒")
     assert out.clear_time_seconds == 5265.0
+
+
+def test_parse_left_panel_does_not_use_boost_stats_for_deaths_skips() -> None:
+    out = parse_left_panel("总计阵亡跳过 9210 增益/减益/总计 30/29169")
+    assert out.total_deaths is None
+    assert out.total_skips is None

@@ -150,5 +150,22 @@
       "difficulty": "地狱",
       "version": "26.0518.1"
     }
+  },
+  {
+    "id": "esperanca_01",
+    "image": "埃斯佩兰萨.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 52,
+      "heroes_total": 52,
+      "player": "训犬大师",
+      "deaths": 92,
+      "skips": 0,
+      "duration_seconds": 5196.0,
+      "map_name": "埃斯佩兰萨",
+      "difficulty": "地狱",
+      "version": "26.0623.2"
+    }
   }
 ]

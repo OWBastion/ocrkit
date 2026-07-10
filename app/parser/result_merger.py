@@ -9,14 +9,15 @@ from .right_panel import RightPanel
 
 
 def merge_result(center: CenterSummary, left: LeftPanel, bottom_left: BottomLeftHero, right: RightPanel) -> ChallengeData:
-    duration_text = left.clear_time or center.duration_text
-    duration_seconds = left.clear_time_seconds or center.duration_seconds
+    duration_text = left.clear_time if left.clear_time_seconds is not None else center.duration_text
+    duration_seconds = left.clear_time_seconds if left.clear_time_seconds is not None else center.duration_seconds
+    player = center.player if center.completed and center.player else bottom_left.player or center.player
 
     return ChallengeData(
         challenge_completed=left.challenge_completed if left.challenge_completed is not None else center.completed,
         heroes_completed=left.heroes_completed,
         heroes_total=left.heroes_total,
-        player=bottom_left.player or center.player,
+        player=player,
         deaths=left.total_deaths if left.total_deaths is not None else center.deaths,
         skips=left.total_skips if left.total_skips is not None else center.skips,
         duration_text=duration_text,

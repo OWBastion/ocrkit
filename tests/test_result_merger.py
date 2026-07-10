@@ -28,7 +28,7 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     out = merge_result(center, left, BottomLeftHero(player="bottom-player"), right)
     assert out.deaths == 114
     assert out.skips == 0
-    assert out.player == "bottom-player"
+    assert out.player == "player"
 
 
 def test_merge_result_prefers_left_duration() -> None:
@@ -103,3 +103,44 @@ def test_merge_result_uses_center_completion_without_left_value() -> None:
 
     out = merge_result(center, left, BottomLeftHero(player=None), right)
     assert out.challenge_completed is True
+
+
+def test_merge_result_uses_center_duration_when_left_time_is_invalid() -> None:
+    center = CenterSummary(
+        completed=True,
+        player=None,
+        deaths=None,
+        skips=None,
+        duration_text="1小时26分36秒",
+        duration_seconds=5196.0,
+    )
+    left = LeftPanel(
+        heroes_completed=None,
+        heroes_total=None,
+        challenge_completed=None,
+        total_deaths=None,
+        total_skips=None,
+        clear_time="1",
+        clear_time_seconds=None,
+    )
+    right = RightPanel(map_name=None, difficulty=None, version=None)
+
+    out = merge_result(center, left, BottomLeftHero(player=None), right)
+    assert out.duration_text == "1小时26分36秒"
+    assert out.duration_seconds == 5196.0
+
+
+def test_merge_result_uses_complete_center_player_to_correct_bottom_ocr() -> None:
+    center = CenterSummary(
+        completed=True,
+        player="训犬大师",
+        deaths=None,
+        skips=None,
+        duration_text=None,
+        duration_seconds=None,
+    )
+    left = LeftPanel(None, None, None, None, None, None, None)
+    right = RightPanel(map_name=None, difficulty=None, version=None)
+
+    out = merge_result(center, left, BottomLeftHero(player="订犬大师"), right)
+    assert out.player == "训犬大师"
