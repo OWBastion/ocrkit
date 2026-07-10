@@ -32,7 +32,7 @@ def parse_left_panel(text: str) -> LeftPanel:
     return LeftPanel(
         heroes_completed=heroes_completed,
         heroes_total=heroes_total,
-        challenge_completed=("挑战完成" in compact) if compact else None,
+        challenge_completed=True if "挑战完成" in compact else None,
         total_deaths=deaths,
         total_skips=skips,
         clear_time=clear_time,

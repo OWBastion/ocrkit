@@ -4,6 +4,7 @@ from app.core.roi_config import RoiConfig
 from app.image.preprocess import preprocess_by_roi
 from app.image.roi import crop_all_rois
 from app.ocr.engine import OcrEngine
+from app.parser.bottom_left_hero import parse_bottom_left_hero
 from app.parser.center_summary import parse_center_summary
 from app.parser.left_panel import parse_left_panel
 from app.parser.result_merger import merge_result
@@ -31,8 +32,9 @@ def extract_structured(
 
     center = parse_center_summary(raw_text.get("center_banner", ""))
     left = parse_left_panel(raw_text.get("left_panel", ""))
+    bottom_left = parse_bottom_left_hero(raw_text.get("bottom_left_hero", ""))
     right = parse_right_panel(raw_text.get("right_panel", ""), map_names)
-    data = merge_result(center, left, right)
+    data = merge_result(center, left, bottom_left, right)
 
     warnings: list[str] = []
     if data.heroes_completed is None or data.heroes_total is None:

@@ -1,4 +1,5 @@
 from app.parser.center_summary import CenterSummary
+from app.parser.bottom_left_hero import BottomLeftHero
 from app.parser.left_panel import LeftPanel
 from app.parser.result_merger import merge_result
 from app.parser.right_panel import RightPanel
@@ -24,9 +25,10 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     )
     right = RightPanel(map_name="萨摩亚：地狱", difficulty="地狱", version="26.0513.6")
 
-    out = merge_result(center, left, right)
+    out = merge_result(center, left, BottomLeftHero(player="bottom-player"), right)
     assert out.deaths == 114
     assert out.skips == 0
+    assert out.player == "bottom-player"
 
 
 def test_merge_result_prefers_left_duration() -> None:
@@ -49,7 +51,7 @@ def test_merge_result_prefers_left_duration() -> None:
     )
     right = RightPanel(map_name="中城", difficulty="地狱", version="26.0613.3")
 
-    out = merge_result(center, left, right)
+    out = merge_result(center, left, BottomLeftHero(player=None), right)
     assert out.duration_text == "3小时18分12秒"
     assert out.duration_seconds == 11892.0
 
@@ -74,6 +76,30 @@ def test_merge_result_uses_center_deaths_skips_without_left_values() -> None:
     )
     right = RightPanel(map_name="萨摩亚：地狱", difficulty="地狱", version="26.0513.6")
 
-    out = merge_result(center, left, right)
+    out = merge_result(center, left, BottomLeftHero(player=None), right)
     assert out.deaths == 94
     assert out.skips == 0
+
+
+def test_merge_result_uses_center_completion_without_left_value() -> None:
+    center = CenterSummary(
+        completed=True,
+        player=None,
+        deaths=None,
+        skips=None,
+        duration_text=None,
+        duration_seconds=None,
+    )
+    left = LeftPanel(
+        heroes_completed=None,
+        heroes_total=None,
+        challenge_completed=None,
+        total_deaths=None,
+        total_skips=None,
+        clear_time=None,
+        clear_time_seconds=None,
+    )
+    right = RightPanel(map_name=None, difficulty=None, version=None)
+
+    out = merge_result(center, left, BottomLeftHero(player=None), right)
+    assert out.challenge_completed is True

@@ -2,20 +2,21 @@ from __future__ import annotations
 
 from app.schemas.response import ChallengeData
 
+from .bottom_left_hero import BottomLeftHero
 from .center_summary import CenterSummary
 from .left_panel import LeftPanel
 from .right_panel import RightPanel
 
 
-def merge_result(center: CenterSummary, left: LeftPanel, right: RightPanel) -> ChallengeData:
+def merge_result(center: CenterSummary, left: LeftPanel, bottom_left: BottomLeftHero, right: RightPanel) -> ChallengeData:
     duration_text = left.clear_time or center.duration_text
     duration_seconds = left.clear_time_seconds or center.duration_seconds
 
     return ChallengeData(
-        challenge_completed=center.completed if center.completed else left.challenge_completed,
+        challenge_completed=left.challenge_completed if left.challenge_completed is not None else center.completed,
         heroes_completed=left.heroes_completed,
         heroes_total=left.heroes_total,
-        player=center.player,
+        player=bottom_left.player or center.player,
         deaths=left.total_deaths if left.total_deaths is not None else center.deaths,
         skips=left.total_skips if left.total_skips is not None else center.skips,
         duration_text=duration_text,
