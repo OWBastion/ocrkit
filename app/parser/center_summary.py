@@ -8,7 +8,7 @@ from .normalize import normalize_player_name, parse_time_to_seconds
 
 _CENTER_PATTERNS = [
     re.compile(
-        r"祝贺\s*(?P<player>.+?)\s*以\s*(?P<deaths>\d+)\s*次阵亡\s*[&＆]\s*(?P<skips>\d+)\s*次跳过\s*耗时\s*(?P<time>.+?)\s*通关"
+        r"(?:祝)?贺\s*(?P<player>.+?)\s*以\s*(?P<deaths>\d+)\s*次阵亡\s*[&＆]\s*(?P<skips>\d+)\s*次跳过\s*[·.]?\s*耗时\s*(?P<time>.+?)\s*通关"
     )
 ]
 

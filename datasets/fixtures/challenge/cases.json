@@ -14,5 +14,22 @@
       "difficulty": "地狱",
       "version": "26.0513.6"
     }
+  },
+  {
+    "id": "route_66_01",
+    "image": "66公路.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 51,
+      "heroes_total": 51,
+      "player": "训犬大师",
+      "deaths": 91,
+      "skips": 0,
+      "duration_seconds": 7011.0,
+      "map_name": "66号公路",
+      "difficulty": "地狱",
+      "version": "26.0610.2"
+    }
   }
 ]

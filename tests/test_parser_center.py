@@ -8,3 +8,11 @@ def test_parse_center_summary() -> None:
     assert out.deaths == 94
     assert out.skips == 0
     assert out.duration_seconds == 7799.0
+
+
+def test_parse_center_summary_with_separator() -> None:
+    out = parse_center_summary("贺训犬大师以91次阵亡&0次跳过·耗时1小时56分51秒通关！")
+    assert out.player == "训犬大师"
+    assert out.deaths == 91
+    assert out.skips == 0
+    assert out.duration_seconds == 7011.0

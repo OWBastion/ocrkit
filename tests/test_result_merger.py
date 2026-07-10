@@ -29,7 +29,7 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     assert out.skips == 0
 
 
-def test_merge_result_deaths_skips_null_without_left_values() -> None:
+def test_merge_result_uses_center_deaths_skips_without_left_values() -> None:
     center = CenterSummary(
         completed=True,
         player="player",
@@ -50,5 +50,5 @@ def test_merge_result_deaths_skips_null_without_left_values() -> None:
     right = RightPanel(map_name="萨摩亚：地狱", difficulty="地狱", version="26.0513.6")
 
     out = merge_result(center, left, right)
-    assert out.deaths is None
-    assert out.skips is None
+    assert out.deaths == 94
+    assert out.skips == 0

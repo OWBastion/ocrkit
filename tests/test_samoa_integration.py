@@ -45,8 +45,9 @@ def test_challenge_cases(case: dict) -> None:
     image_path = FIXTURE_DIR / image_name
     expected = case["expected"]
 
+    mime_type = "image/jpeg" if image_path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
     with image_path.open("rb") as f:
-        files = {"file": (image_name, f, "image/png")}
+        files = {"file": (image_name, f, mime_type)}
         with httpx.Client(timeout=30.0, trust_env=False) as client:
             res = client.post(f"{BASE_URL}/api/v1/ocr/challenge?debug=true", files=files)
 
