@@ -107,7 +107,7 @@ def _best_map(raw_text: str, map_names: list[str]) -> str | None:
     return best_name if best_score >= 0.6 else None
 
 
-def parse_right_panel(text: str, map_names: list[str]) -> RightPanel:
+def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, str] | None = None) -> RightPanel:
     difficulty = None
     m = _DIFFICULTY.search(text)
     if m:
@@ -116,6 +116,10 @@ def parse_right_panel(text: str, map_names: list[str]) -> RightPanel:
     map_name = _best_map(anchored_map, map_names) if anchored_map else None
     if map_name is None:
         map_name = _best_map(text, map_names)
+    if map_name is None and map_aliases:
+        map_name = _best_map(text, list(map_aliases))
+        if map_name is not None:
+            map_name = map_aliases[map_name]
 
     version = None
     vm = _VERSION.search(text)

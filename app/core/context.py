@@ -13,6 +13,7 @@ from app.storage.r2_client import R2ObjectStore
 class AppContext:
     roi_config: RoiConfig
     map_names: list[str]
+    map_aliases: dict[str, str]
     ocr_engine: OcrEngine
     object_store: R2ObjectStore | None = None
 

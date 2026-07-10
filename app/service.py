@@ -16,6 +16,7 @@ def extract_structured(
     image,
     roi_config: RoiConfig,
     map_names: list[str],
+    map_aliases: dict[str, str],
     engine: OcrEngine,
     include_debug: bool,
 ) -> ChallengeResponse:
@@ -33,7 +34,7 @@ def extract_structured(
     center = parse_center_summary(raw_text.get("center_banner", ""))
     left = parse_left_panel(raw_text.get("left_panel", ""))
     bottom_left = parse_bottom_left_hero(raw_text.get("bottom_left_hero", ""))
-    right = parse_right_panel(raw_text.get("right_panel", ""), map_names)
+    right = parse_right_panel(raw_text.get("right_panel", ""), map_names, map_aliases)
     data = merge_result(center, left, bottom_left, right)
 
     warnings: list[str] = []

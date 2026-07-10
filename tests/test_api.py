@@ -40,11 +40,12 @@ def _dummy_png_bytes() -> bytes:
 
 
 def _make_context(object_store: StubObjectStore | None = None) -> AppContext:
-    from app.core.roi_config import load_map_names, load_roi_config
+    from app.core.roi_config import load_map_aliases, load_map_names, load_roi_config
 
     return AppContext(
         roi_config=load_roi_config(Path("configs/roi_1280x720.yaml")),
         map_names=load_map_names(Path("configs/maps.yaml")),
+        map_aliases=load_map_aliases(Path("configs/maps.yaml")),
         ocr_engine=StubEngine(),
         object_store=object_store,
     )

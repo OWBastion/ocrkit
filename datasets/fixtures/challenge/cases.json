@@ -268,5 +268,9 @@
   {
     "id": "lunar_colony_01", "image": "月球基地.jpg", "notes": "Manually confirmed from the screenshot.",
     "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 33, "skips": 0, "duration_seconds": 3918.0, "map_name": "月球基地", "difficulty": "地狱", "version": "26.0613.3"}
+  },
+  {
+    "id": "volskaya_01", "image": "沃斯卡亚.jpg", "notes": "Manually confirmed map alias.",
+    "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 71, "skips": 0, "duration_seconds": 5831.0, "map_name": "沃斯卡娅工业区", "difficulty": "地狱", "version": "26.0621.3"}
   }
 ]

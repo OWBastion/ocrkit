@@ -41,3 +41,9 @@ def load_map_names(path: Path) -> list[str]:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     names = data.get("map_names", [])
     return [str(x) for x in names]
+
+
+def load_map_aliases(path: Path) -> dict[str, str]:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    aliases = data.get("map_aliases", {})
+    return {str(alias): str(name) for alias, name in aliases.items()}

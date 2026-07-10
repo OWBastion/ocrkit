@@ -71,6 +71,7 @@ async def recognize_challenge(
         image=image,
         roi_config=ctx.roi_config,
         map_names=ctx.map_names,
+        map_aliases=ctx.map_aliases,
         engine=ctx.ocr_engine,
         include_debug=debug,
     )
@@ -135,6 +136,7 @@ async def recognize_challenge_by_object(
         image=image,
         roi_config=ctx.roi_config,
         map_names=ctx.map_names,
+        map_aliases=ctx.map_aliases,
         engine=ctx.ocr_engine,
         include_debug=req.debug,
     )

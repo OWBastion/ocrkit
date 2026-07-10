@@ -51,3 +51,8 @@ def test_parse_right_panel_single_character_version_label() -> None:
 def test_parse_right_panel_runasapi() -> None:
     out = parse_right_panel("鲁纳塞彼：地狱 版本26.0621.3", ["努巴尼", "鲁纳塞彼"])
     assert out.map_name == "鲁纳塞彼"
+
+
+def test_parse_right_panel_map_alias() -> None:
+    out = parse_right_panel("沃斯卡娅：地狱", ["沃斯卡娅工业区"], {"沃斯卡娅": "沃斯卡娅工业区"})
+    assert out.map_name == "沃斯卡娅工业区"

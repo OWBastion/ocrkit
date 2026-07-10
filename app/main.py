@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from app.api.routes_ocr import router as ocr_router
 from app.core.config import settings
 from app.core.context import AppContext
-from app.core.roi_config import load_map_names, load_roi_config
+from app.core.roi_config import load_map_aliases, load_map_names, load_roi_config
 from app.ocr.engine import OcrEngine
 from app.ocr.paddleocr_engine import PaddleOcrEngine
 from app.ocr.rapidocr_engine import RapidOcrEngine
@@ -33,6 +33,7 @@ def create_context() -> AppContext:
     return AppContext(
         roi_config=load_roi_config(settings.roi_config_path),
         map_names=load_map_names(settings.maps_config_path),
+        map_aliases=load_map_aliases(settings.maps_config_path),
         ocr_engine=_create_ocr_engine(),
         object_store=object_store,
     )
