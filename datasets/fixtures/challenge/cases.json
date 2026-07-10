@@ -82,5 +82,22 @@
       "difficulty": "地狱",
       "version": "26.0513.6"
     }
+  },
+  {
+    "id": "numbani_01",
+    "image": "努巴尼.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 52,
+      "heroes_total": 52,
+      "player": "训犬大师",
+      "deaths": 162,
+      "skips": 0,
+      "duration_seconds": 8770.0,
+      "map_name": "努巴尼",
+      "difficulty": "地狱",
+      "version": "26.0624.1"
+    }
   }
 ]
