@@ -26,3 +26,8 @@ def test_parse_right_panel_fps_noise_regression() -> None:
     assert out.map_name == "巴黎"
     assert out.difficulty == "地狱"
     assert out.version == "26.0506.1"
+
+
+def test_parse_right_panel_stock_version_variant() -> None:
+    out = parse_right_panel("伊利奥斯：地狱 股本26.0513.6", ["巴黎", "伊利奥斯"])
+    assert out.version == "26.0513.6"

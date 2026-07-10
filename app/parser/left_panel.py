@@ -26,7 +26,7 @@ def parse_left_panel(text: str) -> LeftPanel:
 
     deaths, skips = _parse_total_deaths_skips(compact)
 
-    time_match = re.search(r"通关总计(?:时|耗时)\s*([0-9OoIlSB小时分秒:\s\.]+)", compact)
+    time_match = re.search(r"(?:通关)?总计(?:时|耗时)\s*([0-9OoIlSB小时分秒:\s\.]+)", compact)
     clear_time = time_match.group(1).strip() if time_match else None
 
     return LeftPanel(

@@ -5,7 +5,7 @@ from difflib import SequenceMatcher
 import re
 
 _DIFFICULTY = re.compile(r"(地狱|传奇|困难|普通|简单|无法跳过英雄)")
-_VERSION = re.compile(r"版本\s*([0-9\.OoIlSB]+)")
+_VERSION = re.compile(r"(?:版本|股本)\s*([0-9\.OoIlSB]+)")
 _MAP_SPLIT = re.compile(r"[：:]")
 _MAP_TEXT_CLEAN = str.maketrans(
     {

@@ -34,3 +34,8 @@ def test_parse_left_panel_deaths_skips_guo_variant() -> None:
     out = parse_left_panel(text)
     assert out.total_deaths == 94
     assert out.total_skips == 0
+
+
+def test_parse_left_panel_time_without_clear_prefix() -> None:
+    out = parse_left_panel("英雄:51/51 挑战完成 通美总计耗时 1小时27分45秒")
+    assert out.clear_time_seconds == 5265.0

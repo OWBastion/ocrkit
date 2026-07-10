@@ -65,5 +65,22 @@
       "difficulty": "地狱",
       "version": "26.0613.3"
     }
+  },
+  {
+    "id": "ilios_01",
+    "image": "伊里奥斯.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 51,
+      "heroes_total": 51,
+      "player": "训犬大师",
+      "deaths": 132,
+      "skips": 0,
+      "duration_seconds": 5265.0,
+      "map_name": "伊利奥斯",
+      "difficulty": "地狱",
+      "version": "26.0513.6"
+    }
   }
 ]
