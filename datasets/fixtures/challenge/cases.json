@@ -133,5 +133,22 @@
       "difficulty": "地狱",
       "version": "26.0613.3"
     }
+  },
+  {
+    "id": "havana_01",
+    "image": "哈瓦那.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 51,
+      "heroes_total": 51,
+      "player": "训犬大师",
+      "deaths": 108,
+      "skips": 0,
+      "duration_seconds": 7225.0,
+      "map_name": "哈瓦那",
+      "difficulty": "地狱",
+      "version": "26.0518.1"
+    }
   }
 ]
