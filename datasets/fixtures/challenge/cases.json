@@ -272,5 +272,9 @@
   {
     "id": "volskaya_01", "image": "沃斯卡亚.jpg", "notes": "Manually confirmed map alias.",
     "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 71, "skips": 0, "duration_seconds": 5831.0, "map_name": "沃斯卡娅工业区", "difficulty": "地狱", "version": "26.0621.3"}
+  },
+  {
+    "id": "anubis_throne_01", "image": "王座.jpg", "notes": "Manually confirmed map alias.",
+    "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 187, "skips": 0, "duration_seconds": 10823.0, "map_name": "阿努比斯王座", "difficulty": "地狱", "version": "26.0613.3"}
   }
 ]

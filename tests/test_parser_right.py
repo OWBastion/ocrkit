@@ -56,3 +56,8 @@ def test_parse_right_panel_runasapi() -> None:
 def test_parse_right_panel_map_alias() -> None:
     out = parse_right_panel("沃斯卡娅：地狱", ["沃斯卡娅工业区"], {"沃斯卡娅": "沃斯卡娅工业区"})
     assert out.map_name == "沃斯卡娅工业区"
+
+
+def test_parse_right_panel_throne_alias() -> None:
+    out = parse_right_panel("王座：地狱", ["阿努比斯王座"], {"王座": "阿努比斯王座"})
+    assert out.map_name == "阿努比斯王座"
