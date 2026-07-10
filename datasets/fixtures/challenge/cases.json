@@ -264,5 +264,9 @@
   {
     "id": "new_junk_city_in_progress_01", "image": "新扎克城.jpg", "notes": "Manually confirmed in-progress screenshot.",
     "expected": {"challenge_completed": false, "heroes_completed": 30, "heroes_total": 52, "player": "训犬大师", "deaths": 59, "skips": 0, "duration_seconds": null, "map_name": "新渣克城", "difficulty": "地狱", "version": "26.0622.1"}
+  },
+  {
+    "id": "lunar_colony_01", "image": "月球基地.jpg", "notes": "Manually confirmed from the screenshot.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 33, "skips": 0, "duration_seconds": 3918.0, "map_name": "月球基地", "difficulty": "地狱", "version": "26.0613.3"}
   }
 ]

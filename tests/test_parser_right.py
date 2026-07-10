@@ -43,6 +43,11 @@ def test_parse_right_panel_restores_version_separators() -> None:
     assert out.version == "26.0610.2"
 
 
+def test_parse_right_panel_single_character_version_label() -> None:
+    out = parse_right_panel("月球基地：地狱 本26.0613.3", ["月球基地"])
+    assert out.version == "26.0613.3"
+
+
 def test_parse_right_panel_runasapi() -> None:
     out = parse_right_panel("鲁纳塞彼：地狱 版本26.0621.3", ["努巴尼", "鲁纳塞彼"])
     assert out.map_name == "鲁纳塞彼"
