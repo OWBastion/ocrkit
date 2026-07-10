@@ -45,3 +45,9 @@ def test_parse_left_panel_does_not_use_boost_stats_for_deaths_skips() -> None:
     out = parse_left_panel("总计阵亡跳过 9210 增益/减益/总计 30/29169")
     assert out.total_deaths is None
     assert out.total_skips is None
+
+
+def test_parse_left_panel_deaths_skips_label_ocr_variant() -> None:
+    out = parse_left_panel("总计车二跳过 123/0 增益/减益/总计 30/29169")
+    assert out.total_deaths == 123
+    assert out.total_skips == 0

@@ -276,5 +276,9 @@
   {
     "id": "anubis_throne_01", "image": "王座.jpg", "notes": "Manually confirmed map alias.",
     "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 187, "skips": 0, "duration_seconds": 10823.0, "map_name": "阿努比斯王座", "difficulty": "地狱", "version": "26.0613.3"}
+  },
+  {
+    "id": "hanamura_02", "image": "花村.jpg", "notes": "Manually confirmed from the screenshot.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 123, "skips": 0, "duration_seconds": 5613.0, "map_name": "花村", "difficulty": "地狱", "version": "26.0518.1"}
   }
 ]
