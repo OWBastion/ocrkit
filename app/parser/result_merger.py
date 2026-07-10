@@ -8,8 +8,8 @@ from .right_panel import RightPanel
 
 
 def merge_result(center: CenterSummary, left: LeftPanel, right: RightPanel) -> ChallengeData:
-    duration_text = center.duration_text or left.clear_time
-    duration_seconds = center.duration_seconds or left.clear_time_seconds
+    duration_text = left.clear_time or center.duration_text
+    duration_seconds = left.clear_time_seconds or center.duration_seconds
 
     return ChallengeData(
         challenge_completed=center.completed if center.completed else left.challenge_completed,

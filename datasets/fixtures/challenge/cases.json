@@ -31,5 +31,22 @@
       "difficulty": "地狱",
       "version": "26.0610.2"
     }
+  },
+  {
+    "id": "midtown_lucky_star_01",
+    "image": "中城幸运星.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 51,
+      "heroes_total": 51,
+      "player": "训犬大师",
+      "deaths": 249,
+      "skips": 0,
+      "duration_seconds": 11892.0,
+      "map_name": "中城",
+      "difficulty": "地狱",
+      "version": "26.0613.3"
+    }
   }
 ]

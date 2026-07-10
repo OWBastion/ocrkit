@@ -29,6 +29,31 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     assert out.skips == 0
 
 
+def test_merge_result_prefers_left_duration() -> None:
+    center = CenterSummary(
+        completed=True,
+        player="player",
+        deaths=94,
+        skips=0,
+        duration_text="3小时18 12秒",
+        duration_seconds=10800.0,
+    )
+    left = LeftPanel(
+        heroes_completed=51,
+        heroes_total=51,
+        challenge_completed=True,
+        total_deaths=94,
+        total_skips=0,
+        clear_time="3小时18分12秒",
+        clear_time_seconds=11892.0,
+    )
+    right = RightPanel(map_name="中城", difficulty="地狱", version="26.0613.3")
+
+    out = merge_result(center, left, right)
+    assert out.duration_text == "3小时18分12秒"
+    assert out.duration_seconds == 11892.0
+
+
 def test_merge_result_uses_center_deaths_skips_without_left_values() -> None:
     center = CenterSummary(
         completed=True,
