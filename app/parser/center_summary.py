@@ -11,6 +11,7 @@ _CENTER_PATTERNS = [
         r"(?:祝)?贺\s*(?P<player>.+?)\s*以\s*(?P<deaths>\d+)\s*次阵亡\s*[&＆]\s*(?P<skips>\d+)\s*次跳过\s*[·.]?\s*耗时\s*(?P<time>.+?)\s*通关"
     )
 ]
+_PLAYER_PATTERN = re.compile(r"(?:祝|兄)?贺\s*(?P<player>.+?)\s*以")
 
 
 @dataclass
@@ -39,9 +40,10 @@ def parse_center_summary(text: str) -> CenterSummary:
             duration_seconds=parse_time_to_seconds(duration_text),
         )
 
+    player_match = _PLAYER_PATTERN.search(cleaned)
     return CenterSummary(
         completed=("通关" in cleaned),
-        player=None,
+        player=normalize_player_name(player_match.group("player")) if player_match else None,
         deaths=None,
         skips=None,
         duration_text=None,
