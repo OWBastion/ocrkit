@@ -284,5 +284,13 @@
   {
     "id": "anubis_temple_01", "image": "阿努比斯神殿.jpg", "notes": "Automatically accepted complete OCR output.",
     "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 135, "skips": 0, "duration_seconds": 7042.0, "map_name": "阿努比斯神殿", "difficulty": "地狱", "version": "26.0621.3"}
+  },
+  {
+    "id": "atlis_01", "image": "阿特丽丝.jpg", "notes": "Standard name confirmed from OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 52, "heroes_total": 52, "player": "训犬大师", "deaths": 10, "skips": 0, "duration_seconds": 2216.0, "map_name": "阿特利斯", "difficulty": "地狱", "version": "26.0613.3"}
+  },
+  {
+    "id": "lijiang_tower_01", "image": "漓江塔.jpg", "notes": "Automatically accepted complete OCR output.",
+    "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 58, "skips": 0, "duration_seconds": 6403.0, "map_name": "漓江塔", "difficulty": "地狱", "version": "26.0610.2"}
   }
 ]
