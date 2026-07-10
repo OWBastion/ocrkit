@@ -33,6 +33,11 @@ def test_parse_right_panel_stock_version_variant() -> None:
     assert out.version == "26.0513.6"
 
 
+def test_parse_right_panel_clothes_version_variant() -> None:
+    out = parse_right_panel("哈瓦那：地狱 服本26.0518.1", ["哈瓦那"])
+    assert out.version == "26.0518.1"
+
+
 def test_parse_right_panel_runasapi() -> None:
     out = parse_right_panel("鲁纳塞彼：地狱 版本26.0621.3", ["努巴尼", "鲁纳塞彼"])
     assert out.map_name == "鲁纳塞彼"
