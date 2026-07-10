@@ -167,5 +167,22 @@
       "difficulty": "地狱",
       "version": "26.0623.2"
     }
+  },
+  {
+    "id": "dorado_lucky_star_01",
+    "image": "多拉多幸运星.jpg",
+    "notes": "Manually confirmed from the screenshot.",
+    "expected": {
+      "challenge_completed": true,
+      "heroes_completed": 51,
+      "heroes_total": 51,
+      "player": "训犬大师",
+      "deaths": 91,
+      "skips": 0,
+      "duration_seconds": 4028.0,
+      "map_name": "多拉多",
+      "difficulty": "地狱",
+      "version": "26.0610.2"
+    }
   }
 ]
