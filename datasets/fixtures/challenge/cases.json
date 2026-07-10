@@ -260,5 +260,9 @@
   {
     "id": "nepal_lucky_star_01", "image": "尼泊尔幸运星.jpg", "notes": "Manually confirmed from the screenshot.",
     "expected": {"challenge_completed": true, "heroes_completed": 51, "heroes_total": 51, "player": "训犬大师", "deaths": 185, "skips": 0, "duration_seconds": 9044.0, "map_name": "尼泊尔", "difficulty": "地狱", "version": "26.0610.2"}
+  },
+  {
+    "id": "new_junk_city_in_progress_01", "image": "新扎克城.jpg", "notes": "Manually confirmed in-progress screenshot.",
+    "expected": {"challenge_completed": false, "heroes_completed": 30, "heroes_total": 52, "player": "训犬大师", "deaths": 59, "skips": 0, "duration_seconds": null, "map_name": "新渣克城", "difficulty": "地狱", "version": "26.0622.1"}
   }
 ]
