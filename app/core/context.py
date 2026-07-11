@@ -16,6 +16,7 @@ class AppContext:
     map_aliases: dict[str, str]
     ocr_engine: OcrEngine
     object_store: R2ObjectStore | None = None
+    model_version: str = "builtin"
 
 
 def get_context(request: Request) -> AppContext:

@@ -1,0 +1,10 @@
+# Overlay for the PP-OCRv6 small detection recipe in training/.work/PaddleOCR.
+# Apply these dataset paths and output locations to the matching upstream recipe.
+model: pp-ocrv6-small-det
+base_recipe: ppocr/configs/det/det_ppocrv6_small.yml
+train_label_file: datasets/labeled/det/labels.txt
+eval_label_file: datasets/labeled/det/eval_labels.txt
+image_root: datasets/labeled/det/images
+save_dir: training/.work/checkpoints/det_pp_ocrv6_small
+pretrained_model: training/.work/pretrained/det_pp_ocrv6_small
+export_dir: training/.work/exported/det_pp_ocrv6_small

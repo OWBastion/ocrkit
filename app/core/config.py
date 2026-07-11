@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     r2_default_bucket: str = ""
     r2_allowed_buckets: str = ""
     r2_read_timeout_seconds: int = 10
+    model_r2_bucket: str = ""
+    model_manifest_key: str = ""
+    model_cache_dir: Path = Path("/var/lib/ocrkit/models")
+    model_download_timeout_seconds: int = 30
 
     model_config = SettingsConfigDict(env_prefix="OCRKIT_", extra="ignore")
 

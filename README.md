@@ -35,15 +35,27 @@ Configure these environment variables to enable `by-object` endpoint:
 - `OCRKIT_R2_ALLOWED_BUCKETS` (comma-separated whitelist)
 - `OCRKIT_R2_READ_TIMEOUT_SECONDS` (default: `10`)
 
-## OCR Engine
+## OCR Engine and Model Artifacts
 
-Default engine is `rapidocr`.
+Default engine is `rapidocr`. Production RapidOCR loads a versioned PP-OCRv6 small
+artifact manifest from Cloudflare R2; the service image does not contain PaddleOCR or
+model binaries. It reuses the existing R2 endpoint and credentials, plus:
 
-Switch to PaddleOCR (optional dependency):
+- `OCRKIT_MODEL_R2_BUCKET`
+- `OCRKIT_MODEL_MANIFEST_KEY` (a versioned `models/pp-ocrv6-small/<version>/manifest.json` key)
+- `OCRKIT_MODEL_CACHE_DIR` (default: `/var/lib/ocrkit/models`)
+- `OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS` (default: `30`)
+
+When `OCRKIT_MODEL_MANIFEST_KEY` is configured, a missing, incomplete, or checksum-invalid
+model artifact prevents the service from starting. Without it, local development uses
+RapidOCR's bundled default model.
+
+PaddleOCR is only used offline for fine-tuning and export. See
+[`training/README.md`](training/README.md) for the PP-OCRv6 small det/rec label formats,
+validation, manifest generation, and Cloudflare R2 publication workflow.
 
 ```bash
-uv sync --extra paddle
-OCRKIT_OCR_ENGINE=paddleocr uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run python scripts/batch_eval.py
 ```
 
 ## Docker Compose

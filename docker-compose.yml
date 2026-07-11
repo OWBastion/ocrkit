@@ -5,5 +5,11 @@ services:
       dockerfile: Dockerfile
     environment:
       OCRKIT_OCR_ENGINE: rapidocr
+      OCRKIT_MODEL_CACHE_DIR: /var/lib/ocrkit/models
     ports:
       - "8001:8000"
+    volumes:
+      - ocrkit-models:/var/lib/ocrkit/models
+
+volumes:
+  ocrkit-models:

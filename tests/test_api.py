@@ -59,6 +59,7 @@ def test_health() -> None:
     res = client.get("/health")
     assert res.status_code == 200
     assert res.json()["ok"] is True
+    assert res.json()["model_version"] == "builtin"
 
 
 def test_invalid_type() -> None:
