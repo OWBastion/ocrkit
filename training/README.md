@@ -58,6 +58,25 @@ The artifact directory must contain `det.onnx`, `rec.onnx`, `rec_dict.txt`, and 
 
 `upload_artifacts.py` only uploads the files named by the manifest. Publish a manifest under a new version prefix for every release; never overwrite a previously deployed version.
 
+## Release a trained recognition model
+
+After a manual `run_rec_smoke.sh` run, release the best recognition checkpoint with one explicit version.
+The fixed PP-OCRv6 small detector is provided through `OCRKIT_RELEASE_DET_MODEL`; it is copied
+unchanged into the release artifact.
+
+```bash
+export OCRKIT_RELEASE_DET_MODEL=/absolute/path/to/PP-OCRv6_det_small.onnx
+export OCRKIT_MODEL_R2_BUCKET=ocrkit-models
+export OCRKIT_R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+export OCRKIT_R2_ACCESS_KEY_ID=<r2-access-key-id>
+export OCRKIT_R2_SECRET_ACCESS_KEY=<r2-secret-access-key>
+./training/release_rec_model.sh 2026.07.12-01
+```
+
+The command exports `best_accuracy`, runs the full test suite, requires fixture field accuracy
+of at least `366/379`, builds a versioned manifest, refuses an already used R2 version, uploads,
+then downloads and checksum-validates the published artifact before loading it with RapidOCR.
+
 ## Apple Silicon training
 
 On Apple Silicon, the training setup installs the native ARM CPU PaddlePaddle package and ccache

@@ -6,6 +6,18 @@ import os
 from pathlib import Path
 
 import boto3
+from botocore.exceptions import ClientError
+
+
+def _object_exists(client: object, bucket: str, object_key: str) -> bool:
+    try:
+        client.head_object(Bucket=bucket, Key=object_key)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code")
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return False
+        raise
+    return True
 
 
 def main() -> None:
@@ -29,14 +41,21 @@ def main() -> None:
         aws_secret_access_key=os.environ["OCRKIT_R2_SECRET_ACCESS_KEY"],
         region_name=os.getenv("OCRKIT_R2_REGION_NAME", "auto"),
     )
+    sources: list[tuple[Path, str]] = []
     for name, metadata in files.items():
         source = args.artifact_dir / name
-        object_key = metadata["object_key"]
+        object_key = metadata.get("object_key") if isinstance(metadata, dict) else None
         if not source.is_file() or not isinstance(object_key, str):
             raise SystemExit(f"invalid manifest entry: {name}")
-        client.upload_file(str(source), args.bucket, object_key)
+        sources.append((source, object_key))
 
     manifest_key = next(iter(files.values()))["object_key"].rsplit("/", 1)[0] + "/manifest.json"
+    for object_key in [*(key for _, key in sources), manifest_key]:
+        if _object_exists(client, args.bucket, object_key):
+            raise SystemExit(f"model artifact already exists: {object_key}")
+
+    for source, object_key in sources:
+        client.upload_file(str(source), args.bucket, object_key)
     client.upload_file(str(manifest_path), args.bucket, manifest_key)
     print(json.dumps({"bucket": args.bucket, "manifest_key": manifest_key}, ensure_ascii=False))
 

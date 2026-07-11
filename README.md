@@ -69,9 +69,19 @@ uv run python scripts/batch_eval.py
 
 ## Docker Compose
 
+For a deployed model, copy `.env.model.example` to a deployment-only `.env`, fill in the R2
+credentials and set `OCRKIT_MODEL_MANIFEST_KEY` to the released version. Do not commit that file.
+The container downloads and verifies the model at startup, then caches it in the named volume.
+
 ```bash
 docker compose up --build -d
 docker compose ps
+```
+
+To switch or roll back, change only `OCRKIT_MODEL_MANIFEST_KEY` and recreate the service:
+
+```bash
+docker compose up -d --force-recreate
 ```
 
 ## Samoa Integration Check

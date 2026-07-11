@@ -5,11 +5,23 @@ services:
       dockerfile: Dockerfile
     environment:
       OCRKIT_OCR_ENGINE: rapidocr
+      OCRKIT_R2_ENDPOINT_URL: ${OCRKIT_R2_ENDPOINT_URL:-}
+      OCRKIT_R2_ACCESS_KEY_ID: ${OCRKIT_R2_ACCESS_KEY_ID:-}
+      OCRKIT_R2_SECRET_ACCESS_KEY: ${OCRKIT_R2_SECRET_ACCESS_KEY:-}
+      OCRKIT_R2_REGION_NAME: ${OCRKIT_R2_REGION_NAME:-auto}
+      OCRKIT_MODEL_R2_BUCKET: ${OCRKIT_MODEL_R2_BUCKET:-}
+      OCRKIT_MODEL_MANIFEST_KEY: ${OCRKIT_MODEL_MANIFEST_KEY:-}
       OCRKIT_MODEL_CACHE_DIR: /var/lib/ocrkit/models
+      OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS: ${OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS:-30}
     ports:
       - "8001:8000"
     volumes:
       - ocrkit-models:/var/lib/ocrkit/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
 
 volumes:
   ocrkit-models:

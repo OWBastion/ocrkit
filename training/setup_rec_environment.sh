@@ -27,6 +27,7 @@ fi
 "${python_bin}" -m pip install --upgrade pip
 "${python_bin}" -m pip install "paddlepaddle==3.3.1" -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
 "${python_bin}" -m pip install -r "${paddleocr_dir}/requirements.txt"
+"${python_bin}" -m pip install "paddle2onnx==2.1.0"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   "${python_bin}" -c 'import platform; import paddle; assert platform.machine() == "arm64"; assert paddle.device.get_device() == "cpu"; assert not paddle.is_compiled_with_cuda(); print(f"PaddlePaddle {paddle.__version__}: {platform.machine()} {paddle.device.get_device()}")'
