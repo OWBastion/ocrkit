@@ -13,8 +13,17 @@ OCR Api for [Bastion](https://github.com/OWBastion/Bastion)
 ## Run
 
 ```bash
+git clone --recurse-submodules git@github.com:OWBastion/ocrkit.git
+cd ocrkit
 uv sync
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+For an existing checkout, initialize the private datasets submodule before running
+tests or training commands:
+
+```bash
+git submodule update --init --recursive
 ```
 
 ## API

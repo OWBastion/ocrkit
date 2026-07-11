@@ -3,14 +3,6 @@ __pycache__/
 .pytest_cache/
 *.pyc
 
-# local datasets
-datasets/raw/*
-datasets/labeled/*
-datasets/debug/*
-!datasets/raw/.gitkeep
-!datasets/labeled/.gitkeep
-!datasets/debug/.gitkeep
-
 # offline PP-OCR training and exported model artifacts
 training/.work/
 training/__pycache__/
