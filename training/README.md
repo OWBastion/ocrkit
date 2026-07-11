@@ -51,3 +51,9 @@ uv run python training/scripts/upload_artifacts.py \
 The artifact directory must contain `det.onnx`, `rec.onnx`, `rec_dict.txt`, and `rapidocr.yaml`. `build_manifest.py` writes `manifest.json` with content hashes and versioned Cloudflare R2 object keys. Upload credentials use `OCRKIT_R2_ENDPOINT_URL`, `OCRKIT_R2_ACCESS_KEY_ID`, `OCRKIT_R2_SECRET_ACCESS_KEY`, and optionally `OCRKIT_R2_REGION_NAME` (`auto`).
 
 `upload_artifacts.py` only uploads the files named by the manifest. Publish a manifest under a new version prefix for every release; never overwrite a previously deployed version.
+
+## Apple Silicon training
+
+On Apple Silicon, the training setup installs the native ARM CPU PaddlePaddle package and ccache
+through Homebrew. PP-OCRv6 training remains single-process CPU training on macOS; it does not use
+CUDA, Metal, or MPS.
