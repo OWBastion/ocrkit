@@ -14,21 +14,27 @@ Coordinates in detection labels are relative to the ROI image. Recognition label
 
 The fixture preparation command writes only ignored files below `datasets/labeled/rec/`.
 It reserves eight whole screenshots for evaluation and creates an editable review manifest for
-the remaining screenshots. Review every candidate crop before producing `labels.txt`; do not
-train against unreviewed OCR output.
+the remaining screenshots. RapidOCR and Apple Vision both create candidates for each ROI. A
+candidate is automatically accepted only when their overlapping text boxes agree after
+normalization and both confidence scores are at least 0.98. Review every remaining `pending`
+candidate before producing `labels.txt`; do not train against unreviewed OCR output.
 
 ```bash
+uv sync --extra vision
 uv run python training/scripts/prepare_rec_candidates.py
 # Review datasets/labeled/rec/review/train.jsonl and review/holdout.jsonl.
-# Set every row to accepted or rejected and fill transcription for accepted rows.
+# Set every pending row to accepted or rejected and fill transcription for accepted rows.
 uv run python training/scripts/finalize_rec_labels.py
+uv run python training/scripts/evaluate_rec_candidates.py
 ./training/bootstrap.sh
 ./training/setup_rec_environment.sh
 ./training/run_rec_smoke.sh
 ```
 
 `run_rec_smoke.sh` performs a ten-epoch CPU fine-tune from the PP-OCRv6 small recognition
-checkpoint. It does not train detection and it does not upload any artifact to R2.
+checkpoint. It does not train detection and it does not upload any artifact to R2. Compare the
+holdout report before and after fine-tuning and only publish an artifact when it improves without
+regressing the challenge fixture suite.
 
 ## Offline workflow
 

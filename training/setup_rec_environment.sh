@@ -8,7 +8,7 @@ python_bin="${work_dir}/venv/bin/python"
 pretrained_dir="${work_dir}/pretrained"
 pretrained_model="${pretrained_dir}/PP-OCRv6_small_rec_pretrained.pdparams"
 
-"${root_dir}/training/bootstrap.sh"
+bash "${root_dir}/training/bootstrap.sh"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   if ! command -v brew >/dev/null; then

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
+import unicodedata
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +23,7 @@ from app.core.roi_config import RoiConfig, load_roi_config
 from app.image.loader import decode_image
 from app.image.preprocess import preprocess_by_roi
 from app.image.roi import crop_all_rois
+from training.vision import VisionLine, VisionOcr
 
 
 DEFAULT_FIXTURES = ROOT / "datasets/fixtures/challenge"
@@ -38,6 +42,19 @@ HOLDOUT_IDS = frozenset(
         "lijiang_tower_01",
     }
 )
+AUTO_ACCEPT_CONFIDENCE = 0.98
+MATCH_IOU = 0.5
+
+
+@dataclass(frozen=True)
+class CandidateLine:
+    text: str
+    confidence: float
+    box: np.ndarray
+
+
+def canonicalize(text: str) -> str:
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip())
 
 
 def load_cases(cases_path: Path) -> list[dict[str, Any]]:
@@ -62,6 +79,61 @@ def _crop_line(image: np.ndarray, box: np.ndarray) -> np.ndarray | None:
     if x2 <= x1 or y2 <= y1:
         return None
     return image[y1:y2, x1:x2].copy()
+
+
+def _box_bounds(box: np.ndarray) -> tuple[float, float, float, float]:
+    points = np.asarray(box, dtype=np.float32).reshape(-1, 2)
+    return float(points[:, 0].min()), float(points[:, 1].min()), float(points[:, 0].max()), float(points[:, 1].max())
+
+
+def _iou(first: np.ndarray, second: np.ndarray) -> float:
+    ax1, ay1, ax2, ay2 = _box_bounds(first)
+    bx1, by1, bx2, by2 = _box_bounds(second)
+    intersection = max(0.0, min(ax2, bx2) - max(ax1, bx1)) * max(0.0, min(ay2, by2) - max(ay1, by1))
+    union = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - intersection
+    return intersection / union if union else 0.0
+
+
+def _union_box(first: np.ndarray, second: np.ndarray) -> np.ndarray:
+    x1, y1, x2, y2 = _box_bounds(first)
+    ox1, oy1, ox2, oy2 = _box_bounds(second)
+    return np.array(
+        [[min(x1, ox1), min(y1, oy1)], [max(x2, ox2), min(y1, oy1)], [max(x2, ox2), max(y2, oy2)], [min(x1, ox1), max(y2, oy2)]],
+        dtype=np.float32,
+    )
+
+
+def _rapid_lines(result: Any) -> list[CandidateLine]:
+    boxes = result.boxes if result.boxes is not None else []
+    texts = result.txts if result.txts is not None else []
+    scores = result.scores if result.scores is not None else []
+    return [
+        CandidateLine(str(text).strip(), float(score), np.asarray(box, dtype=np.float32))
+        for box, text, score in zip(boxes, texts, scores, strict=True)
+        if str(text).strip()
+    ]
+
+
+def _vision_lines(result: list[VisionLine]) -> list[CandidateLine]:
+    return [CandidateLine(line.text, line.confidence, line.box) for line in result]
+
+
+def _paired_lines(rapid: list[CandidateLine], vision: list[CandidateLine]) -> list[tuple[CandidateLine | None, CandidateLine | None]]:
+    pairs: list[tuple[CandidateLine | None, CandidateLine | None]] = []
+    unmatched = set(range(len(vision)))
+    for rapid_line in rapid:
+        index, overlap = max(
+            ((index, _iou(rapid_line.box, vision[index].box)) for index in unmatched),
+            key=lambda item: item[1],
+            default=(-1, 0.0),
+        )
+        if overlap >= MATCH_IOU:
+            pairs.append((rapid_line, vision[index]))
+            unmatched.remove(index)
+        else:
+            pairs.append((rapid_line, None))
+    pairs.extend((None, vision[index]) for index in sorted(unmatched))
+    return pairs
 
 
 def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -89,6 +161,7 @@ def prepare_candidates(
     output_dir: Path,
     roi_config: RoiConfig,
     ocr_factory: Callable[[], Any] = RapidOCR,
+    vision_factory: Callable[[], Any] = VisionOcr,
 ) -> dict[str, int]:
     """Create editable recognition-label candidates without changing fixture files."""
     cases = load_cases(cases_path)
@@ -96,6 +169,7 @@ def prepare_candidates(
         raise FileExistsError(f"output already exists: {output_dir}; remove it after review or choose another path")
 
     ocr = ocr_factory()
+    vision = vision_factory()
     rows: dict[str, list[dict[str, Any]]] = {"train": [], "holdout": []}
     output_dir.mkdir(parents=True)
     try:
@@ -110,14 +184,15 @@ def prepare_candidates(
 
             for roi_name, roi in rois.items():
                 processed = preprocess_by_roi(roi_name, roi)
-                result = ocr(processed, use_cls=False)
-                boxes = result.boxes if result.boxes is not None else []
-                texts = result.txts if result.txts is not None else []
-                scores = result.scores if result.scores is not None else []
-                for index, (box, text, score) in enumerate(zip(boxes, texts, scores, strict=True)):
+                rapid = _rapid_lines(ocr(processed, use_cls=False))
+                vision_lines = _vision_lines(vision.recognize(processed))
+                for index, (rapid_line, vision_line) in enumerate(_paired_lines(rapid, vision_lines)):
+                    if rapid_line is not None and vision_line is not None:
+                        box = _union_box(rapid_line.box, vision_line.box)
+                    else:
+                        box = (rapid_line or vision_line).box
                     crop = _crop_line(processed, box)
-                    candidate = str(text).strip()
-                    if crop is None or not candidate:
+                    if crop is None:
                         continue
                     if crop.ndim == 2:
                         crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
@@ -126,6 +201,15 @@ def prepare_candidates(
                     crop_path.parent.mkdir(parents=True, exist_ok=True)
                     if not cv2.imwrite(str(crop_path), crop):
                         raise RuntimeError(f"failed to write crop: {crop_path}")
+                    rapid_text = rapid_line.text if rapid_line else None
+                    vision_text = vision_line.text if vision_line else None
+                    auto_accepted = (
+                        rapid_line is not None
+                        and vision_line is not None
+                        and rapid_line.confidence >= AUTO_ACCEPT_CONFIDENCE
+                        and vision_line.confidence >= AUTO_ACCEPT_CONFIDENCE
+                        and canonicalize(rapid_line.text) == canonicalize(vision_line.text)
+                    )
                     rows[split].append(
                         {
                             "crop": relative_crop.as_posix(),
@@ -133,10 +217,15 @@ def prepare_candidates(
                             "split": split,
                             "roi": roi_name,
                             "box": np.asarray(box, dtype=float).round(2).tolist(),
-                            "candidate_text": candidate,
-                            "confidence": round(float(score), 4),
-                            "review_status": "pending",
-                            "transcription": None,
+                            "candidate_text": rapid_text or vision_text,
+                            "confidence": round(max(line.confidence for line in (rapid_line, vision_line) if line), 4),
+                            "rapidocr_text": rapid_text,
+                            "rapidocr_confidence": round(rapid_line.confidence, 4) if rapid_line else None,
+                            "vision_text": vision_text,
+                            "vision_confidence": round(vision_line.confidence, 4) if vision_line else None,
+                            "review_status": "accepted" if auto_accepted else "pending",
+                            "transcription": canonicalize(rapid_line.text) if auto_accepted else None,
+                            "auto_accept_reason": "rapidocr_vision_agreement" if auto_accepted else None,
                         }
                     )
 
@@ -155,6 +244,7 @@ def prepare_candidates(
         "holdout_cases": sum(split_for_case(str(case["id"])) == "holdout" for case in cases),
         "train_candidates": len(rows["train"]),
         "holdout_candidates": len(rows["holdout"]),
+        "auto_accepted": sum(row["review_status"] == "accepted" for split_rows in rows.values() for row in split_rows),
     }
 
 

@@ -8,6 +8,7 @@ import numpy as np
 
 from app.core.roi_config import RoiBox, RoiConfig
 from training.scripts.prepare_rec_candidates import HOLDOUT_IDS, prepare_candidates, split_for_case
+from training.vision import VisionLine
 
 
 class FakeResult:
@@ -22,6 +23,11 @@ class FakeRapidOCR:
         return FakeResult()
 
 
+class FakeVisionOcr:
+    def recognize(self, image: np.ndarray) -> list[VisionLine]:
+        return [VisionLine("另一候选", 0.99, FakeResult.boxes[0])]
+
+
 def test_prepare_candidates_creates_review_and_empty_label_scaffolds(tmp_path: Path) -> None:
     fixtures = tmp_path / "fixtures"
     fixtures.mkdir()
@@ -34,7 +40,12 @@ def test_prepare_candidates_creates_review_and_empty_label_scaffolds(tmp_path: P
     config = RoiConfig(width=60, height=40, rois={"left_panel": RoiBox(0, 0, 30, 20)})
 
     summary = prepare_candidates(
-        fixtures / "cases.json", fixtures, tmp_path / "labeled", config, ocr_factory=FakeRapidOCR
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=FakeRapidOCR,
+        vision_factory=FakeVisionOcr,
     )
 
     assert summary == {
@@ -43,6 +54,7 @@ def test_prepare_candidates_creates_review_and_empty_label_scaffolds(tmp_path: P
         "holdout_cases": 0,
         "train_candidates": 1,
         "holdout_candidates": 0,
+        "auto_accepted": 0,
     }
     row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
     assert row["candidate_text"] == "候选文字"
