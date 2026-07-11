@@ -10,7 +10,10 @@ def _fail(line_number: int, message: str) -> ValueError:
 
 
 def _image_path(label_file: Path, image_name: str) -> Path:
-    return label_file.parent / "images" / image_name
+    direct = label_file.parent / "images" / image_name
+    if direct.is_file():
+        return direct
+    return label_file.parent.parent / image_name
 
 
 def validate_rec(label_file: Path) -> int:

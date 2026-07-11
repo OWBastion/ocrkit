@@ -12,4 +12,11 @@ if [[ ! -d "${paddleocr_dir}/.git" ]]; then
 fi
 
 printf 'PaddleOCR checkout: %s\n' "${paddleocr_dir}"
-printf 'Create the offline training environment according to its installation guide before training.\n'
+
+venv_dir="${work_dir}/venv"
+if [[ ! -x "${venv_dir}/bin/python" ]]; then
+  python3.12 -m venv "${venv_dir}"
+fi
+
+printf 'Training environment: %s\n' "${venv_dir}"
+printf 'Install PaddlePaddle and the PaddleOCR training requirements in that environment before running training/run_rec_smoke.sh.\n'

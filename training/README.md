@@ -5,10 +5,30 @@
 ## Layout
 
 - `datasets/labeled/det/labels.txt`: one line per source image, formatted as `relative/image.png<TAB>[{"transcription":"...","points":[[x1,y1],...,[x4,y4]]}]`.
-- `datasets/labeled/rec/labels.txt`: one line per cropped text image, formatted as `relative/crop.png<TAB>transcription`.
+- `datasets/labeled/rec/labels/train.txt` and `labels/holdout.txt`: reviewed cropped text labels, one `relative/crop.png<TAB>transcription` per line.
 - `training/.work/`: local PaddleOCR checkout, environments, checkpoints, exported inference models, and staging artifacts. It is ignored by Git.
 
 Coordinates in detection labels are relative to the ROI image. Recognition labels must contain the exact text expected from the crop. Keep the evaluation screenshots in `datasets/fixtures/challenge`; they are a service regression set, not training data.
+
+## Fixture rec smoke run
+
+The fixture preparation command writes only ignored files below `datasets/labeled/rec/`.
+It reserves eight whole screenshots for evaluation and creates an editable review manifest for
+the remaining screenshots. Review every candidate crop before producing `labels.txt`; do not
+train against unreviewed OCR output.
+
+```bash
+uv run python training/scripts/prepare_rec_candidates.py
+# Review datasets/labeled/rec/review/train.jsonl and review/holdout.jsonl.
+# Set every row to accepted or rejected and fill transcription for accepted rows.
+uv run python training/scripts/finalize_rec_labels.py
+./training/bootstrap.sh
+./training/setup_rec_environment.sh
+./training/run_rec_smoke.sh
+```
+
+`run_rec_smoke.sh` performs a ten-epoch CPU fine-tune from the PP-OCRv6 small recognition
+checkpoint. It does not train detection and it does not upload any artifact to R2.
 
 ## Offline workflow
 
