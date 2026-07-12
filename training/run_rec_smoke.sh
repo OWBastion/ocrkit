@@ -38,3 +38,9 @@ cd "${paddleocr_dir}"
   Eval.dataset.label_file_list="[${labels_dir}/labels/holdout.txt]" \
   Eval.loader.batch_size_per_card=8 \
   Eval.loader.num_workers=0
+
+evaluation_dir="${work_dir}/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
+cd "${root_dir}"
+"${root_dir}/training/evaluate_rec_checkpoint.sh" \
+  "${output_dir}/best_accuracy" \
+  "${evaluation_dir}"

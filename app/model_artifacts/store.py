@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from app.storage.r2_client import R2ObjectStore
+from app.model_artifacts.constants import MODEL_OBJECT_PREFIX, model_version_prefix
 
 
 class ModelArtifactError(Exception):
@@ -38,11 +39,13 @@ class ModelArtifactStore:
         self._cache_dir = cache_dir
 
     def prepare(self, manifest_key: str) -> ModelArtifacts:
+        if not manifest_key.startswith(MODEL_OBJECT_PREFIX + "/"):
+            raise ModelArtifactError(f"Model manifest key is outside {MODEL_OBJECT_PREFIX}")
         manifest = self._load_manifest(manifest_key)
         if manifest.get("schema_version") != 1 or manifest.get("model") != "pp-ocrv6-small":
             raise ModelArtifactError("Model manifest has an unsupported schema")
         version = self._validate_version(manifest.get("version"))
-        files = self._parse_files(manifest.get("files"))
+        files = self._parse_files(manifest.get("files"), version)
         target = self._cache_dir / version
 
         if target.exists():
@@ -75,11 +78,12 @@ class ModelArtifactStore:
             raise ModelArtifactError("Model manifest must be an object")
         return manifest
 
-    def _parse_files(self, raw_files: Any) -> dict[str, _ArtifactFile]:
+    def _parse_files(self, raw_files: Any, version: str) -> dict[str, _ArtifactFile]:
         if not isinstance(raw_files, dict) or set(raw_files) != self._required_files:
             raise ModelArtifactError("Model manifest has an invalid file set")
 
         files: dict[str, _ArtifactFile] = {}
+        expected_prefix = model_version_prefix(version) + "/"
         for filename in self._required_files:
             item = raw_files[filename]
             if not isinstance(item, dict):
@@ -88,6 +92,8 @@ class ModelArtifactStore:
             digest = item.get("sha256")
             size_bytes = item.get("size_bytes")
             self._validate_key(object_key)
+            if not object_key.startswith(expected_prefix):
+                raise ModelArtifactError(f"Model object key is outside {MODEL_OBJECT_PREFIX}")
             if not isinstance(digest, str) or len(digest) != 64:
                 raise ModelArtifactError(f"Model manifest hash for {filename} is invalid")
             if not isinstance(size_bytes, int) or size_bytes < 1:

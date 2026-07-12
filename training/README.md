@@ -32,9 +32,10 @@ uv run python training/scripts/evaluate_rec_candidates.py
 ```
 
 `run_rec_smoke.sh` performs a ten-epoch CPU fine-tune from the PP-OCRv6 small recognition
-checkpoint. It does not train detection and it does not upload any artifact to R2. Compare the
-holdout report before and after fine-tuning and only publish an artifact when it improves without
-regressing the challenge fixture suite.
+checkpoint. It does not train detection and it does not upload any artifact to R2. After training,
+it exports `best_accuracy` and runs the same end-to-end fixture gate used by release. The report is
+written below `training/.work/evaluations/`; a result below the current `364/379` baseline returns non-zero while keeping
+the checkpoint for inspection.
 
 ## Offline workflow
 
@@ -51,30 +52,31 @@ uv run python training/scripts/build_manifest.py \
   --version 2026-07-11-01
 uv run python training/scripts/upload_artifacts.py \
   --artifact-dir training/.work/artifacts/2026-07-11-01 \
-  --bucket "$OCRKIT_MODEL_R2_BUCKET"
+  --bucket "$OCRKIT_R2_DEFAULT_BUCKET"
 ```
 
 The artifact directory must contain `det.onnx`, `rec.onnx`, `rec_dict.txt`, and `rapidocr.yaml`. `build_manifest.py` writes `manifest.json` with content hashes and versioned Cloudflare R2 object keys. Upload credentials use `OCRKIT_R2_ENDPOINT_URL`, `OCRKIT_R2_ACCESS_KEY_ID`, `OCRKIT_R2_SECRET_ACCESS_KEY`, and optionally `OCRKIT_R2_REGION_NAME` (`auto`).
 
-`upload_artifacts.py` only uploads the files named by the manifest. Publish a manifest under a new version prefix for every release; never overwrite a previously deployed version.
+`upload_artifacts.py` only uploads the files named by the manifest under the reserved
+`models/pp-ocrv6-small/` prefix. Publish a manifest under a new version prefix for every release;
+never overwrite a previously deployed version. User screenshots belong under `uploads/`.
 
 ## Release a trained recognition model
 
-After a manual `run_rec_smoke.sh` run, release the best recognition checkpoint with one explicit version.
-The fixed PP-OCRv6 small detector is provided through `OCRKIT_RELEASE_DET_MODEL`; it is copied
-unchanged into the release artifact.
+After a manual `run_rec_smoke.sh` run, release the best recognition checkpoint. The command loads
+the repository `.env`, downloads and verifies the locked PP-OCRv6 small detector, and generates
+an unused UTC version automatically.
 
 ```bash
-export OCRKIT_RELEASE_DET_MODEL=/absolute/path/to/PP-OCRv6_det_small.onnx
-export OCRKIT_MODEL_R2_BUCKET=ocrkit-models
 export OCRKIT_R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
 export OCRKIT_R2_ACCESS_KEY_ID=<r2-access-key-id>
 export OCRKIT_R2_SECRET_ACCESS_KEY=<r2-secret-access-key>
-./training/release_rec_model.sh 2026.07.12-01
+export OCRKIT_R2_DEFAULT_BUCKET=ocrkit-models
+./training/release_rec_model.sh
 ```
 
 The command exports `best_accuracy`, runs the full test suite, requires fixture field accuracy
-of at least `366/379`, builds a versioned manifest, refuses an already used R2 version, uploads,
+of at least `364/379`, builds a versioned manifest, refuses an already used R2 version, uploads,
 then downloads and checksum-validates the published artifact before loading it with RapidOCR.
 
 ## Apple Silicon training

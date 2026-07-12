@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 from argparse import ArgumentParser
 from pathlib import Path
 
 import cv2
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.main import create_context
 from app.ocr.rapidocr_engine import RapidOcrEngine
@@ -70,9 +73,13 @@ def main() -> None:
     parser.add_argument("--cases", type=Path, default=Path("datasets/fixtures/challenge/cases.json"))
     parser.add_argument("--images-dir", type=Path, default=Path("datasets/fixtures/challenge"))
     parser.add_argument("--model-config", type=Path)
+    parser.add_argument("--report", type=Path)
     parser.add_argument("--min-field-accuracy", type=float)
     args = parser.parse_args()
     result = evaluate(args.cases, args.images_dir, args.model_config)
+    if args.report is not None:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if args.min_field_accuracy is not None and result["field_accuracy"] < args.min_field_accuracy:
         raise SystemExit(
             f"fixture field accuracy {result['field_accuracy']:.6f} is below {args.min_field_accuracy:.6f}"

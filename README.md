@@ -50,7 +50,7 @@ Default engine is `rapidocr`. Production RapidOCR loads a versioned PP-OCRv6 sma
 artifact manifest from Cloudflare R2; the service image does not contain PaddleOCR or
 model binaries. It reuses the existing R2 endpoint and credentials, plus:
 
-- `OCRKIT_MODEL_R2_BUCKET`
+- `OCRKIT_R2_DEFAULT_BUCKET`
 - `OCRKIT_MODEL_MANIFEST_KEY` (a versioned `models/pp-ocrv6-small/<version>/manifest.json` key)
 - `OCRKIT_MODEL_CACHE_DIR` (default: `/var/lib/ocrkit/models`)
 - `OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS` (default: `30`)
@@ -70,7 +70,8 @@ uv run python scripts/batch_eval.py
 ## Docker Compose
 
 For a deployed model, copy `.env.model.example` to a deployment-only `.env`, fill in the R2
-credentials and set `OCRKIT_MODEL_MANIFEST_KEY` to the released version. Do not commit that file.
+credentials and set `OCRKIT_MODEL_MANIFEST_KEY` to the released version. Models use the reserved
+`models/pp-ocrv6-small/` prefix; user screenshots use `uploads/`. Do not commit that file.
 The container downloads and verifies the model at startup, then caches it in the named volume.
 
 ```bash

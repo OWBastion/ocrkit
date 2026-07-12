@@ -14,7 +14,8 @@ def test_compose_passes_model_r2_configuration_without_secrets() -> None:
         "OCRKIT_R2_ACCESS_KEY_ID",
         "OCRKIT_R2_SECRET_ACCESS_KEY",
         "OCRKIT_R2_REGION_NAME",
-        "OCRKIT_MODEL_R2_BUCKET",
+        "OCRKIT_R2_DEFAULT_BUCKET",
+        "OCRKIT_R2_ALLOWED_BUCKETS",
         "OCRKIT_MODEL_MANIFEST_KEY",
         "OCRKIT_MODEL_CACHE_DIR",
     }

@@ -3,10 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from app.model_artifacts.constants import MODEL_OBJECT_PREFIX
 
 
 def _object_exists(client: object, bucket: str, object_key: str) -> bool:
@@ -33,6 +38,10 @@ def main() -> None:
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
         raise SystemExit("manifest has no files")
+    version = manifest.get("version")
+    if not isinstance(version, str) or not version or "/" in version:
+        raise SystemExit("manifest has an invalid version")
+    expected_prefix = f"{MODEL_OBJECT_PREFIX}/{version}/"
 
     client = boto3.client(
         "s3",
@@ -47,6 +56,8 @@ def main() -> None:
         object_key = metadata.get("object_key") if isinstance(metadata, dict) else None
         if not source.is_file() or not isinstance(object_key, str):
             raise SystemExit(f"invalid manifest entry: {name}")
+        if not object_key.startswith(expected_prefix):
+            raise SystemExit(f"model object key is outside {MODEL_OBJECT_PREFIX}")
         sources.append((source, object_key))
 
     manifest_key = next(iter(files.values()))["object_key"].rsplit("/", 1)[0] + "/manifest.json"

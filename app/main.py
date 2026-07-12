@@ -38,7 +38,7 @@ def create_context() -> AppContext:
             settings.r2_endpoint_url
             and settings.r2_access_key_id
             and settings.r2_secret_access_key
-            and settings.model_r2_bucket
+            and settings.r2_default_bucket
         ):
             raise RuntimeError("Model R2 settings are incomplete")
         model_store = R2ObjectStore.from_settings(
@@ -46,11 +46,11 @@ def create_context() -> AppContext:
             access_key_id=settings.r2_access_key_id,
             secret_access_key=settings.r2_secret_access_key,
             region_name=settings.r2_region_name,
-            default_bucket=settings.model_r2_bucket,
-            allowed_buckets_raw=settings.model_r2_bucket,
+            default_bucket=settings.r2_default_bucket,
+            allowed_buckets_raw=settings.r2_default_bucket,
             read_timeout_seconds=settings.model_download_timeout_seconds,
         )
-        artifacts = ModelArtifactStore(model_store, settings.model_r2_bucket, settings.model_cache_dir).prepare(
+        artifacts = ModelArtifactStore(model_store, settings.r2_default_bucket, settings.model_cache_dir).prepare(
             settings.model_manifest_key
         )
         model_version = artifacts.version

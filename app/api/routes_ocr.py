@@ -15,6 +15,7 @@ from app.storage.r2_client import (
     ObjectNotFoundError,
     ObjectTimeoutError,
 )
+from app.model_artifacts.constants import MODEL_OBJECT_PREFIX, USER_OBJECT_PREFIX
 
 router = APIRouter(prefix="/api/v1/ocr", tags=["ocr"])
 
@@ -37,6 +38,11 @@ def _validate_object_key(object_key: str) -> None:
         raise HTTPException(
             status_code=400,
             detail=ErrorBody(code="INVALID_OBJECT_KEY", message="object_key has invalid prefix").model_dump(),
+        )
+    if not key.startswith(USER_OBJECT_PREFIX) or key.startswith(f"{MODEL_OBJECT_PREFIX}/"):
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorBody(code="INVALID_OBJECT_KEY", message="object_key must use the uploads/ prefix").model_dump(),
         )
 
 

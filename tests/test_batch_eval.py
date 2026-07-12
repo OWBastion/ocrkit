@@ -53,3 +53,22 @@ def test_main_rejects_fixture_accuracy_below_gate(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(SystemExit, match="fixture field accuracy"):
         batch_eval.main()
+
+
+def test_main_writes_report_before_rejecting_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    report = tmp_path / "fixture_report.json"
+    monkeypatch.setattr(
+        batch_eval,
+        "evaluate",
+        lambda *_args: {"field_accuracy": 0.9, "matched_fields": 9, "total_fields": 10},
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["batch_eval.py", "--report", str(report), "--min-field-accuracy", "0.9657"],
+    )
+
+    with pytest.raises(SystemExit, match="fixture field accuracy"):
+        batch_eval.main()
+
+    assert json.loads(report.read_text(encoding="utf-8"))["matched_fields"] == 9

@@ -4,7 +4,12 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from app.model_artifacts.constants import MODEL_OBJECT_PREFIX, model_version_prefix
 
 
 REQUIRED_FILES = ("det.onnx", "rec.onnx", "rec_dict.txt", "rapidocr.yaml")
@@ -23,7 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build a versioned OCRKit model manifest.")
     parser.add_argument("--artifact-dir", required=True, type=Path)
     parser.add_argument("--version", required=True)
-    parser.add_argument("--prefix", default="models/pp-ocrv6-small")
+    parser.add_argument("--prefix", default=MODEL_OBJECT_PREFIX)
     args = parser.parse_args()
 
     if not VERSION_RE.fullmatch(args.version):
@@ -31,7 +36,9 @@ def main() -> None:
     if not args.artifact_dir.is_dir():
         raise SystemExit(f"artifact directory does not exist: {args.artifact_dir}")
 
-    object_prefix = f"{args.prefix.strip('/')}/{args.version}"
+    if args.prefix.strip("/") != MODEL_OBJECT_PREFIX:
+        raise SystemExit(f"model prefix is fixed to {MODEL_OBJECT_PREFIX}")
+    object_prefix = model_version_prefix(args.version)
     files: dict[str, dict[str, object]] = {}
     for name in REQUIRED_FILES:
         path = args.artifact_dir / name

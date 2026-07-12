@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.model_artifacts import ModelArtifactStore
 from app.ocr.rapidocr_engine import RapidOcrEngine

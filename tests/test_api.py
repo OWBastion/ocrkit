@@ -90,7 +90,7 @@ def test_by_object_ok_with_debug() -> None:
     client = TestClient(app)
     res = client.post(
         "/api/v1/ocr/challenge/by-object",
-        json={"object_key": "shots/a.png", "debug": True},
+        json={"object_key": "uploads/a.png", "debug": True},
     )
     assert res.status_code == 200
     payload = res.json()
@@ -104,6 +104,15 @@ def test_by_object_invalid_key() -> None:
     client = TestClient(app)
     res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "../x.png"})
     assert res.status_code == 400
+    app.dependency_overrides.clear()
+
+
+def test_by_object_rejects_reserved_model_prefix() -> None:
+    app.dependency_overrides[get_context] = lambda: _make_context(StubObjectStore(payload=_dummy_png_bytes()))
+    client = TestClient(app)
+    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "models/pp-ocrv6-small/v1/det.onnx"})
+
+    assert res.status_code == 400
     assert res.json()["detail"]["code"] == "INVALID_OBJECT_KEY"
     app.dependency_overrides.clear()
 
@@ -111,7 +120,7 @@ def test_by_object_invalid_key() -> None:
 def test_by_object_store_unavailable() -> None:
     app.dependency_overrides[get_context] = _stub_context
     client = TestClient(app)
-    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "x.png"})
+    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "uploads/x.png"})
     assert res.status_code == 503
     assert res.json()["detail"]["code"] == "OBJECT_STORE_UNAVAILABLE"
     app.dependency_overrides.clear()
@@ -120,7 +129,7 @@ def test_by_object_store_unavailable() -> None:
 def test_by_object_not_found() -> None:
     app.dependency_overrides[get_context] = lambda: _make_context(StubObjectStore(err=ObjectNotFoundError("missing")))
     client = TestClient(app)
-    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "x.png"})
+    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "uploads/x.png"})
     assert res.status_code == 404
     assert res.json()["detail"]["code"] == "OBJECT_NOT_FOUND"
     app.dependency_overrides.clear()
@@ -129,7 +138,7 @@ def test_by_object_not_found() -> None:
 def test_by_object_access_denied() -> None:
     app.dependency_overrides[get_context] = lambda: _make_context(StubObjectStore(err=ObjectAccessDeniedError("denied")))
     client = TestClient(app)
-    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "x.png"})
+    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "uploads/x.png"})
     assert res.status_code == 403
     assert res.json()["detail"]["code"] == "OBJECT_ACCESS_DENIED"
     app.dependency_overrides.clear()
@@ -138,7 +147,7 @@ def test_by_object_access_denied() -> None:
 def test_by_object_timeout() -> None:
     app.dependency_overrides[get_context] = lambda: _make_context(StubObjectStore(err=ObjectTimeoutError("timeout")))
     client = TestClient(app)
-    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "x.png"})
+    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "uploads/x.png"})
     assert res.status_code == 504
     assert res.json()["detail"]["code"] == "OBJECT_DOWNLOAD_TIMEOUT"
     app.dependency_overrides.clear()
@@ -147,7 +156,7 @@ def test_by_object_timeout() -> None:
 def test_by_object_download_failed() -> None:
     app.dependency_overrides[get_context] = lambda: _make_context(StubObjectStore(err=ObjectDownloadError("failed")))
     client = TestClient(app)
-    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "x.png"})
+    res = client.post("/api/v1/ocr/challenge/by-object", json={"object_key": "uploads/x.png"})
     assert res.status_code == 502
     assert res.json()["detail"]["code"] == "OBJECT_DOWNLOAD_FAILED"
     app.dependency_overrides.clear()

@@ -7,56 +7,31 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "training/release_rec_model.sh"
-ARTIFACTS_DIR = ROOT / "training/.work/artifacts"
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
-    environment.pop("OCRKIT_RELEASE_DET_MODEL", None)
-    environment.pop("OCRKIT_MODEL_R2_BUCKET", None)
+    for name in {
+        "OCRKIT_R2_ENDPOINT_URL",
+        "OCRKIT_R2_ACCESS_KEY_ID",
+        "OCRKIT_R2_SECRET_ACCESS_KEY",
+        "OCRKIT_R2_DEFAULT_BUCKET",
+    }:
+        environment[name] = ""
     return subprocess.run(
-        [str(SCRIPT), *args],
-        cwd=ROOT,
-        env=environment,
-        text=True,
-        capture_output=True,
-        check=False,
+        [str(SCRIPT), *args], cwd=ROOT, env=environment, text=True, capture_output=True, check=False
     )
 
 
-def _artifact_entries() -> set[Path]:
-    if not ARTIFACTS_DIR.exists():
-        return set()
-    return set(ARTIFACTS_DIR.iterdir())
-
-
-def test_release_requires_exactly_one_version_argument() -> None:
-    before = _artifact_entries()
-
-    result = _run()
+def test_release_requires_no_positional_arguments() -> None:
+    result = _run("2026.07.12-01")
 
     assert result.returncode != 0
     assert "usage:" in result.stderr
-    assert _artifact_entries() == before
 
 
-def test_release_rejects_invalid_version_before_creating_artifact() -> None:
-    before = _artifact_entries()
-
-    result = _run("invalid/version")
+def test_release_loads_required_r2_contract_before_creating_artifact() -> None:
+    result = _run()
 
     assert result.returncode != 0
-    assert "invalid release version" in result.stderr
-    assert _artifact_entries() == before
-
-
-def test_release_requires_fixed_detection_model_before_creating_artifact() -> None:
-    version = f"pytest-missing-det-{os.getpid()}"
-    candidate = ARTIFACTS_DIR / version
-    assert not candidate.exists()
-
-    result = _run(version)
-
-    assert result.returncode != 0
-    assert "OCRKIT_RELEASE_DET_MODEL" in result.stderr
-    assert not candidate.exists()
+    assert "OCRKIT_R2_DEFAULT_BUCKET" in result.stderr

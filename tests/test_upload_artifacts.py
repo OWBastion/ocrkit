@@ -47,7 +47,8 @@ def _artifact_dir(tmp_path: Path) -> Path:
             {
                 "files": {
                     name: {"object_key": f"models/pp-ocrv6-small/v1/{name}"} for name in files
-                }
+                },
+                "version": "v1",
             }
         ),
         encoding="utf-8",
