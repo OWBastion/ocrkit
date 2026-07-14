@@ -20,6 +20,7 @@ def _create_ocr_engine(model_config_path=None) -> OcrEngine:
 
 
 def create_context() -> AppContext:
+    roi_config = load_roi_config(settings.roi_config_path)
     object_store = None
     if settings.r2_endpoint_url and settings.r2_access_key_id and settings.r2_secret_access_key:
         object_store = R2ObjectStore.from_settings(
@@ -57,12 +58,14 @@ def create_context() -> AppContext:
         model_config_path = artifacts.rapidocr_config_path
 
     return AppContext(
-        roi_config=load_roi_config(settings.roi_config_path),
+        roi_config=roi_config,
         map_names=load_map_names(settings.maps_config_path),
         map_aliases=load_map_aliases(settings.maps_config_path),
         ocr_engine=_create_ocr_engine(model_config_path),
         object_store=object_store,
         model_version=model_version,
+        engine_name=settings.ocr_engine,
+        layout_version=roi_config.version,
     )
 
 
@@ -77,6 +80,7 @@ def create_app() -> FastAPI:
             "ok": True,
             "engine": settings.ocr_engine,
             "model_version": app.state.ctx.model_version,
+            "application_version": settings.app_version,
             "version": settings.app_version,
         }
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.roi_config import RoiConfig
 from app.image.preprocess import preprocess_by_roi
 from app.image.roi import crop_all_rois
@@ -9,7 +11,41 @@ from app.parser.center_summary import parse_center_summary
 from app.parser.left_panel import parse_left_panel
 from app.parser.result_merger import merge_result
 from app.parser.right_panel import parse_right_panel
-from app.schemas.response import ChallengeResponse, DebugPayload
+from app.schemas.response import ChallengeResponse, DebugPayload, FieldEvidence, QualityPayload
+
+
+_FIELD_ROIS = {
+    "challenge_completed": ("left_panel", "center_banner"),
+    "heroes_completed": ("left_panel",),
+    "heroes_total": ("left_panel",),
+    "player": ("bottom_left_hero", "center_banner"),
+    "deaths": ("left_panel", "center_banner"),
+    "skips": ("left_panel", "center_banner"),
+    "duration_text": ("left_panel", "center_banner"),
+    "duration_seconds": ("left_panel", "center_banner"),
+    "map_name": ("right_panel",),
+    "difficulty": ("right_panel",),
+    "version": ("right_panel",),
+}
+
+
+def _field_evidence(name: str, value: Any, confidences: dict[str, float]) -> FieldEvidence:
+    source_rois = list(_FIELD_ROIS[name])
+    available_rois = [roi for roi in source_rois if confidences.get(roi, 0.0) > 0]
+    confidence = max((confidences.get(roi, 0.0) for roi in source_rois), default=0.0)
+    return FieldEvidence(
+        value=value,
+        confidence=confidence if value is not None else 0.0,
+        source_roi=available_rois if value is not None else source_rois,
+        status="ok" if value is not None else "missing",
+    )
+
+
+def _build_field_evidence(data, confidences: dict[str, float]) -> dict[str, FieldEvidence]:
+    return {
+        name: _field_evidence(name, getattr(data, name), confidences)
+        for name in _FIELD_ROIS
+    }
 
 
 def extract_structured(
@@ -19,6 +55,10 @@ def extract_structured(
     map_aliases: dict[str, str],
     engine: OcrEngine,
     include_debug: bool,
+    request_id: str,
+    engine_name: str,
+    model_version: str,
+    layout_version: str,
 ) -> ChallengeResponse:
     normalized, roi_images = crop_all_rois(image, roi_config)
 
@@ -69,4 +109,19 @@ def extract_structured(
             confidence=confidences,
         )
 
-    return ChallengeResponse(ok=True, data=data, warnings=warnings, debug=debug_payload)
+    return ChallengeResponse(
+        request_id=request_id,
+        engine=engine_name,
+        model_version=model_version,
+        layout_version=layout_version,
+        ok=True,
+        data=data,
+        fields=_build_field_evidence(data, confidences),
+        warnings=warnings,
+        quality=QualityPayload(
+            normalized_size=(normalized.shape[1], normalized.shape[0]),
+            layout_version=layout_version,
+            warnings=warnings,
+        ),
+        debug=debug_payload,
+    )

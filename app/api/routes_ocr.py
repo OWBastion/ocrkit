@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
@@ -18,6 +20,10 @@ from app.storage.r2_client import (
 from app.model_artifacts.constants import MODEL_OBJECT_PREFIX, USER_OBJECT_PREFIX
 
 router = APIRouter(prefix="/api/v1/ocr", tags=["ocr"])
+
+
+def _request_id(request: Request) -> str:
+    return request.headers.get("X-Request-ID", "").strip() or str(uuid4())
 
 
 class ChallengeByObjectRequest(BaseModel):
@@ -48,6 +54,7 @@ def _validate_object_key(object_key: str) -> None:
 
 @router.post("/challenge", response_model=ChallengeResponse, responses={400: {"model": ErrorResponse}})
 async def recognize_challenge(
+    request: Request,
     file: UploadFile = File(...),
     debug: bool = Query(default=False),
     ctx: AppContext = Depends(get_context),
@@ -80,11 +87,16 @@ async def recognize_challenge(
         map_aliases=ctx.map_aliases,
         engine=ctx.ocr_engine,
         include_debug=debug,
+        request_id=_request_id(request),
+        engine_name=ctx.engine_name,
+        model_version=ctx.model_version,
+        layout_version=ctx.layout_version,
     )
 
 
 @router.post("/challenge/by-object", response_model=ChallengeResponse, responses={400: {"model": ErrorResponse}})
 async def recognize_challenge_by_object(
+    request: Request,
     req: ChallengeByObjectRequest,
     ctx: AppContext = Depends(get_context),
 ) -> ChallengeResponse:
@@ -145,4 +157,8 @@ async def recognize_challenge_by_object(
         map_aliases=ctx.map_aliases,
         engine=ctx.ocr_engine,
         include_debug=req.debug,
+        request_id=_request_id(request),
+        engine_name=ctx.engine_name,
+        model_version=ctx.model_version,
+        layout_version=ctx.layout_version,
     )

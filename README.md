@@ -32,6 +32,39 @@ git submodule update --init --recursive
 - `POST /api/v1/ocr/challenge` (`multipart/form-data` with `file`, optional `debug=true`)
 - `POST /api/v1/ocr/challenge/by-object` (`application/json` with `object_key`, optional `bucket`, `version_id`, `debug`)
 
+Successful recognition responses retain the `data`, `warnings`, and optional `debug` fields
+and also include traceable contract metadata:
+
+```json
+{
+  "schema_version": "1",
+  "request_id": "...",
+  "engine": "rapidocr",
+  "model_version": "builtin",
+  "layout_version": "1280x720-v1",
+  "ok": true,
+  "data": {},
+  "fields": {
+    "player": {
+      "value": "...",
+      "confidence": 0.98,
+      "source_roi": ["bottom_left_hero"],
+      "normalization": [],
+      "status": "ok"
+    }
+  },
+  "warnings": [],
+  "quality": {
+    "normalized_size": [1280, 720],
+    "layout_version": "1280x720-v1",
+    "warnings": []
+  }
+}
+```
+
+Send `X-Request-ID` to correlate a request; otherwise OCRKit generates one. Each field
+reports its parsed value, confidence, source ROI, normalization metadata, and status.
+
 ### R2 Object Mode
 
 Configure these environment variables to enable `by-object` endpoint:

@@ -19,6 +19,7 @@ class RoiConfig:
     width: int
     height: int
     rois: dict[str, RoiBox]
+    version: str = "1280x720-v1"
 
 
 def load_roi_config(path: Path) -> RoiConfig:
@@ -34,7 +35,12 @@ def load_roi_config(path: Path) -> RoiConfig:
         )
         for name, item in raw_rois.items()
     }
-    return RoiConfig(width=int(size["width"]), height=int(size["height"]), rois=rois)
+    return RoiConfig(
+        width=int(size["width"]),
+        height=int(size["height"]),
+        rois=rois,
+        version=str(data.get("layout_version", "1280x720-v1")),
+    )
 
 
 def load_map_names(path: Path) -> list[str]:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class DebugPayload(BaseModel):
@@ -8,6 +10,20 @@ class DebugPayload(BaseModel):
     roi_coordinates: dict[str, dict[str, int]]
     raw_text: dict[str, str]
     confidence: dict[str, float]
+
+
+class FieldEvidence(BaseModel):
+    value: Any = None
+    confidence: float = 0.0
+    source_roi: list[str] = Field(default_factory=list)
+    normalization: list[str] = Field(default_factory=list)
+    status: str = "missing"
+
+
+class QualityPayload(BaseModel):
+    normalized_size: tuple[int, int]
+    layout_version: str
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ChallengeData(BaseModel):
@@ -25,7 +41,14 @@ class ChallengeData(BaseModel):
 
 
 class ChallengeResponse(BaseModel):
+    schema_version: str = "1"
+    request_id: str
+    engine: str
+    model_version: str
+    layout_version: str
     ok: bool
     data: ChallengeData | None = None
-    warnings: list[str] = []
+    fields: dict[str, FieldEvidence] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    quality: QualityPayload
     debug: DebugPayload | None = None

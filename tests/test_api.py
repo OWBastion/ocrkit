@@ -59,7 +59,10 @@ def test_health() -> None:
     res = client.get("/health")
     assert res.status_code == 200
     assert res.json()["ok"] is True
+    assert res.json()["engine"] == "rapidocr"
     assert res.json()["model_version"] == "builtin"
+    assert res.json()["application_version"] == "0.1.0"
+    assert res.json()["version"] == "0.1.0"
 
 
 def test_invalid_type() -> None:
@@ -76,10 +79,24 @@ def test_extract_ok_with_debug() -> None:
     res = client.post(
         "/api/v1/ocr/challenge?debug=true",
         files={"file": ("img.png", _dummy_png_bytes(), "image/png")},
+        headers={"X-Request-ID": "request-upload-1"},
     )
     assert res.status_code == 200
     payload = res.json()
     assert payload["ok"] is True
+    assert payload["schema_version"] == "1"
+    assert payload["request_id"] == "request-upload-1"
+    assert payload["engine"] == "rapidocr"
+    assert payload["model_version"] == "builtin"
+    assert payload["layout_version"] == "1280x720-v1"
+    assert payload["quality"] == {
+        "normalized_size": [1280, 720],
+        "layout_version": "1280x720-v1",
+        "warnings": payload["warnings"],
+    }
+    assert payload["fields"]["player"]["status"] == "missing"
+    assert payload["fields"]["player"]["confidence"] == 0.0
+    assert payload["fields"]["player"]["source_roi"] == ["bottom_left_hero", "center_banner"]
     assert payload["debug"] is not None
     assert "left_panel.deaths_skips_missing" in payload["warnings"]
     app.dependency_overrides.clear()
@@ -91,10 +108,29 @@ def test_by_object_ok_with_debug() -> None:
     res = client.post(
         "/api/v1/ocr/challenge/by-object",
         json={"object_key": "uploads/a.png", "debug": True},
+        headers={"X-Request-ID": "request-object-1"},
     )
     assert res.status_code == 200
     payload = res.json()
     assert payload["ok"] is True
+    assert payload["request_id"] == "request-object-1"
+    assert payload["schema_version"] == "1"
+    assert payload["engine"] == "rapidocr"
+    assert payload["model_version"] == "builtin"
+    assert payload["layout_version"] == "1280x720-v1"
+    assert set(payload["fields"]) == {
+        "challenge_completed",
+        "heroes_completed",
+        "heroes_total",
+        "player",
+        "deaths",
+        "skips",
+        "duration_text",
+        "duration_seconds",
+        "map_name",
+        "difficulty",
+        "version",
+    }
     assert payload["debug"] is not None
     app.dependency_overrides.clear()
 
