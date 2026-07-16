@@ -153,6 +153,19 @@ def test_by_object_rejects_reserved_model_prefix() -> None:
     app.dependency_overrides.clear()
 
 
+def test_by_object_rejects_platform_legacy_prefix() -> None:
+    app.dependency_overrides[get_context] = lambda: _make_context(StubObjectStore(payload=_dummy_png_bytes()))
+    client = TestClient(app)
+    res = client.post(
+        "/api/v1/ocr/challenge/by-object",
+        json={"object_key": "evidence/submissions/submission-1/image.upload"},
+    )
+
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "INVALID_OBJECT_KEY"
+    app.dependency_overrides.clear()
+
+
 def test_by_object_store_unavailable() -> None:
     app.dependency_overrides[get_context] = _stub_context
     client = TestClient(app)
