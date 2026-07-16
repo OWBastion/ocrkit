@@ -26,6 +26,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install test dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Run pytest
+        run: uv run pytest -q
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
