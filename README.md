@@ -117,9 +117,3 @@ To switch or roll back, change only `OCRKIT_MODEL_MANIFEST_KEY` and recreate the
 ```bash
 docker compose up -d --force-recreate
 ```
-
-## Samoa Integration Check
-
-```bash
-uv run pytest tests/test_samoa_integration.py
-```
