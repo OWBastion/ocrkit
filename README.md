@@ -77,6 +77,12 @@ Configure these environment variables to enable `by-object` endpoint:
 - `OCRKIT_R2_ALLOWED_BUCKETS` (comma-separated whitelist)
 - `OCRKIT_R2_READ_TIMEOUT_SECONDS` (default: `10`)
 
+For platform evidence, the caller must provide `bucket` explicitly in the
+`by-object` request. Add the platform evidence bucket to
+`OCRKIT_R2_ALLOWED_BUCKETS`; do not point `OCRKIT_R2_DEFAULT_BUCKET` at the
+platform bucket when it is reserved for OCRKit models or other service-owned
+objects.
+
 ## OCR Engine and Model Artifacts
 
 Default engine is `rapidocr`. Production RapidOCR loads a versioned PP-OCRv6 small
