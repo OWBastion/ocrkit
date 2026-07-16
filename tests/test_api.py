@@ -23,8 +23,10 @@ class StubObjectStore:
     def __init__(self, payload: bytes | None = None, err: Exception | None = None) -> None:
         self.payload = payload
         self.err = err
+        self.last_bucket: str | None = None
 
     def resolve_bucket(self, bucket: str | None) -> str:
+        self.last_bucket = bucket
         return bucket or "ocr-bucket"
 
     def get_object_bytes(self, bucket: str, object_key: str, version_id: str | None = None) -> bytes:
@@ -103,11 +105,12 @@ def test_extract_ok_with_debug() -> None:
 
 
 def test_by_object_ok_with_debug() -> None:
-    app.dependency_overrides[get_context] = lambda: _make_context(StubObjectStore(payload=_dummy_png_bytes()))
+    object_store = StubObjectStore(payload=_dummy_png_bytes())
+    app.dependency_overrides[get_context] = lambda: _make_context(object_store)
     client = TestClient(app)
     res = client.post(
         "/api/v1/ocr/challenge/by-object",
-        json={"object_key": "uploads/a.png", "debug": True},
+        json={"object_key": "uploads/a.png", "bucket": "owbastion-codes-evidence", "debug": True},
         headers={"X-Request-ID": "request-object-1"},
     )
     assert res.status_code == 200
@@ -132,6 +135,7 @@ def test_by_object_ok_with_debug() -> None:
         "version",
     }
     assert payload["debug"] is not None
+    assert object_store.last_bucket == "owbastion-codes-evidence"
     app.dependency_overrides.clear()
 
 
