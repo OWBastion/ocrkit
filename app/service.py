@@ -19,7 +19,8 @@ _FIELD_ROIS = {
     "challenge_completed": ("left_panel", "center_banner"),
     "heroes_completed": ("left_panel",),
     "heroes_total": ("left_panel",),
-    "player": ("bottom_left_hero", "center_banner"),
+    "viewer_player": ("bottom_left_hero",),
+    "completed_player": ("center_banner",),
     "deaths": ("left_panel", "center_banner"),
     "skips": ("left_panel", "center_banner"),
     "duration_text": ("left_panel", "center_banner"),
@@ -82,8 +83,6 @@ def extract_structured(
         left,
         bottom_left,
         right,
-        confidences.get("center_banner", 0.0),
-        confidences.get("bottom_left_hero", 0.0),
     )
 
     warnings: list[str] = list(input_quality["warnings"])
@@ -93,6 +92,8 @@ def extract_structured(
         warnings.append("left_panel.deaths_skips_missing")
     if data.version is None:
         warnings.append("right_panel.version_missing")
+    if data.viewer_player and data.completed_player and data.viewer_player != data.completed_player:
+        warnings.append("player_sources_conflict")
 
     debug_payload = None
     if include_debug:

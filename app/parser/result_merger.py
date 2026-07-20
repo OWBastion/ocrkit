@@ -13,20 +13,15 @@ def merge_result(
     left: LeftPanel,
     bottom_left: BottomLeftHero,
     right: RightPanel,
-    center_confidence: float,
-    bottom_left_confidence: float,
 ) -> ChallengeData:
     duration_text = left.clear_time if left.clear_time_seconds is not None else center.duration_text
     duration_seconds = left.clear_time_seconds if left.clear_time_seconds is not None else center.duration_seconds
-    player = bottom_left.player or center.player
-    if center.player and bottom_left.player and center_confidence > bottom_left_confidence:
-        player = center.player
-
     return ChallengeData(
         challenge_completed=left.challenge_completed if left.challenge_completed is not None else center.completed,
         heroes_completed=left.heroes_completed,
         heroes_total=left.heroes_total,
-        player=player,
+        viewer_player=bottom_left.player,
+        completed_player=center.player,
         deaths=left.total_deaths if left.total_deaths is not None else center.deaths,
         skips=left.total_skips if left.total_skips is not None else center.skips,
         duration_text=duration_text,

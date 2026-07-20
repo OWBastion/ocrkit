@@ -6,6 +6,11 @@ from fastapi.testclient import TestClient
 from app.core.context import AppContext, get_context
 from app.main import app
 from app.ocr.engine import OcrResult
+from app.parser.bottom_left_hero import BottomLeftHero
+from app.parser.center_summary import CenterSummary
+from app.parser.left_panel import LeftPanel
+from app.parser.right_panel import RightPanel
+from app.service import extract_structured
 from app.storage.r2_client import (
     ObjectAccessDeniedError,
     ObjectDownloadError,
@@ -56,6 +61,48 @@ def _stub_context() -> AppContext:
     return _make_context()
 
 
+def test_extract_reports_player_source_conflict(monkeypatch) -> None:
+    context = _make_context()
+    monkeypatch.setattr(
+        "app.service.parse_center_summary",
+        lambda text: CenterSummary(True, "completed-player", None, None, None, None),
+    )
+    monkeypatch.setattr(
+        "app.service.parse_bottom_left_hero",
+        lambda text: BottomLeftHero("viewer-player"),
+    )
+    monkeypatch.setattr(
+        "app.service.parse_left_panel",
+        lambda text: LeftPanel(None, None, None, None, None, None, None),
+    )
+    monkeypatch.setattr(
+        "app.service.parse_right_panel",
+        lambda text, map_names, map_aliases: RightPanel(None, None, None),
+    )
+
+    response = extract_structured(
+        np.zeros((720, 1280, 3), dtype=np.uint8),
+        context.roi_config,
+        context.map_names,
+        context.map_aliases,
+        context.ocr_engine,
+        False,
+        "request-conflict-1",
+        "rapidocr",
+        "builtin",
+        "1280x720-v1",
+    )
+
+    assert response.data.viewer_player == "viewer-player"
+    assert response.data.completed_player == "completed-player"
+    assert response.warnings == [
+        "left_panel.hero_progress_missing",
+        "left_panel.deaths_skips_missing",
+        "right_panel.version_missing",
+        "player_sources_conflict",
+    ]
+
+
 def test_health() -> None:
     client = TestClient(app)
     res = client.get("/health")
@@ -101,9 +148,12 @@ def test_extract_ok_with_debug() -> None:
         "layout_version": "1280x720-v1",
         "warnings": payload["warnings"],
     }
-    assert payload["fields"]["player"]["status"] == "missing"
-    assert payload["fields"]["player"]["confidence"] == 0.0
-    assert payload["fields"]["player"]["source_roi"] == ["bottom_left_hero", "center_banner"]
+    assert payload["fields"]["viewer_player"]["status"] == "missing"
+    assert payload["fields"]["viewer_player"]["confidence"] == 0.0
+    assert payload["fields"]["viewer_player"]["source_roi"] == ["bottom_left_hero"]
+    assert payload["fields"]["completed_player"]["status"] == "missing"
+    assert payload["fields"]["completed_player"]["confidence"] == 0.0
+    assert payload["fields"]["completed_player"]["source_roi"] == ["center_banner"]
     assert payload["debug"] is not None
     assert "left_panel.deaths_skips_missing" in payload["warnings"]
     app.dependency_overrides.clear()
@@ -130,7 +180,8 @@ def test_by_object_ok_with_debug() -> None:
         "challenge_completed",
         "heroes_completed",
         "heroes_total",
-        "player",
+        "viewer_player",
+        "completed_player",
         "deaths",
         "skips",
         "duration_text",

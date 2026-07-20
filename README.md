@@ -45,10 +45,17 @@ and also include traceable contract metadata:
   "ok": true,
   "data": {},
   "fields": {
-    "player": {
+    "viewer_player": {
       "value": "...",
       "confidence": 0.98,
       "source_roi": ["bottom_left_hero"],
+      "normalization": [],
+      "status": "ok"
+    },
+    "completed_player": {
+      "value": "...",
+      "confidence": 0.98,
+      "source_roi": ["center_banner"],
       "normalization": [],
       "status": "ok"
     }
