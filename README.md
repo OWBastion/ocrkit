@@ -51,13 +51,6 @@ and also include traceable contract metadata:
       "source_roi": ["bottom_left_hero"],
       "normalization": [],
       "status": "ok"
-    },
-    "completed_player": {
-      "value": "...",
-      "confidence": 0.98,
-      "source_roi": ["center_banner"],
-      "normalization": [],
-      "status": "ok"
     }
   },
   "warnings": [],
@@ -81,6 +74,9 @@ risk from 0 to 1, where higher means blurrier.
 
 Send `X-Request-ID` to correlate a request; otherwise OCRKit generates one. Each field
 reports its parsed value, confidence, source ROI, normalization metadata, and status.
+`viewer_player` is the only player identity field suitable for account matching. The
+central completion banner is not an authoritative player source, so its player name is
+not included in `ChallengeData` or field evidence.
 
 ### R2 Object Mode
 

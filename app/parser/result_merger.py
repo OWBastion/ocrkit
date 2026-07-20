@@ -21,7 +21,6 @@ def merge_result(
         heroes_completed=left.heroes_completed,
         heroes_total=left.heroes_total,
         viewer_player=bottom_left.player,
-        completed_player=center.player,
         deaths=left.total_deaths if left.total_deaths is not None else center.deaths,
         skips=left.total_skips if left.total_skips is not None else center.skips,
         duration_text=duration_text,

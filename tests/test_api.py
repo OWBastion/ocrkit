@@ -61,11 +61,11 @@ def _stub_context() -> AppContext:
     return _make_context()
 
 
-def test_extract_reports_player_source_conflict(monkeypatch) -> None:
+def test_extract_uses_viewer_player_only(monkeypatch) -> None:
     context = _make_context()
     monkeypatch.setattr(
         "app.service.parse_center_summary",
-        lambda text: CenterSummary(True, "completed-player", None, None, None, None),
+        lambda text: CenterSummary(True, None, None, None, None),
     )
     monkeypatch.setattr(
         "app.service.parse_bottom_left_hero",
@@ -94,12 +94,10 @@ def test_extract_reports_player_source_conflict(monkeypatch) -> None:
     )
 
     assert response.data.viewer_player == "viewer-player"
-    assert response.data.completed_player == "completed-player"
     assert response.warnings == [
         "left_panel.hero_progress_missing",
         "left_panel.deaths_skips_missing",
         "right_panel.version_missing",
-        "player_sources_conflict",
     ]
 
 
@@ -151,9 +149,6 @@ def test_extract_ok_with_debug() -> None:
     assert payload["fields"]["viewer_player"]["status"] == "missing"
     assert payload["fields"]["viewer_player"]["confidence"] == 0.0
     assert payload["fields"]["viewer_player"]["source_roi"] == ["bottom_left_hero"]
-    assert payload["fields"]["completed_player"]["status"] == "missing"
-    assert payload["fields"]["completed_player"]["confidence"] == 0.0
-    assert payload["fields"]["completed_player"]["source_roi"] == ["center_banner"]
     assert payload["debug"] is not None
     assert "left_panel.deaths_skips_missing" in payload["warnings"]
     app.dependency_overrides.clear()
@@ -181,7 +176,6 @@ def test_by_object_ok_with_debug() -> None:
         "heroes_completed",
         "heroes_total",
         "viewer_player",
-        "completed_player",
         "deaths",
         "skips",
         "duration_text",

@@ -8,7 +8,6 @@ from app.parser.right_panel import RightPanel
 def test_merge_result_prefers_left_deaths_skips() -> None:
     center = CenterSummary(
         completed=True,
-        player="player",
         deaths=94,
         skips=0,
         duration_text="2小时20分38秒",
@@ -29,13 +28,11 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     assert out.deaths == 114
     assert out.skips == 0
     assert out.viewer_player == "bottom-player"
-    assert out.completed_player == "player"
 
 
 def test_merge_result_prefers_left_duration() -> None:
     center = CenterSummary(
         completed=True,
-        player="player",
         deaths=94,
         skips=0,
         duration_text="3小时18 12秒",
@@ -60,7 +57,6 @@ def test_merge_result_prefers_left_duration() -> None:
 def test_merge_result_uses_center_deaths_skips_without_left_values() -> None:
     center = CenterSummary(
         completed=True,
-        player="player",
         deaths=94,
         skips=0,
         duration_text="2小时20分38秒",
@@ -85,7 +81,6 @@ def test_merge_result_uses_center_deaths_skips_without_left_values() -> None:
 def test_merge_result_uses_center_completion_without_left_value() -> None:
     center = CenterSummary(
         completed=True,
-        player=None,
         deaths=None,
         skips=None,
         duration_text=None,
@@ -109,7 +104,6 @@ def test_merge_result_uses_center_completion_without_left_value() -> None:
 def test_merge_result_uses_center_duration_when_left_time_is_invalid() -> None:
     center = CenterSummary(
         completed=True,
-        player=None,
         deaths=None,
         skips=None,
         duration_text="1小时26分36秒",
@@ -131,10 +125,9 @@ def test_merge_result_uses_center_duration_when_left_time_is_invalid() -> None:
     assert out.duration_seconds == 5196.0
 
 
-def test_merge_result_preserves_both_player_sources() -> None:
+def test_merge_result_uses_viewer_player_only() -> None:
     center = CenterSummary(
         completed=True,
-        player="训犬大师",
         deaths=None,
         skips=None,
         duration_text=None,
@@ -145,14 +138,12 @@ def test_merge_result_preserves_both_player_sources() -> None:
 
     out = merge_result(center, left, BottomLeftHero(player="订犬大师"), right)
     assert out.viewer_player == "订犬大师"
-    assert out.completed_player == "训犬大师"
 
 
-def test_merge_result_preserves_both_player_sources_when_viewer_is_more_confident() -> None:
-    center = CenterSummary(True, "训大大师", None, None, None, None)
+def test_merge_result_uses_viewer_player_without_center_player() -> None:
+    center = CenterSummary(True, None, None, None, None)
     left = LeftPanel(None, None, None, None, None, None, None)
     right = RightPanel(None, None, None)
 
     out = merge_result(center, left, BottomLeftHero(player="训犬大师"), right)
     assert out.viewer_player == "训犬大师"
-    assert out.completed_player == "训大大师"
