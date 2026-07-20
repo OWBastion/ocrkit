@@ -55,12 +55,22 @@ and also include traceable contract metadata:
   },
   "warnings": [],
   "quality": {
+    "original_size": [2560, 1440],
+    "aspect_ratio": 1.7778,
+    "layout_confidence": 1.0,
+    "cropped": false,
+    "blur_score": 0.08,
     "normalized_size": [1280, 720],
     "layout_version": "1280x720-v1",
     "warnings": []
   }
 }
 ```
+
+`quality` describes input evidence before normalization. `aspect_ratio` is rounded to four
+decimal places; `cropped` and the related warnings indicate a ratio mismatch against the
+configured layout and do not make an approval decision. `blur_score` is a normalized blur
+risk from 0 to 1, where higher means blurrier.
 
 Send `X-Request-ID` to correlate a request; otherwise OCRKit generates one. Each field
 reports its parsed value, confidence, source ROI, normalization metadata, and status.

@@ -92,6 +92,11 @@ def test_extract_ok_with_debug() -> None:
     assert payload["model_version"] == "builtin"
     assert payload["layout_version"] == "1280x720-v1"
     assert payload["quality"] == {
+        "original_size": [1, 1],
+        "aspect_ratio": 1.0,
+        "layout_confidence": 0.0,
+        "cropped": True,
+        "blur_score": 1.0,
         "normalized_size": [1280, 720],
         "layout_version": "1280x720-v1",
         "warnings": payload["warnings"],

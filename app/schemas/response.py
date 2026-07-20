@@ -21,6 +21,11 @@ class FieldEvidence(BaseModel):
 
 
 class QualityPayload(BaseModel):
+    original_size: tuple[int, int]
+    aspect_ratio: float
+    layout_confidence: float
+    cropped: bool
+    blur_score: float
     normalized_size: tuple[int, int]
     layout_version: str
     warnings: list[str] = Field(default_factory=list)

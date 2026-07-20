@@ -4,6 +4,7 @@ from typing import Any
 
 from app.core.roi_config import RoiConfig
 from app.image.preprocess import preprocess_by_roi
+from app.image.quality import assess_input_quality
 from app.image.roi import crop_all_rois
 from app.ocr.engine import OcrEngine
 from app.parser.bottom_left_hero import parse_bottom_left_hero
@@ -60,6 +61,7 @@ def extract_structured(
     model_version: str,
     layout_version: str,
 ) -> ChallengeResponse:
+    input_quality = assess_input_quality(image, roi_config.width, roi_config.height)
     normalized, roi_images = crop_all_rois(image, roi_config)
 
     raw_text: dict[str, str] = {}
@@ -84,7 +86,7 @@ def extract_structured(
         confidences.get("bottom_left_hero", 0.0),
     )
 
-    warnings: list[str] = []
+    warnings: list[str] = list(input_quality["warnings"])
     if data.heroes_completed is None or data.heroes_total is None:
         warnings.append("left_panel.hero_progress_missing")
     if data.deaths is None or data.skips is None:
@@ -119,6 +121,11 @@ def extract_structured(
         fields=_build_field_evidence(data, confidences),
         warnings=warnings,
         quality=QualityPayload(
+            original_size=input_quality["original_size"],
+            aspect_ratio=input_quality["aspect_ratio"],
+            layout_confidence=input_quality["layout_confidence"],
+            cropped=input_quality["cropped"],
+            blur_score=input_quality["blur_score"],
             normalized_size=(normalized.shape[1], normalized.shape[0]),
             layout_version=layout_version,
             warnings=warnings,
