@@ -18,7 +18,15 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
         encoding="utf-8",
     )
     captured: dict[str, object] = {}
-    context = SimpleNamespace(roi_config="roi", map_names="maps", map_aliases="aliases", ocr_engine="builtin")
+    context = SimpleNamespace(
+        roi_config="roi",
+        map_names="maps",
+        map_aliases="aliases",
+        ocr_engine="builtin",
+        engine_name="rapidocr",
+        model_version="builtin",
+        layout_version="1280x720-v1",
+    )
 
     class StubEngine:
         def __init__(self, config_path: Path) -> None:
@@ -27,11 +35,17 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
     monkeypatch.setattr(batch_eval, "create_context", lambda: context)
     monkeypatch.setattr(batch_eval, "RapidOcrEngine", StubEngine)
     monkeypatch.setattr(batch_eval.cv2, "imread", lambda _: np.zeros((1, 1, 3), dtype=np.uint8))
-    monkeypatch.setattr(
-        batch_eval,
-        "extract_structured",
-        lambda *_args, **_kwargs: SimpleNamespace(data=SimpleNamespace(model_dump=lambda: {"map_name": "Hanamura"})),
-    )
+    def extract_stub(*_args: object, **kwargs: object) -> SimpleNamespace:
+        assert kwargs == {
+            "include_debug": False,
+            "request_id": "fixture:case",
+            "engine_name": "rapidocr",
+            "model_version": "builtin",
+            "layout_version": "1280x720-v1",
+        }
+        return SimpleNamespace(data=SimpleNamespace(model_dump=lambda: {"map_name": "Hanamura"}))
+
+    monkeypatch.setattr(batch_eval, "extract_structured", extract_stub)
     model_config = tmp_path / "rapidocr.yaml"
 
     result = batch_eval.evaluate(cases_path, tmp_path, model_config)

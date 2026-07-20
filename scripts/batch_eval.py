@@ -38,6 +38,10 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
             context.map_aliases,
             context.ocr_engine,
             include_debug=False,
+            request_id=f"fixture:{case['id']}",
+            engine_name=context.engine_name,
+            model_version=context.model_version,
+            layout_version=context.layout_version,
         )
         elapsed = (time.perf_counter() - started) * 1000
         actual = response.data.model_dump() if response.data else {}
