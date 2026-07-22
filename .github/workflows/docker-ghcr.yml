@@ -34,9 +34,9 @@ jobs:
         run: |
           test -n "$OCRKIT_DATASETS_TOKEN"
           auth="$(printf 'x-access-token:%s' "$OCRKIT_DATASETS_TOKEN" | base64 --wrap=0)"
-          git config --local submodule.datasets.url https://github.com/OWBastion/ocrkit-datasets.git
-          git config --local --unset-all http.https://github.com/.extraheader || true
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" submodule update --init --recursive
+          dataset_commit="$(git rev-parse HEAD:datasets)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" clone https://github.com/OWBastion/ocrkit-datasets.git datasets
+          git -C datasets checkout --detach "$dataset_commit"
 
       - name: Set up Python
         uses: actions/setup-python@v5
