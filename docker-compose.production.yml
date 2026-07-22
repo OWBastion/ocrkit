@@ -1,0 +1,37 @@
+services:
+  ocrkit:
+    image: ${OCRKIT_IMAGE:?Set OCRKIT_IMAGE to a GHCR image digest}
+    restart: unless-stopped
+    environment:
+      OCRKIT_OCR_ENGINE: rapidocr
+      OCRKIT_API_TOKEN: ${OCRKIT_API_TOKEN:?OCRKIT_API_TOKEN is required}
+      OCRKIT_ALLOW_DEBUG: "false"
+      OCRKIT_R2_ENDPOINT_URL: ${OCRKIT_R2_ENDPOINT_URL:?OCRKIT_R2_ENDPOINT_URL is required}
+      OCRKIT_R2_ACCESS_KEY_ID: ${OCRKIT_R2_ACCESS_KEY_ID:?OCRKIT_R2_ACCESS_KEY_ID is required}
+      OCRKIT_R2_SECRET_ACCESS_KEY: ${OCRKIT_R2_SECRET_ACCESS_KEY:?OCRKIT_R2_SECRET_ACCESS_KEY is required}
+      OCRKIT_R2_REGION_NAME: ${OCRKIT_R2_REGION_NAME:-auto}
+      OCRKIT_R2_DEFAULT_BUCKET: ${OCRKIT_R2_DEFAULT_BUCKET:?OCRKIT_R2_DEFAULT_BUCKET is required}
+      OCRKIT_R2_ALLOWED_BUCKETS: ${OCRKIT_R2_ALLOWED_BUCKETS:?OCRKIT_R2_ALLOWED_BUCKETS is required}
+      OCRKIT_MODEL_MANIFEST_KEY: ${OCRKIT_MODEL_MANIFEST_KEY:?OCRKIT_MODEL_MANIFEST_KEY is required}
+      OCRKIT_MODEL_CACHE_DIR: /var/lib/ocrkit/models
+      OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS: ${OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS:-30}
+      OCRKIT_R2_READ_TIMEOUT_SECONDS: ${OCRKIT_R2_READ_TIMEOUT_SECONDS:-10}
+    volumes:
+      - ocrkit-models:/var/lib/ocrkit/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 45s
+
+  cloudflared:
+    image: ${CLOUDFLARED_IMAGE:?Set CLOUDFLARED_IMAGE to a published image digest}
+    restart: unless-stopped
+    depends_on:
+      ocrkit:
+        condition: service_healthy
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
+
+volumes:
+  ocrkit-models:

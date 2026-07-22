@@ -9,6 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "OCRKit"
     app_version: str = "0.1.0"
+    api_token: str = ""
+    allow_debug: bool = False
     max_upload_bytes: int = 10 * 1024 * 1024
     ocr_engine: str = "rapidocr"
     roi_config_path: Path = Path("configs/roi_1280x720.yaml")

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from hmac import compare_digest
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
@@ -24,6 +25,29 @@ router = APIRouter(prefix="/api/v1/ocr", tags=["ocr"])
 
 def _request_id(request: Request) -> str:
     return request.headers.get("X-Request-ID", "").strip() or str(uuid4())
+
+
+def _require_service_token(authorization: str | None = Header(default=None)) -> None:
+    if not settings.api_token:
+        raise HTTPException(
+            status_code=503,
+            detail=ErrorBody(code="SERVICE_AUTH_UNAVAILABLE", message="Service authentication is not configured").model_dump(),
+        )
+    expected = f"Bearer {settings.api_token}"
+    if authorization is None or not compare_digest(authorization, expected):
+        raise HTTPException(
+            status_code=401,
+            detail=ErrorBody(code="UNAUTHORIZED", message="A valid service token is required").model_dump(),
+        )
+
+
+def _allow_debug(debug: bool) -> bool:
+    if debug and not settings.allow_debug:
+        raise HTTPException(
+            status_code=403,
+            detail=ErrorBody(code="DEBUG_DISABLED", message="Debug output is disabled").model_dump(),
+        )
+    return debug
 
 
 class ChallengeByObjectRequest(BaseModel):
@@ -57,6 +81,7 @@ async def recognize_challenge(
     request: Request,
     file: UploadFile = File(...),
     debug: bool = Query(default=False),
+    _: None = Depends(_require_service_token),
     ctx: AppContext = Depends(get_context),
 ) -> ChallengeResponse:
     if file.content_type not in SUPPORTED_MIME:
@@ -86,7 +111,7 @@ async def recognize_challenge(
         map_names=ctx.map_names,
         map_aliases=ctx.map_aliases,
         engine=ctx.ocr_engine,
-        include_debug=debug,
+        include_debug=_allow_debug(debug),
         request_id=_request_id(request),
         engine_name=ctx.engine_name,
         model_version=ctx.model_version,
@@ -98,6 +123,7 @@ async def recognize_challenge(
 async def recognize_challenge_by_object(
     request: Request,
     req: ChallengeByObjectRequest,
+    _: None = Depends(_require_service_token),
     ctx: AppContext = Depends(get_context),
 ) -> ChallengeResponse:
     if ctx.object_store is None:
@@ -156,7 +182,7 @@ async def recognize_challenge_by_object(
         map_names=ctx.map_names,
         map_aliases=ctx.map_aliases,
         engine=ctx.ocr_engine,
-        include_debug=req.debug,
+        include_debug=_allow_debug(req.debug),
         request_id=_request_id(request),
         engine_name=ctx.engine_name,
         model_version=ctx.model_version,

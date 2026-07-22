@@ -13,6 +13,8 @@ def test_compose_passes_model_r2_configuration_without_secrets() -> None:
         "OCRKIT_R2_ENDPOINT_URL",
         "OCRKIT_R2_ACCESS_KEY_ID",
         "OCRKIT_R2_SECRET_ACCESS_KEY",
+        "OCRKIT_API_TOKEN",
+        "OCRKIT_ALLOW_DEBUG",
         "OCRKIT_R2_REGION_NAME",
         "OCRKIT_R2_DEFAULT_BUCKET",
         "OCRKIT_R2_ALLOWED_BUCKETS",
@@ -23,6 +25,8 @@ def test_compose_passes_model_r2_configuration_without_secrets() -> None:
     assert all(environment[name] != "" for name in expected)
     for name in {"OCRKIT_R2_ACCESS_KEY_ID", "OCRKIT_R2_SECRET_ACCESS_KEY"}:
         assert str(environment[name]).startswith("${")
+    assert str(environment["OCRKIT_API_TOKEN"]).startswith("${")
+    assert environment["OCRKIT_ALLOW_DEBUG"] == "${OCRKIT_ALLOW_DEBUG:-false}"
 
 
 def test_compose_persists_model_cache_in_named_volume() -> None:
