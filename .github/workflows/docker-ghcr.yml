@@ -29,13 +29,16 @@ jobs:
           token: ${{ github.token }}
 
       - name: Checkout private OCR fixtures
-        env:
-          OCRKIT_DATASETS_TOKEN: ${{ secrets.OCRKIT_DATASETS_TOKEN }}
+        uses: actions/checkout@v4
+        with:
+          repository: OWBastion/ocrkit-datasets
+          token: ${{ secrets.OCRKIT_DATASETS_TOKEN }}
+          path: datasets
+          fetch-depth: 0
+
+      - name: Pin OCR fixtures revision
         run: |
-          test -n "$OCRKIT_DATASETS_TOKEN"
           dataset_commit="$(git rev-parse HEAD:datasets)"
-          git clone "https://x-access-token:${OCRKIT_DATASETS_TOKEN}@github.com/OWBastion/ocrkit-datasets.git" datasets
-          git -C datasets remote set-url origin https://github.com/OWBastion/ocrkit-datasets.git
           git -C datasets checkout --detach "$dataset_commit"
 
       - name: Set up Python
