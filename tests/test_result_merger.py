@@ -28,6 +28,8 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     assert out.deaths == 114
     assert out.skips == 0
     assert out.viewer_player == "bottom-player"
+    assert out.achievement_title == "bottom-player"
+    assert out.achievement_unlocked is True
 
 
 def test_merge_result_prefers_left_duration() -> None:
@@ -138,6 +140,7 @@ def test_merge_result_uses_viewer_player_only() -> None:
 
     out = merge_result(center, left, BottomLeftHero(player="订犬大师"), right)
     assert out.viewer_player == "订犬大师"
+    assert out.achievement_unlocked is True
 
 
 def test_merge_result_uses_viewer_player_without_center_player() -> None:

@@ -74,6 +74,9 @@ risk from 0 to 1, where higher means blurrier.
 
 Send `X-Request-ID` to correlate a request; otherwise OCRKit generates one. Each field
 reports its parsed value, confidence, source ROI, normalization metadata, and status.
+`achievement_title` is the title text detected in the lower-left hero panel, and
+`achievement_unlocked` is `true` when that title is visible in the screenshot. If the
+ROI cannot be read, both fields are `null` rather than being treated as `false`.
 `viewer_player` is the only player identity field suitable for account matching. The
 central completion banner is not an authoritative player source, so its player name is
 not included in `ChallengeData` or field evidence.

@@ -36,6 +36,8 @@ class ChallengeData(BaseModel):
     heroes_completed: int | None
     heroes_total: int | None
     viewer_player: str | None
+    achievement_title: str | None
+    achievement_unlocked: bool | None
     deaths: int | None
     skips: int | None
     duration_text: str | None

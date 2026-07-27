@@ -207,6 +207,8 @@ def test_by_object_ok_with_debug() -> None:
         "heroes_completed",
         "heroes_total",
         "viewer_player",
+        "achievement_title",
+        "achievement_unlocked",
         "deaths",
         "skips",
         "duration_text",

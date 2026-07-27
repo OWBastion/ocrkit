@@ -20,6 +20,8 @@ _FIELD_ROIS = {
     "heroes_completed": ("left_panel",),
     "heroes_total": ("left_panel",),
     "viewer_player": ("bottom_left_hero",),
+    "achievement_title": ("bottom_left_hero",),
+    "achievement_unlocked": ("bottom_left_hero",),
     "deaths": ("left_panel", "center_banner"),
     "skips": ("left_panel", "center_banner"),
     "duration_text": ("left_panel", "center_banner"),
