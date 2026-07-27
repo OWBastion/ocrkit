@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     model_manifest_key: str = ""
     model_cache_dir: Path = Path("/var/lib/ocrkit/models")
     model_download_timeout_seconds: int = 30
+    agents_api_base_url: str = ""
+    agents_api_timeout_seconds: int = 5
 
     model_config = SettingsConfigDict(env_prefix="OCRKIT_", extra="ignore")
 

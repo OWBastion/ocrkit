@@ -51,3 +51,15 @@ def test_parse_left_panel_deaths_skips_label_ocr_variant() -> None:
     out = parse_left_panel("总计车二跳过 123/0 增益/减益/总计 30/29169")
     assert out.total_deaths == 123
     assert out.total_skips == 0
+
+
+def test_parse_left_panel_matches_catalog_title_with_checkmark() -> None:
+    out = parse_left_panel("英雄：51/51 挑战完成 钢门 ✓", ("钢门", "训犬大师"))
+    assert out.achievement_title == "钢门"
+    assert out.achievement_unlocked is True
+
+
+def test_parse_left_panel_does_not_treat_player_name_as_achievement() -> None:
+    out = parse_left_panel("英雄：51/51 挑战完成", ("钢门", "训犬大师"))
+    assert out.achievement_title is None
+    assert out.achievement_unlocked is None

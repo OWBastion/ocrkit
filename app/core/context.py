@@ -18,7 +18,8 @@ class AppContext:
     object_store: R2ObjectStore | None = None
     model_version: str = "builtin"
     engine_name: str = "rapidocr"
-    layout_version: str = "1280x720-v1"
+    layout_version: str = "1280x720-v2"
+    achievement_titles: tuple[str, ...] = ()
 
 
 def get_context(request: Request) -> AppContext:

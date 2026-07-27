@@ -1,4 +1,4 @@
-layout_version: 1280x720-v1
+layout_version: 1280x720-v2
 
 standard_size:
   width: 1280
@@ -9,7 +9,7 @@ rois:
     x1: 35
     y1: 15
     x2: 220
-    y2: 240
+    y2: 340
 
   center_banner:
     x1: 150

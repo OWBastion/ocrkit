@@ -62,6 +62,7 @@ def extract_structured(
     engine_name: str,
     model_version: str,
     layout_version: str,
+    achievement_titles: tuple[str, ...] = (),
 ) -> ChallengeResponse:
     input_quality = assess_input_quality(image, roi_config.width, roi_config.height)
     normalized, roi_images = crop_all_rois(image, roi_config)
@@ -76,7 +77,8 @@ def extract_structured(
         confidences[roi_name] = result.confidence
 
     center = parse_center_summary(raw_text.get("center_banner", ""))
-    left = parse_left_panel(raw_text.get("left_panel", ""))
+    left_text = raw_text.get("left_panel", "")
+    left = parse_left_panel(left_text, achievement_titles) if achievement_titles else parse_left_panel(left_text)
     bottom_left = parse_bottom_left_hero(raw_text.get("bottom_left_hero", ""))
     right = parse_right_panel(raw_text.get("right_panel", ""), map_names, map_aliases)
     data = merge_result(

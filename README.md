@@ -32,6 +32,9 @@ git submodule update --init --recursive
 - `POST /api/v1/ocr/challenge` (`multipart/form-data` with `file`, optional `debug=true`)
 - `POST /api/v1/ocr/challenge/by-object` (`application/json` with `object_key`, optional `bucket`, `version_id`, `debug`)
 
+Set `OCRKIT_AGENTS_API_BASE_URL` to the platform origin to load active title labels from
+`/v1/agents/titles` at startup. `OCRKIT_AGENTS_API_TIMEOUT_SECONDS` bounds that request.
+
 Successful recognition responses retain the `data`, `warnings`, and optional `debug` fields
 and also include traceable contract metadata:
 
@@ -41,7 +44,7 @@ and also include traceable contract metadata:
   "request_id": "...",
   "engine": "rapidocr",
   "model_version": "builtin",
-  "layout_version": "1280x720-v1",
+  "layout_version": "1280x720-v2",
   "ok": true,
   "data": {},
   "fields": {
@@ -61,7 +64,7 @@ and also include traceable contract metadata:
     "cropped": false,
     "blur_score": 0.08,
     "normalized_size": [1280, 720],
-    "layout_version": "1280x720-v1",
+    "layout_version": "1280x720-v2",
     "warnings": []
   }
 }
@@ -74,9 +77,10 @@ risk from 0 to 1, where higher means blurrier.
 
 Send `X-Request-ID` to correlate a request; otherwise OCRKit generates one. Each field
 reports its parsed value, confidence, source ROI, normalization metadata, and status.
-`achievement_title` is the title text detected in the lower-left hero panel, and
-`achievement_unlocked` is `true` when that title is visible in the screenshot. If the
-ROI cannot be read, both fields are `null` rather than being treated as `false`.
+`achievement_title` is a title from the platform Agents catalog detected in the expanded
+left-panel ROI, and `achievement_unlocked` is `true` only when the title is followed by a
+visible completion checkmark. The player name in the lower-left hero panel is not used for
+this signal. If the ROI or catalog cannot be read, both fields are `null`.
 `viewer_player` is the only player identity field suitable for account matching. The
 central completion banner is not an authoritative player source, so its player name is
 not included in `ChallengeData` or field evidence.
