@@ -16,6 +16,7 @@ class LeftPanel:
     clear_time: str | None
     clear_time_seconds: float | None
     achievement_title: str | None = None
+    achievement_titles: tuple[str, ...] = ()
     achievement_unlocked: bool | None = None
 
 
@@ -30,7 +31,7 @@ def parse_left_panel(text: str, achievement_titles: tuple[str, ...] = ()) -> Lef
 
     time_match = re.search(r"(?:通关)?总计(?:时|耗时)\s*([0-9OoIlSB小时分秒:\s\.]+)", compact)
     clear_time = time_match.group(1).strip() if time_match else None
-    achievement_title, achievement_unlocked = _parse_achievement_title(compact, achievement_titles)
+    detected_titles = _parse_achievement_titles(compact, achievement_titles)
 
     return LeftPanel(
         heroes_completed=heroes_completed,
@@ -40,20 +41,23 @@ def parse_left_panel(text: str, achievement_titles: tuple[str, ...] = ()) -> Lef
         total_skips=skips,
         clear_time=clear_time,
         clear_time_seconds=parse_time_to_seconds(clear_time or "") if clear_time else None,
-        achievement_title=achievement_title,
-        achievement_unlocked=achievement_unlocked,
+        achievement_title=detected_titles[0] if detected_titles else None,
+        achievement_titles=detected_titles,
+        achievement_unlocked=True if detected_titles else None,
     )
 
 
-def _parse_achievement_title(text: str, achievement_titles: tuple[str, ...]) -> tuple[str | None, bool | None]:
+def _parse_achievement_titles(text: str, achievement_titles: tuple[str, ...]) -> tuple[str, ...]:
+    matches: list[tuple[int, str]] = []
     for title in sorted((item.strip() for item in achievement_titles), key=len, reverse=True):
-        if not title or title not in text:
+        if not title:
             continue
-        suffix = text[text.index(title) + len(title) :]
-        if re.match(r"\s*[✓✔√☑☒]", suffix):
-            return title, True
-        return title, None
-    return None, None
+        for match in re.finditer(re.escape(title), text):
+            suffix = text[match.end() :]
+            if re.match(r"\s*[✓✔√☑☒]", suffix):
+                matches.append((match.start(), title))
+    matches.sort(key=lambda item: item[0])
+    return tuple(dict.fromkeys(title for _, title in matches))[:5]
 
 
 def _parse_total_deaths_skips(compact: str) -> tuple[int | None, int | None]:

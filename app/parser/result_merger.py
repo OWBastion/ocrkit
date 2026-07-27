@@ -22,6 +22,7 @@ def merge_result(
         heroes_total=left.heroes_total,
         viewer_player=bottom_left.player,
         achievement_title=left.achievement_title,
+        achievement_titles=list(left.achievement_titles),
         achievement_unlocked=left.achievement_unlocked,
         deaths=left.total_deaths if left.total_deaths is not None else center.deaths,
         skips=left.total_skips if left.total_skips is not None else center.skips,

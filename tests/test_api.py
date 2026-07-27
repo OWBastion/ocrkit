@@ -102,7 +102,7 @@ def test_extract_uses_viewer_player_only(monkeypatch) -> None:
         "request-conflict-1",
         "rapidocr",
         "builtin",
-        "1280x720-v2",
+        "1280x720-v3",
     )
 
     assert response.data.viewer_player == "viewer-player"
@@ -166,7 +166,7 @@ def test_extract_ok_with_debug() -> None:
     assert payload["request_id"] == "request-upload-1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v2"
+    assert payload["layout_version"] == "1280x720-v3"
     assert payload["quality"] == {
         "original_size": [1, 1],
         "aspect_ratio": 1.0,
@@ -174,7 +174,7 @@ def test_extract_ok_with_debug() -> None:
         "cropped": True,
         "blur_score": 1.0,
         "normalized_size": [1280, 720],
-        "layout_version": "1280x720-v2",
+        "layout_version": "1280x720-v3",
         "warnings": payload["warnings"],
     }
     assert payload["fields"]["viewer_player"]["status"] == "missing"
@@ -201,13 +201,14 @@ def test_by_object_ok_with_debug() -> None:
     assert payload["schema_version"] == "1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v2"
+    assert payload["layout_version"] == "1280x720-v3"
     assert set(payload["fields"]) == {
         "challenge_completed",
         "heroes_completed",
         "heroes_total",
         "viewer_player",
         "achievement_title",
+        "achievement_titles",
         "achievement_unlocked",
         "deaths",
         "skips",

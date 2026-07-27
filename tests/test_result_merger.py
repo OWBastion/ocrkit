@@ -29,6 +29,7 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     assert out.skips == 0
     assert out.viewer_player == "bottom-player"
     assert out.achievement_title is None
+    assert out.achievement_titles == []
     assert out.achievement_unlocked is None
 
 

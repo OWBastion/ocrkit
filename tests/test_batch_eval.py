@@ -25,7 +25,7 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
         ocr_engine="builtin",
         engine_name="rapidocr",
         model_version="builtin",
-        layout_version="1280x720-v2",
+        layout_version="1280x720-v3",
     )
 
     class StubEngine:
@@ -41,7 +41,7 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
             "request_id": "fixture:case",
             "engine_name": "rapidocr",
             "model_version": "builtin",
-            "layout_version": "1280x720-v2",
+            "layout_version": "1280x720-v3",
         }
         return SimpleNamespace(data=SimpleNamespace(model_dump=lambda: {"map_name": "Hanamura"}))
 

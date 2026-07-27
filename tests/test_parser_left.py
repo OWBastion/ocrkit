@@ -56,6 +56,13 @@ def test_parse_left_panel_deaths_skips_label_ocr_variant() -> None:
 def test_parse_left_panel_matches_catalog_title_with_checkmark() -> None:
     out = parse_left_panel("英雄：51/51 挑战完成 钢门 ✓", ("钢门", "训犬大师"))
     assert out.achievement_title == "钢门"
+    assert out.achievement_titles == ("钢门",)
+    assert out.achievement_unlocked is True
+
+
+def test_parse_left_panel_matches_multiple_catalog_titles_in_order() -> None:
+    out = parse_left_panel("钢门 ✓\n幸运星 ✓\n开了 ✓\nV我50 ✓\n牢大 ✓", ("钢门", "幸运星", "开了", "V我50", "牢大"))
+    assert out.achievement_titles == ("钢门", "幸运星", "开了", "V我50", "牢大")
     assert out.achievement_unlocked is True
 
 
