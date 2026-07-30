@@ -6,7 +6,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from training.studio.core import append_sources, create_batch, generate_candidates, review_counts, review_rows, update_review_row
+from training.studio import core as studio_core
+from training.studio.core import append_sources, create_batch, export_dataset, generate_candidates, review_counts, review_rows, update_review_row
 
 
 def _image(path: Path, value: int = 200) -> None:
@@ -42,6 +43,21 @@ def test_append_sources_keeps_existing_splits_and_assigns_new_holdout(tmp_path: 
     assert manifest["sources"][0]["id"] == original["id"]
     assert manifest["sources"][0]["split"] == "train"
     assert manifest["sources"][1]["split"] == "holdout"
+
+
+def test_export_dataset_copies_finalized_batch_into_private_dataset_root(tmp_path: Path, monkeypatch) -> None:
+    batch = tmp_path / "batch"
+    dataset = batch / "dataset"
+    (dataset / "labels").mkdir(parents=True)
+    (dataset / "labels/train.txt").write_text("images/train/a.png\t文字\n", encoding="utf-8")
+    (dataset / "labels/holdout.txt").write_text("images/holdout/b.png\t文字\n", encoding="utf-8")
+    (batch / "batch.json").write_text(json.dumps({"batch_id": "batch-1"}), encoding="utf-8")
+    monkeypatch.setattr(studio_core, "finalize_dataset", lambda _: {"validated_train": 1, "validated_holdout": 1})
+
+    result = export_dataset(batch, destination_root=tmp_path / "datasets/labeled/rec/studio")
+
+    assert result["validated_train"] == 1
+    assert (tmp_path / "datasets/labeled/rec/studio/batch-1/dataset/labels/train.txt").is_file()
 
 
 def test_review_updates_are_atomic_and_counted(tmp_path: Path) -> None:

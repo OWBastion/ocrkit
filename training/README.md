@@ -41,6 +41,14 @@ train and holdout, and uses atomic replacements when review JSONL files change. 
 the existing RapidOCR + optional macOS Vision agreement flow; every non-auto-accepted candidate
 must be accepted or rejected before labels or training can proceed.
 
+Studio keeps active import and review work under `training/.work/studio/` so incomplete labels and
+private screenshots do not silently alter the dataset repository. After validation, use **导出到私有
+datasets** to create an immutable package at `datasets/labeled/rec/studio/<batch-id>/`; it contains
+the cropped images, reviewed manifests, labels, and provenance manifest, but does not commit or
+push the `datasets` submodule. A passed Smoke run can then use **发布到 R2**: the UI requires an
+explicit confirmation and runs the complete release gate, a new immutable version, upload, and
+download verification in a separate local process.
+
 ## Layout
 
 - `datasets/labeled/det/labels.txt`: one line per source image, formatted as `relative/image.png<TAB>[{"transcription":"...","points":[[x1,y1],...,[x4,y4]]}]`.

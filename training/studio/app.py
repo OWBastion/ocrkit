@@ -20,6 +20,7 @@ from training.studio.core import (
     append_sources,
     batch_summary,
     create_batch,
+    export_dataset,
     finalize_dataset,
     generate_candidates,
     review_counts,
@@ -44,6 +45,10 @@ class ReviewUpdate(BaseModel):
 class TrainingStart(BaseModel):
     resume_checkpoint: str | None = None
     epochs: int = Field(default=10, ge=1, le=100)
+
+
+class PublishStart(BaseModel):
+    confirmed: bool = False
 
 
 def _batch_dir(work_root: Path, batch_id: str) -> Path:
@@ -137,9 +142,9 @@ async def _uploaded_paths(files: list[UploadFile], temporary_dir: Path) -> list[
     return paths
 
 
-def _poll_training_process(state: dict[str, object]) -> bool:
+def _poll_training_process(state: dict[str, object], active_status: str = "training") -> bool:
     """Refresh a Studio-owned training process without mistaking a zombie for a live run."""
-    if state.get("status") != "training":
+    if state.get("status") != active_status:
         return False
     pid = int(state["pid"])
     try:
@@ -158,6 +163,19 @@ def _poll_training_process(state: dict[str, object]) -> bool:
     state["exit_code"] = exit_code
     state["status"] = "completed" if exit_code == 0 else "failed"
     return True
+
+
+def _checkpoint_from_training_state(batch_dir: Path) -> Path:
+    state_path = batch_dir / "runs/latest.json"
+    if not state_path.is_file():
+        raise HTTPException(status_code=422, detail="complete a successful Smoke training run before publishing")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if state.get("status") != "completed" or state.get("exit_code") != 0:
+        raise HTTPException(status_code=422, detail="latest Smoke training run has not passed")
+    checkpoint = Path(str(state["log"])).parent / "checkpoints/best_accuracy"
+    if not checkpoint.with_suffix(".pdparams").is_file():
+        raise HTTPException(status_code=422, detail="latest Smoke run has no best_accuracy checkpoint")
+    return checkpoint
 
 
 def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = FRONTEND_DIST) -> FastAPI:
@@ -228,6 +246,13 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = 
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.post("/api/batches/{batch_id}/dataset/export")
+    async def export_finalized_dataset(batch_id: str) -> dict[str, object]:
+        try:
+            return await run_in_threadpool(export_dataset, _batch_dir(work_root, batch_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/api/batches/{batch_id}/training/smoke")
     async def start_smoke(batch_id: str, request: TrainingStart | None = None) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
@@ -266,6 +291,45 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = 
     @app.get("/api/batches/{batch_id}/training/checkpoints")
     def resume_checkpoints(batch_id: str) -> list[dict[str, str]]:
         return _list_resume_checkpoints(work_root, _batch_dir(work_root, batch_id))
+
+    @app.post("/api/batches/{batch_id}/publication")
+    def publish(batch_id: str, request: PublishStart) -> dict[str, object]:
+        if not request.confirmed:
+            raise HTTPException(status_code=422, detail="confirm publication before writing model artifacts to R2")
+        batch_dir = _batch_dir(work_root, batch_id)
+        checkpoint = _checkpoint_from_training_state(batch_dir)
+        publication_root = batch_dir / "publication"
+        latest_path = publication_root / "latest.json"
+        if latest_path.is_file():
+            latest = json.loads(latest_path.read_text(encoding="utf-8"))
+            if latest.get("status") == "publishing":
+                raise HTTPException(status_code=409, detail="a model publication is already running")
+        run_dir = publication_root / datetime.now(UTC).strftime("release-%Y%m%d-%H%M%S")
+        run_dir.mkdir(parents=True)
+        log_path = run_dir / "release.log"
+        command = [str(ROOT / "training/release_rec_model.sh"), "--checkpoint", str(checkpoint)]
+        with log_path.open("ab") as log:
+            process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        state: dict[str, object] = {"pid": process.pid, "status": "publishing", "command": command, "log": str(log_path), "checkpoint": str(checkpoint)}
+        payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+        (run_dir / "publication.json").write_text(payload, encoding="utf-8")
+        latest_path.write_text(payload, encoding="utf-8")
+        return state
+
+    @app.get("/api/batches/{batch_id}/publication")
+    def publication_status(batch_id: str) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        state_path = batch_dir / "publication/latest.json"
+        if not state_path.is_file():
+            return {"status": "not_started", "log": "", "log_tail": ""}
+        state: dict[str, object] = json.loads(state_path.read_text(encoding="utf-8"))
+        changed = _poll_training_process(state, "publishing")
+        log_path = Path(str(state.get("log", "")))
+        state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-48000:] if log_path.is_file() else ""
+        if changed:
+            persisted = {key: value for key, value in state.items() if key != "log_tail"}
+            state_path.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return state
 
     @app.get("/api/batches/{batch_id}/training")
     def training_status(batch_id: str) -> dict[str, object]:

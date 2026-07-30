@@ -35,3 +35,9 @@ def test_release_loads_required_r2_contract_before_creating_artifact() -> None:
 
     assert result.returncode != 0
     assert "OCRKIT_R2_DEFAULT_BUCKET" in result.stderr
+
+
+def test_release_accepts_an_explicit_studio_checkpoint() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+
+    assert "--checkpoint" in text

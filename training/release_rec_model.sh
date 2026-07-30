@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 0 ]]; then
-  printf 'usage: %s\n' "$0" >&2
-  exit 1
-fi
-
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -f "${root_dir}/.env" ]]; then
   while IFS='=' read -r key value; do
@@ -19,6 +14,22 @@ work_dir="${root_dir}/training/.work"
 training_python="${work_dir}/venv/bin/python"
 paddle2onnx_bin="${work_dir}/venv/bin/paddle2onnx"
 checkpoint="${work_dir}/checkpoints/rec_pp_ocrv6_small/best_accuracy"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --checkpoint)
+      if [[ $# -lt 2 ]]; then
+        printf 'usage: %s [--checkpoint <checkpoint_base>]\n' "$0" >&2
+        exit 2
+      fi
+      checkpoint="$2"
+      shift 2
+      ;;
+    *)
+      printf 'usage: %s [--checkpoint <checkpoint_base>]\n' "$0" >&2
+      exit 2
+      ;;
+  esac
+done
 bucket="${OCRKIT_R2_DEFAULT_BUCKET:?set OCRKIT_R2_DEFAULT_BUCKET}"
 
 for path in "${training_python}" "${paddle2onnx_bin}" "${checkpoint}.pdparams"; do

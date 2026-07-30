@@ -23,6 +23,7 @@ from training.scripts.validate_annotations import validate_rec
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORK_ROOT = ROOT / "training/.work/studio"
 DEFAULT_ROI_CONFIG = ROOT / "configs/roi_1280x720.yaml"
+PRIVATE_DATASET_ROOT = ROOT / "datasets/labeled/rec/studio"
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -336,3 +337,28 @@ def finalize_dataset(batch_dir: Path) -> dict[str, int]:
     result["validated_train"] = validate_rec(dataset_dir / "labels/train.txt")
     result["validated_holdout"] = validate_rec(dataset_dir / "labels/holdout.txt")
     return result
+
+
+def export_dataset(batch_dir: Path, *, destination_root: Path = PRIVATE_DATASET_ROOT) -> dict[str, Any]:
+    """Copy a finalized batch into the private datasets submodule as an immutable package."""
+    result = finalize_dataset(batch_dir)
+    if destination_root == PRIVATE_DATASET_ROOT and not (ROOT / "datasets/.git").exists():
+        raise ValueError("private datasets submodule is not initialized; run `git submodule update --init --recursive`")
+    batch_id = str(load_manifest(batch_dir)["batch_id"])
+    destination = destination_root / batch_id
+    if destination.exists():
+        raise ValueError(f"dataset export already exists: {destination}; exports are immutable")
+    destination_root.mkdir(parents=True, exist_ok=True)
+    temporary = destination_root / f".{batch_id}-{uuid.uuid4().hex}.tmp"
+    try:
+        shutil.copytree(batch_dir / "dataset", temporary / "dataset")
+        shutil.copy2(batch_dir / "batch.json", temporary / "batch.json")
+        _atomic_json(
+            temporary / "export.json",
+            {"batch_id": batch_id, "exported_at": datetime.now(UTC).isoformat(), **result},
+        )
+        os.replace(temporary, destination)
+    except Exception:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
+    return {"export_dir": str(destination), **result}

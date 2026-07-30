@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from pathlib import Path
 
 import cv2
@@ -105,3 +106,23 @@ def test_studio_lists_only_complete_resume_checkpoints(tmp_path: Path) -> None:
         "path": "resume-batch:runs/smoke-20260730-104251/checkpoints/best_accuracy",
         "name": "resume-batch · smoke-20260730-104251/checkpoints/best_accuracy",
     }]
+
+
+def test_studio_starts_confirmed_publication_from_latest_passed_checkpoint(tmp_path: Path, monkeypatch) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    batch = tmp_path / "work/batches/publish-batch"
+    checkpoint = batch / "runs/smoke-1/checkpoints/best_accuracy"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.with_suffix(".pdparams").write_text("checkpoint", encoding="utf-8")
+    (batch / "batch.json").write_text("{}", encoding="utf-8")
+    (batch / "runs/latest.json").write_text(json.dumps({"status": "completed", "exit_code": 0, "log": str(batch / "runs/smoke-1/training.log")}), encoding="utf-8")
+    monkeypatch.setattr(studio_app.subprocess, "Popen", lambda *args, **kwargs: SimpleNamespace(pid=456))
+    client = TestClient(create_app(tmp_path / "work", frontend))
+
+    response = client.post("/api/batches/publish-batch/publication", json={"confirmed": True})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "publishing"
+    assert response.json()["command"][-1] == str(checkpoint)

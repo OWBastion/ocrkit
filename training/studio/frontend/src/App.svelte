@@ -27,6 +27,8 @@
   let busy = false
   let active = 'import'
   let training: TrainingState | null = null
+  let publication: TrainingState | null = null
+  let publishConfirmed = false
   let resumeCheckpoints: ResumeCheckpoint[] = []
   let resumeCheckpoint = ''
   let trainingEpochs = 10
@@ -298,9 +300,19 @@
     } catch (cause) { message(cause instanceof Error ? cause.message : '生成标签失败', true) } finally { busy = false }
   }
 
+  async function exportDataset() {
+    if (!batch) return message('先选择批次。', true)
+    busy = true
+    try {
+      const result = await request<{ export_dir: string; validated_train: number; validated_holdout: number }>(`/api/batches/${batch.batch_id}/dataset/export`, { method: 'POST' })
+      message(`已导出私有数据集：${result.validated_train} train / ${result.validated_holdout} holdout。`)
+    } catch (cause) { message(cause instanceof Error ? cause.message : '导出数据集失败', true) } finally { busy = false }
+  }
+
   function trainingStatusLabel(value?: string) {
     switch (value) {
       case 'training': return '运行中'
+      case 'publishing': return '发布中'
       case 'completed': return '成功'
       case 'failed': return '失败'
       case 'completed_or_failed': return '已结束'
@@ -317,6 +329,10 @@
     return value === 'completed' || value === 'failed' || value === 'completed_or_failed'
   }
 
+  function hasActiveBackgroundWork() {
+    return trainingIsRunning(training?.status) || publication?.status === 'publishing'
+  }
+
   function stopTrainingPoll() {
     if (trainingPollTimer) {
       clearInterval(trainingPollTimer)
@@ -330,6 +346,7 @@
     trainingPolling = true
     trainingPollTimer = setInterval(() => {
       void refreshTraining({ silent: true })
+      void refreshPublication({ silent: true })
     }, TRAINING_POLL_MS)
   }
 
@@ -348,7 +365,7 @@
       if (trainingIsRunning(training.status)) {
         if (active === 'training') startTrainingPoll()
       } else {
-        stopTrainingPoll()
+        if (!hasActiveBackgroundWork()) stopTrainingPoll()
         if (!options?.silent && previousStatus === 'training' && trainingIsDone(training.status)) {
           message(training.status === 'completed' ? 'Smoke 训练已成功结束。' : 'Smoke 训练已结束，请查看日志。')
         }
@@ -361,8 +378,34 @@
   }
 
   async function loadTrainingStep() {
-    await Promise.all([refreshTraining(), refreshResumeCheckpoints()])
+    await Promise.all([refreshTraining(), refreshResumeCheckpoints(), refreshPublication()])
     if (trainingIsRunning(training?.status)) startTrainingPoll()
+  }
+
+  async function refreshPublication(options?: { silent?: boolean }) {
+    if (!batch) return
+    try {
+      publication = await request<TrainingState>(`/api/batches/${batch.batch_id}/publication`)
+      if (publication.status === 'publishing' && active === 'training') startTrainingPoll()
+      if (publication.status !== 'publishing' && !trainingIsRunning(training?.status)) stopTrainingPoll()
+    } catch (cause) {
+      if (!options?.silent) message(cause instanceof Error ? cause.message : '获取发布状态失败', true)
+    }
+  }
+
+  async function startPublication() {
+    if (!batch || !publishConfirmed) return message('请确认已准备将新模型写入 R2。', true)
+    busy = true
+    try {
+      await request<TrainingState>(`/api/batches/${batch.batch_id}/publication`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmed: true }),
+      })
+      message('模型发布已启动：将重新评测、导出、上传并下载校验。')
+      await refreshPublication()
+      startTrainingPoll()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '启动 R2 发布失败', true) } finally { busy = false }
   }
 
   async function refreshResumeCheckpoints() {
@@ -667,7 +710,11 @@
           <button class="button-primary" disabled={!batch || busy} on:click={finalize}>
             {busy ? '生成中…' : '生成 labels'}
           </button>
+          <button class="button-secondary" disabled={!batch || busy} on:click={exportDataset}>
+            导出到私有 datasets
+          </button>
         </div>
+        <p class="config-note">导出会写入 `datasets/labeled/rec/studio/&lt;batch-id&gt;/`，不自动提交或推送数据仓库。</p>
       </section>
     {:else}
       <section class="training-panel">
@@ -729,6 +776,24 @@
               <code title={training.command.join(' ')}>{training.command.join(' ')}</code>
             </div>
           {/if}
+
+          <section class="training-config" aria-label="R2 模型发布">
+            <div>
+              <p class="eyebrow">发布</p>
+              <h3>发布通过 Smoke 的模型</h3>
+              <p class="config-note">发布会重新运行完整评测，生成新的不可变版本，再上传 R2 并下载校验。不会覆盖历史模型。</p>
+            </div>
+            <label class="field">
+              <span><input type="checkbox" bind:checked={publishConfirmed} disabled={busy || publication?.status === 'publishing'} /> 我确认写入 R2</span>
+            </label>
+            <button class="button-primary" disabled={busy || training?.status !== 'completed' || !publishConfirmed || publication?.status === 'publishing'} on:click={startPublication}>
+              {publication?.status === 'publishing' ? '发布中…' : '发布到 R2'}
+            </button>
+            {#if publication && publication.status !== 'not_started'}
+              <p class="status-meta">发布状态：{trainingStatusLabel(publication.status)}</p>
+              {#if publication.log_tail}<pre class="log-tail">{publication.log_tail.trimEnd()}</pre>{/if}
+            {/if}
+          </section>
 
           <section class="log-panel" aria-label="训练日志">
             <header class="log-toolbar">
