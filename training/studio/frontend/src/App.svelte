@@ -18,6 +18,7 @@
   let busy = false
   let active = 'import'
   let training: Record<string, unknown> | null = null
+  const supportedClipboardTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
   const nav = [
     ['import', '01', '导入'], ['candidates', '02', '候选'], ['review', '03', '复核'], ['dataset', '04', '数据集'], ['training', '05', '训练']
@@ -65,6 +66,29 @@
     } catch (cause) { message(cause instanceof Error ? cause.message : '导入失败', true) } finally { busy = false }
   }
 
+  function appendFiles(incoming: File[]) {
+    files = [...files, ...incoming]
+  }
+
+  function clipboardName(file: File, timestamp: number, index: number) {
+    const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png'
+    return `clipboard-${timestamp}-${index + 1}.${extension}`
+  }
+
+  function pasteImages(event: ClipboardEvent) {
+    if (active !== 'import' || busy) return
+    const images = Array.from(event.clipboardData?.items || [])
+      .filter((item) => item.kind === 'file' && supportedClipboardTypes.has(item.type))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (!images.length) return
+
+    event.preventDefault()
+    const timestamp = Date.now()
+    appendFiles(images.map((file, index) => new File([file], clipboardName(file, timestamp, index), { type: file.type })))
+    message(`已从剪贴板加入 ${images.length} 张截图。`)
+  }
+
   async function candidates() {
     if (!batch) return message('先选择或创建批次。', true)
     busy = true
@@ -110,6 +134,8 @@
   onMount(async () => { try { await refreshBatches() } catch (cause) { message('无法连接本机 Studio API。', true) } })
 </script>
 
+<svelte:window on:paste={pasteImages} />
+
 <svelte:head><meta name="description" content="OCRKit local dataset and training studio" /></svelte:head>
 
 <main class="min-h-screen px-4 py-5 sm:px-8 lg:px-12">
@@ -135,7 +161,8 @@
       <section class="grid gap-8 lg:grid-cols-[1.2fr_.8fr]">
         <div class="drop-zone">
           <p class="eyebrow">新建批次</p><h2>导入原始截图</h2><p>支持 PNG、JPEG、WebP。系统会验证图像、计算 SHA-256 去重，并按整张截图分配 train / holdout。</p>
-          <label class="file-pick"><input type="file" multiple accept="image/png,image/jpeg,image/webp" on:change={(event) => files = Array.from((event.currentTarget as HTMLInputElement).files || [])} /><span>{files.length ? `已选 ${files.length} 张截图` : '选择截图'}</span></label>
+          <label class="file-pick"><input type="file" multiple accept="image/png,image/jpeg,image/webp" on:change={(event) => appendFiles(Array.from((event.currentTarget as HTMLInputElement).files || []))} /><span>{files.length ? `已选 ${files.length} 张截图` : '选择截图'}</span></label>
+          <p class="mt-4 text-sm leading-6 text-ink/65">也可在此页面直接按 <kbd>⌘V</kbd>（Windows/Linux：<kbd>Ctrl+V</kbd>）粘贴平台复制的截图；可连续粘贴多张。</p>
           <div class="mt-7 flex flex-wrap items-end gap-4"><label class="field">Holdout 比例 <input type="number" min="0" max="0.5" step="0.05" bind:value={holdoutRatio} /></label><button class="button-primary" disabled={busy} on:click={importFiles}>{busy ? '处理中…' : '创建本地批次'}</button></div>
         </div>
         <aside class="side-note"><p class="eyebrow">隐私边界</p><p>原图、ROI、切片和日志只写入 <code>training/.work/studio/</code>，不会进入 Git、生产镜像或模型发布流程。</p></aside>
