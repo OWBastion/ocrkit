@@ -146,7 +146,7 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT):
             previews = gr.Gallery(label="首张截图的规范化画布与固定 ROI", columns=3, height="auto")
             import_button.click(import_images, [uploads, ratio], [batch, import_summary, previews])
         with gr.Tab("2 · 候选与 ROI"):
-            generate_button = gr.Button("运行 RapidOCR + Vision 候选生成", variant="primary")
+            generate_button = gr.Button("生成或显示 RapidOCR + Vision 候选", variant="primary")
             candidate_summary = gr.Code(label="候选生成结果", language="json")
             counts = gr.Code(label="审核状态", language="json")
             generate_button.click(generate, batch, [candidate_summary, counts])

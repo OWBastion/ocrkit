@@ -6,7 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from training.studio.core import create_batch, review_counts, review_rows, update_review_row
+from training.studio.core import create_batch, generate_candidates, review_counts, review_rows, update_review_row
 
 
 def _image(path: Path) -> None:
@@ -40,3 +40,18 @@ def test_review_updates_are_atomic_and_counted(tmp_path: Path) -> None:
     assert saved["transcription"] == "人工文本"
     assert review_rows(batch, "train")[0]["review_status"] == "accepted"
     assert review_counts(batch) == {"total": 1, "accepted": 1, "pending": 0, "rejected": 0}
+
+
+def test_generate_candidates_reuses_completed_review_manifest(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    review = batch / "dataset/review"
+    review.mkdir(parents=True)
+    (batch / "batch.json").write_text(json.dumps({"sources": [{"id": "source-a"}]}), encoding="utf-8")
+    row = {"crop": "images/train/source-a/000.png", "source_id": "source-a", "review_status": "accepted", "auto_accept_reason": "rapidocr_vision_agreement"}
+    (review / "train.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    summary = generate_candidates(batch)
+
+    assert summary["train_candidates"] == 1
+    assert summary["reused_existing_candidates"] is True

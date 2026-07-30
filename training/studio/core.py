@@ -141,8 +141,25 @@ def batch_summary(batch_dir: Path) -> dict[str, Any]:
     }
 
 
-def generate_candidates(batch_dir: Path, *, roi_config_path: Path = DEFAULT_ROI_CONFIG) -> dict[str, int]:
+def generate_candidates(batch_dir: Path, *, roi_config_path: Path = DEFAULT_ROI_CONFIG) -> dict[str, int | bool]:
     dataset_dir = batch_dir / "dataset"
+    review_dir = dataset_dir / "review"
+    review_files = [review_dir / "train.jsonl", review_dir / "holdout.jsonl"]
+    if dataset_dir.exists():
+        if not all(path.is_file() for path in review_files):
+            raise RuntimeError(
+                f"candidate output is incomplete: {dataset_dir}; create a new batch instead of overwriting private review data"
+            )
+        rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
+        return {
+            "cases": len(load_manifest(batch_dir)["sources"]),
+            "train_cases": len({str(row["source_id"]) for row in rows["train"]}),
+            "holdout_cases": len({str(row["source_id"]) for row in rows["holdout"]}),
+            "train_candidates": len(rows["train"]),
+            "holdout_candidates": len(rows["holdout"]),
+            "auto_accepted": sum(row.get("auto_accept_reason") == "rapidocr_vision_agreement" for split_rows in rows.values() for row in split_rows),
+            "reused_existing_candidates": True,
+        }
     return prepare_candidates(batch_dir / "cases.json", batch_dir, dataset_dir, load_roi_config(roi_config_path))
 
 
