@@ -87,9 +87,30 @@ def _list_batches(work_root: Path) -> list[dict[str, object]]:
     return summaries
 
 
+def _legacy_checkpoint_root(work_root: Path) -> Path:
+    return (work_root.parent / "checkpoints").resolve()
+
+
+def _has_complete_checkpoint(checkpoint: Path) -> bool:
+    return all(
+        Path(f"{checkpoint}{suffix}").is_file() for suffix in (".pdparams", ".pdopt", ".states")
+    )
+
+
 def _resume_checkpoint(work_root: Path, batch_dir: Path, value: str | None) -> Path | None:
     if value is None:
         return None
+
+    if value.startswith("legacy:"):
+        legacy_root = _legacy_checkpoint_root(work_root)
+        relative = value.removeprefix("legacy:")
+        candidate = (legacy_root / relative).resolve()
+        if legacy_root not in candidate.parents or candidate.suffix:
+            raise HTTPException(status_code=422, detail="invalid legacy resume checkpoint")
+        if not _has_complete_checkpoint(candidate):
+            raise HTTPException(status_code=422, detail="legacy resume checkpoint is incomplete or no longer exists")
+        return candidate
+
     owner = batch_dir
     relative = value
     if ":" in value:
@@ -99,30 +120,40 @@ def _resume_checkpoint(work_root: Path, batch_dir: Path, value: str | None) -> P
     runs_dir = (owner / "runs").resolve()
     if runs_dir not in candidate.parents or candidate.suffix:
         raise HTTPException(status_code=422, detail="invalid resume checkpoint")
-    if any(not Path(f"{candidate}{suffix}").is_file() for suffix in (".pdparams", ".pdopt", ".states")):
+    if not _has_complete_checkpoint(candidate):
         raise HTTPException(status_code=422, detail="resume checkpoint is incomplete or no longer exists")
     return candidate
 
 
 def _list_resume_checkpoints(work_root: Path, batch_dir: Path) -> list[dict[str, str]]:
     batches_dir = work_root / "batches"
-    if not batches_dir.is_dir():
-        return []
     checkpoints: list[dict[str, str]] = []
-    for owner in sorted(batches_dir.iterdir(), key=lambda path: (path != batch_dir, path.name), reverse=False):
-        if not (owner / "batch.json").is_file():
-            continue
-        owner_id = owner.name
-        runs_dir = owner / "runs"
-        if not runs_dir.is_dir():
-            continue
-        for params in sorted(runs_dir.glob("smoke-*/checkpoints/*.pdparams"), reverse=True):
+    if batches_dir.is_dir():
+        for owner in sorted(batches_dir.iterdir(), key=lambda path: (path != batch_dir, path.name), reverse=False):
+            if not (owner / "batch.json").is_file():
+                continue
+            owner_id = owner.name
+            runs_dir = owner / "runs"
+            if not runs_dir.is_dir():
+                continue
+            for params in sorted(runs_dir.glob("smoke-*/checkpoints/*.pdparams"), reverse=True):
+                checkpoint = params.with_suffix("")
+                if _has_complete_checkpoint(checkpoint):
+                    relative = checkpoint.relative_to(owner).as_posix()
+                    checkpoints.append({
+                        "path": f"{owner_id}:{relative}",
+                        "name": f"{owner_id} · {checkpoint.relative_to(runs_dir).as_posix()}",
+                    })
+
+    legacy_root = _legacy_checkpoint_root(work_root)
+    if legacy_root.is_dir():
+        for params in sorted(legacy_root.glob("*/best_accuracy.pdparams"), reverse=True):
             checkpoint = params.with_suffix("")
-            if all(Path(f"{checkpoint}{suffix}").is_file() for suffix in (".pdopt", ".states")):
-                relative = checkpoint.relative_to(owner).as_posix()
+            if _has_complete_checkpoint(checkpoint):
+                relative = checkpoint.relative_to(legacy_root).as_posix()
                 checkpoints.append({
-                    "path": f"{owner_id}:{relative}",
-                    "name": f"{owner_id} · {checkpoint.relative_to(runs_dir).as_posix()}",
+                    "path": f"legacy:{relative}",
+                    "name": f"历史模型 · {relative}",
                 })
     return checkpoints
 

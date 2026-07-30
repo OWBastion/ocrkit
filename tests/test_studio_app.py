@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from training.studio import app as studio_app
@@ -106,6 +107,42 @@ def test_studio_lists_only_complete_resume_checkpoints(tmp_path: Path) -> None:
         "path": "resume-batch:runs/smoke-20260730-104251/checkpoints/best_accuracy",
         "name": "resume-batch · smoke-20260730-104251/checkpoints/best_accuracy",
     }]
+
+
+def test_studio_lists_complete_legacy_checkpoints(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    legacy = tmp_path / "checkpoints/rec_pp_ocrv6_small/best_accuracy"
+    legacy.parent.mkdir(parents=True)
+    for suffix in (".pdparams", ".pdopt", ".states"):
+        (legacy.parent / f"best_accuracy{suffix}").write_text("checkpoint", encoding="utf-8")
+    batch = tmp_path / "work/batches/current"
+    batch.mkdir(parents=True)
+    (batch / "batch.json").write_text("{}", encoding="utf-8")
+    client = TestClient(create_app(tmp_path / "work", frontend))
+
+    response = client.get("/api/batches/current/training/checkpoints")
+
+    assert response.status_code == 200
+    assert response.json() == [{
+        "path": "legacy:rec_pp_ocrv6_small/best_accuracy",
+        "name": "历史模型 · rec_pp_ocrv6_small/best_accuracy",
+    }]
+
+
+def test_studio_resolves_legacy_checkpoint_only_inside_legacy_root(tmp_path: Path) -> None:
+    work_root = tmp_path / "work"
+    batch = work_root / "batches/current"
+    batch.mkdir(parents=True)
+    checkpoint = tmp_path / "checkpoints/rec_pp_ocrv6_small/best_accuracy"
+    checkpoint.parent.mkdir(parents=True)
+    for suffix in (".pdparams", ".pdopt", ".states"):
+        (checkpoint.parent / f"best_accuracy{suffix}").write_text("checkpoint", encoding="utf-8")
+
+    assert studio_app._resume_checkpoint(work_root, batch, "legacy:rec_pp_ocrv6_small/best_accuracy") == checkpoint
+    with pytest.raises(studio_app.HTTPException):
+        studio_app._resume_checkpoint(work_root, batch, "legacy:../outside")
 
 
 def test_studio_starts_confirmed_publication_from_latest_passed_checkpoint(tmp_path: Path, monkeypatch) -> None:
