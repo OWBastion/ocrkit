@@ -23,6 +23,7 @@ _MAP_TEXT_CLEAN = str.maketrans(
     }
 )
 _MAP_COMPAT_FIX = str.maketrans({"0": "O", "1": "I", "5": "S", "8": "B"})
+_MAP_VARIANT_SUFFIXES = ("经典版", "经典")
 
 
 @dataclass
@@ -38,6 +39,15 @@ def _normalize_map_text(text: str) -> str:
 
 def _compat_map_text(text: str) -> str:
     return _normalize_map_text(text).translate(_MAP_COMPAT_FIX)
+
+
+def _map_text_variants(text: str) -> list[str]:
+    normalized = _normalize_map_text(text)
+    variants = [normalized]
+    for suffix in _MAP_VARIANT_SUFFIXES:
+        if normalized.endswith(suffix):
+            variants.append(normalized[: -len(suffix)])
+    return [variant for variant in variants if variant]
 
 
 def _map_candidate_before_difficulty(raw_text: str, difficulty_match: re.Match[str] | None) -> str | None:
@@ -84,25 +94,24 @@ def _best_map(raw_text: str, map_names: list[str]) -> str | None:
             compat_to_raw[compat] = item
 
     for candidate in map_candidates:
-        normalized_candidate = _normalize_map_text(candidate)
-        if normalized_candidate in normalized_to_raw:
-            return normalized_to_raw[normalized_candidate]
+        for variant in _map_text_variants(candidate):
+            if variant in normalized_to_raw:
+                return normalized_to_raw[variant]
 
-        compat_candidate = _compat_map_text(candidate)
-        if compat_candidate in compat_to_raw:
-            return compat_to_raw[compat_candidate]
+            compat_candidate = variant.translate(_MAP_COMPAT_FIX)
+            if compat_candidate in compat_to_raw:
+                return compat_to_raw[compat_candidate]
 
     best_name = None
     best_score = 0.0
     for candidate in map_candidates:
-        compat_candidate = _compat_map_text(candidate)
-        if not compat_candidate:
-            continue
-        for compat_name, raw_name in compat_to_raw.items():
-            score = SequenceMatcher(None, compat_candidate, compat_name).ratio()
-            if score > best_score:
-                best_name = raw_name
-                best_score = score
+        for variant in _map_text_variants(candidate):
+            compat_candidate = variant.translate(_MAP_COMPAT_FIX)
+            for compat_name, raw_name in compat_to_raw.items():
+                score = SequenceMatcher(None, compat_candidate, compat_name).ratio()
+                if score > best_score:
+                    best_name = raw_name
+                    best_score = score
 
     return best_name if best_score >= 0.6 else None
 

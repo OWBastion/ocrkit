@@ -8,6 +8,14 @@ def test_parse_right_panel_fixed_format_and_version() -> None:
     assert out.version == "26.0506.1"
 
 
+def test_parse_right_panel_classic_map_variant() -> None:
+    out = parse_right_panel("巴黎·经典版：地狱 版本 26.0703.1", ["巴黎", "伊利奥斯"])
+
+    assert out.map_name == "巴黎"
+    assert out.difficulty == "地狱"
+    assert out.version == "26.0703.1"
+
+
 def test_parse_right_panel_colon_variant() -> None:
     out = parse_right_panel("国王大道:传奇 版本 26.0513.6", ["国王大道", "伊利奥斯"])
     assert out.map_name == "国王大道"
