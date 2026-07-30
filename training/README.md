@@ -11,14 +11,14 @@ crops, review manifests, and training logs live only in the ignored `training/.w
 
 ```bash
 ./studio.sh
-# Open http://127.0.0.1:7860
+# Open http://127.0.0.1:5173 (Vite HMR)
 ```
 
-The launcher installs the locked frontend dependencies, builds the UI, and starts Studio with the
-macOS Vision extra. Use `./studio.sh build` to build only, or pass server options via
-`./studio.sh start --port 7861`.
+The default launcher starts the local API with the macOS Vision extra plus the Vite HMR frontend.
+Changes under `training/studio/frontend/src/` update in the browser without a restart. Use
+`./studio.sh build` to build only, or `./studio.sh start --port 7861` for the built static preview.
 
-For frontend development with hot reload, run:
+The explicit development form is also available:
 
 ```bash
 ./studio.sh dev

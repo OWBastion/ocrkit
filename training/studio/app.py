@@ -128,8 +128,8 @@ def _poll_training_process(state: dict[str, object]) -> bool:
     return True
 
 
-def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEND_DIST) -> FastAPI:
-    if not (frontend_dir / "index.html").is_file():
+def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = FRONTEND_DIST) -> FastAPI:
+    if frontend_dir is not None and not (frontend_dir / "index.html").is_file():
         raise RuntimeError(f"Studio frontend is missing: run `pnpm --dir training/studio/frontend build` ({frontend_dir})")
 
     app = FastAPI(title="OCRKit Studio", docs_url=None, redoc_url=None)
@@ -250,7 +250,8 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEN
             state_path.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return state
 
-    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="studio")
+    if frontend_dir is not None:
+        app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="studio")
     return app
 
 
@@ -260,10 +261,11 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--work-root", type=Path, default=DEFAULT_WORK_ROOT)
     parser.add_argument("--frontend-dir", type=Path, default=FRONTEND_DIST)
+    parser.add_argument("--api-only", action="store_true")
     args = parser.parse_args()
     import uvicorn
 
-    uvicorn.run(create_app(args.work_root, args.frontend_dir), host=args.host, port=args.port)
+    uvicorn.run(create_app(args.work_root, None if args.api_only else args.frontend_dir), host=args.host, port=args.port)
 
 
 if __name__ == "__main__":
