@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from fastapi.testclient import TestClient
 
+from training.studio import app as studio_app
 from training.studio.app import create_app
 
 
@@ -55,3 +56,13 @@ def test_studio_api_reports_missing_holdout_as_actionable_validation_error(tmp_p
 
     assert response.status_code == 422
     assert "at least two distinct source screenshots" in response.json()["detail"]
+
+
+def test_training_status_reaps_failed_child_process(monkeypatch) -> None:
+    state: dict[str, object] = {"pid": 123, "status": "training"}
+    monkeypatch.setattr(studio_app.os, "waitpid", lambda pid, options: (pid, 256))
+
+    changed = studio_app._poll_training_process(state)
+
+    assert changed is True
+    assert state == {"pid": 123, "status": "failed", "exit_code": 1}

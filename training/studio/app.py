@@ -76,6 +76,29 @@ def _list_batches(work_root: Path) -> list[dict[str, object]]:
     return summaries
 
 
+def _poll_training_process(state: dict[str, object]) -> bool:
+    """Refresh a Studio-owned training process without mistaking a zombie for a live run."""
+    if state.get("status") != "training":
+        return False
+    pid = int(state["pid"])
+    try:
+        reaped_pid, wait_status = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            state["status"] = "completed_or_failed"
+            return True
+        return False
+    if reaped_pid == 0:
+        return False
+
+    exit_code = os.waitstatus_to_exitcode(wait_status)
+    state["exit_code"] = exit_code
+    state["status"] = "completed" if exit_code == 0 else "failed"
+    return True
+
+
 def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEND_DIST) -> FastAPI:
     if not (frontend_dir / "index.html").is_file():
         raise RuntimeError(f"Studio frontend is missing: run `pnpm --dir training/studio/frontend build` ({frontend_dir})")
@@ -168,12 +191,12 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEN
         if not state_path.is_file():
             return {"status": "not_started", "log": ""}
         state: dict[str, object] = json.loads(state_path.read_text(encoding="utf-8"))
-        try:
-            os.kill(int(state["pid"]), 0)
-        except ProcessLookupError:
-            state["status"] = "completed_or_failed"
+        state_changed = _poll_training_process(state)
         log_path = Path(str(state["log"]))
         state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-12000:] if log_path.is_file() else ""
+        if state_changed:
+            persisted = {key: value for key, value in state.items() if key != "log_tail"}
+            state_path.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return state
 
     app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="studio")
