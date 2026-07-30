@@ -122,6 +122,25 @@ When a release channel is configured, it takes precedence over the fallback mani
 startup. The service verifies the selected immutable artifact before serving traffic. Without either
 model setting, local development uses RapidOCR's bundled default model.
 
+## Rust image preflight
+
+The first-stage Rust image core validates the versioned ROI layout manifest, maps
+standard-layout coordinates onto an uploaded image, and reports aspect-ratio
+quality warnings. The authoritative layout remains
+configs/roi_1280x720.yaml; regenerate and check its JSON manifest with:
+
+~~~bash
+uv run python scripts/export_layout_manifest.py \
+  configs/roi_1280x720.yaml \
+  configs/roi_1280x720.manifest.json \
+  --check
+cargo test --manifest-path rust/Cargo.toml
+~~~
+
+The native CLI is a preflight and fixture tool only. It does not perform OCR,
+replace the Python/OpenCV production path, or make approval decisions. See
+rust/README.md.
+
 PaddleOCR is only used offline for fine-tuning and export. See
 [`training/README.md`](training/README.md) for the PP-OCRv6 small det/rec label formats,
 validation, manifest generation, and Cloudflare R2 publication workflow.

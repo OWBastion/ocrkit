@@ -6,6 +6,7 @@ __pycache__/
 
 # offline PP-OCR training and exported model artifacts
 training/.work/
+rust/target/
 training/__pycache__/
 *.onnx
 training/studio/frontend/dist/

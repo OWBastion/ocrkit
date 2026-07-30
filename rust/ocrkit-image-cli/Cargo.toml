@@ -1,0 +1,9 @@
+[package]
+name = "ocrkit-image-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+ocrkit-image-core = { path = "../ocrkit-image-core" }
+serde_json = "1.0.150"

@@ -1,0 +1,9 @@
+[package]
+name = "ocrkit-image-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Deterministic OCRKit layout and image preflight primitives"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }

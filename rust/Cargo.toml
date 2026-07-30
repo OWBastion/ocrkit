@@ -1,0 +1,3 @@
+[workspace]
+members = ["ocrkit-image-core", "ocrkit-image-cli"]
+resolver = "2"
