@@ -3,13 +3,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from training.studio.core import (
     DEFAULT_WORK_ROOT,
+    batch_summary,
     create_batch,
     finalize_dataset,
     generate_candidates,
@@ -20,178 +28,162 @@ from training.studio.core import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-
-STUDIO_CSS = """
-:root {
-  --studio-ink: #1d1d1f;
-  --studio-muted: #6e6e73;
-  --studio-surface: rgba(255, 255, 255, .72);
-  --studio-blue: #0071e3;
-}
-body, .gradio-container {
-  background: #f5f5f7 !important;
-  color: var(--studio-ink) !important;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif !important;
-  font-optical-sizing: auto;
-}
-.gradio-container { max-width: 1440px !important; padding: clamp(1rem, 3vw, 3.5rem) !important; }
-#studio-heading {
-  background: var(--studio-surface);
-  backdrop-filter: blur(22px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, .75);
-  border-radius: 22px;
-  box-shadow: 0 12px 30px rgba(29, 29, 31, .08);
-  margin-bottom: 1.5rem;
-  padding: clamp(1.25rem, 3vw, 2.5rem);
-}
-#studio-heading h1 { font-size: clamp(2rem, 5vw, 3.7rem); letter-spacing: -.045em; line-height: 1; margin: 0; }
-#studio-heading p { color: var(--studio-muted); font-size: 1rem; margin: .75rem 0 0; }
-.gr-button-primary { background: var(--studio-blue) !important; border: 0 !important; }
-.gr-button { border-radius: 980px !important; transition: transform 120ms ease-out, opacity 120ms ease-out !important; }
-.gr-button:active { transform: scale(.97); }
-.tab-nav button { font-weight: 600 !important; letter-spacing: -.01em; }
-.block, .gr-panel { border-radius: 16px !important; }
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
-}
-@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  #studio-heading { background: #fff; backdrop-filter: none; border-color: #86868b; }
-}
-"""
+FRONTEND_DIST = ROOT / "training/studio/frontend/dist"
+_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 
-def _message(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, indent=2)
+class ReviewUpdate(BaseModel):
+    split: str
+    crop: str
+    status: str
+    transcription: str | None = None
 
 
-def create_app(work_root: Path = DEFAULT_WORK_ROOT):
-    try:
-        import gradio as gr
-    except ImportError as exc:
-        raise RuntimeError("OCRKit Studio requires `uv sync --extra studio --extra vision` (including its SOCKS extra).") from exc
+def _batch_dir(work_root: Path, batch_id: str) -> Path:
+    candidate = (work_root / "batches" / batch_id).resolve()
+    if candidate.parent != (work_root / "batches").resolve() or not (candidate / "batch.json").is_file():
+        raise HTTPException(status_code=404, detail="batch not found")
+    return candidate
 
-    def import_images(files: list[Any] | None, holdout_ratio: float) -> tuple[str, str, list[tuple[str, str]]]:
-        paths = [item.name if hasattr(item, "name") else str(item) for item in files or []]
-        batch_dir, summary = create_batch(paths, work_root=work_root, holdout_ratio=holdout_ratio)
-        return str(batch_dir), _message(summary), roi_preview_paths(batch_dir)
 
-    def generate(batch: str) -> tuple[str, str]:
-        if not batch:
-            raise gr.Error("先导入一个批次。")
-        return _message(generate_candidates(Path(batch))), _message(review_counts(Path(batch)))
+def _crop_path(batch_dir: Path, split: str, crop: str) -> Path:
+    if split not in {"train", "holdout"}:
+        raise HTTPException(status_code=422, detail="invalid split")
+    row = next((item for item in review_rows(batch_dir, split) if item.get("crop") == crop), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="crop not found")
+    path = (batch_dir / "dataset" / crop).resolve()
+    dataset = (batch_dir / "dataset").resolve()
+    if path.parent != dataset and dataset not in path.parents:
+        raise HTTPException(status_code=422, detail="invalid crop path")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="crop file not found")
+    return path
 
-    def list_rows(batch: str, split: str, status: str) -> tuple[list[list[str]], Any]:
-        rows = review_rows(Path(batch), split, status) if batch else []
-        choices = [str(row["crop"]) for row in rows]
-        table = [[row["crop"], row.get("roi", ""), row.get("review_status", ""), row.get("candidate_text") or "", str(row.get("confidence") or "")] for row in rows]
-        # A stale selection is invalid after status filtering; clear it before the
-        # dropdown's change handler receives the new choice list.
-        return table, gr.Dropdown(choices=choices, value=None)
 
-    def select_row(batch: str, split: str, crop: str) -> tuple[str | None, str, str]:
-        rows = review_rows(Path(batch), split) if batch else []
-        row = next((item for item in rows if item.get("crop") == crop), None)
-        if row is None:
-            return None, "", ""
-        return str(Path(batch) / "dataset" / str(row["crop"])), str(row.get("transcription") or row.get("candidate_text") or ""), _message(row)
+def _list_batches(work_root: Path) -> list[dict[str, object]]:
+    batches_dir = work_root / "batches"
+    if not batches_dir.is_dir():
+        return []
+    summaries: list[dict[str, object]] = []
+    for path in sorted(batches_dir.iterdir(), reverse=True):
+        if not (path / "batch.json").is_file():
+            continue
+        summary: dict[str, object] = batch_summary(path)
+        summary["review"] = review_counts(path)
+        summaries.append(summary)
+    return summaries
 
-    def save_review(batch: str, split: str, crop: str, status: str, transcription: str) -> tuple[str, str]:
-        row = update_review_row(Path(batch), split, crop, status, transcription)
-        return _message(row), _message(review_counts(Path(batch)))
 
-    def finalize(batch: str) -> str:
-        return _message(finalize_dataset(Path(batch)))
+def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEND_DIST) -> FastAPI:
+    if not (frontend_dir / "index.html").is_file():
+        raise RuntimeError(f"Studio frontend is missing: run `pnpm --dir training/studio/frontend build` ({frontend_dir})")
 
-    def start_smoke(batch: str) -> str:
-        if not batch:
-            raise gr.Error("先导入并完成标注。")
-        batch_dir = Path(batch)
-        finalize_dataset(batch_dir)
+    app = FastAPI(title="OCRKit Studio", docs_url=None, redoc_url=None)
+
+    @app.get("/api/health")
+    def health() -> dict[str, str]:
+        return {"ok": "true", "service": "ocrkit-studio"}
+
+    @app.get("/api/batches")
+    def batches() -> list[dict[str, object]]:
+        return _list_batches(work_root)
+
+    @app.post("/api/batches")
+    async def import_images(files: list[UploadFile] = File(...), holdout_ratio: float = Form(0.2)) -> dict[str, object]:
+        work_root.mkdir(parents=True, exist_ok=True)
+        temporary_dir = Path(tempfile.mkdtemp(prefix="studio-import-", dir=work_root))
+        try:
+            paths: list[Path] = []
+            for index, upload in enumerate(files, 1):
+                suffix = Path(upload.filename or "").suffix.lower()
+                if suffix not in _IMAGE_SUFFIXES:
+                    raise HTTPException(status_code=422, detail=f"unsupported image type: {upload.filename}")
+                content = await upload.read(_MAX_UPLOAD_BYTES + 1)
+                if len(content) > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail=f"image exceeds {_MAX_UPLOAD_BYTES // 1024 // 1024} MiB: {upload.filename}")
+                path = temporary_dir / f"{index:04d}{suffix}"
+                path.write_bytes(content)
+                paths.append(path)
+            batch_dir, summary = await run_in_threadpool(create_batch, paths, work_root=work_root, holdout_ratio=holdout_ratio)
+            return {"batch": summary, "previews": roi_preview_paths(batch_dir)}
+        finally:
+            shutil.rmtree(temporary_dir, ignore_errors=True)
+
+    @app.post("/api/batches/{batch_id}/candidates")
+    async def candidates(batch_id: str) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        summary = await run_in_threadpool(generate_candidates, batch_dir)
+        return {"summary": summary, "review": review_counts(batch_dir)}
+
+    @app.get("/api/batches/{batch_id}/review")
+    def review(batch_id: str, split: str = "train", status: str = "pending") -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        if split not in {"train", "holdout"} or status not in {"pending", "accepted", "rejected", "all"}:
+            raise HTTPException(status_code=422, detail="invalid review filter")
+        rows = review_rows(batch_dir, split, status)
+        return {"rows": rows, "counts": review_counts(batch_dir)}
+
+    @app.get("/api/batches/{batch_id}/crop")
+    def crop(batch_id: str, split: str, crop: str) -> FileResponse:
+        return FileResponse(_crop_path(_batch_dir(work_root, batch_id), split, crop))
+
+    @app.put("/api/batches/{batch_id}/review")
+    async def save_review(batch_id: str, update: ReviewUpdate) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        row = await run_in_threadpool(update_review_row, batch_dir, update.split, update.crop, update.status, update.transcription)
+        return {"row": row, "counts": review_counts(batch_dir)}
+
+    @app.post("/api/batches/{batch_id}/finalize")
+    async def finalize(batch_id: str) -> dict[str, int]:
+        return await run_in_threadpool(finalize_dataset, _batch_dir(work_root, batch_id))
+
+    @app.post("/api/batches/{batch_id}/training/smoke")
+    async def start_smoke(batch_id: str) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        await run_in_threadpool(finalize_dataset, batch_dir)
         run_dir = batch_dir / "runs" / f"smoke-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
         run_dir.mkdir(parents=True, exist_ok=True)
         log_path = run_dir / "training.log"
-        output_dir = run_dir / "checkpoints"
-        command = [str(ROOT / "training/run_rec_smoke.sh"), "--labels-dir", str(batch_dir / "dataset"), "--output-dir", str(output_dir)]
+        command = [str(ROOT / "training/run_rec_smoke.sh"), "--labels-dir", str(batch_dir / "dataset"), "--output-dir", str(run_dir / "checkpoints")]
         with log_path.open("ab") as log:
             process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        state = {"pid": process.pid, "status": "training", "command": command, "log": str(log_path)}
-        (run_dir / "run.json").write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        (batch_dir / "runs/latest.json").write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return _message(state)
+        state: dict[str, object] = {"pid": process.pid, "status": "training", "command": command, "log": str(log_path)}
+        payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+        (run_dir / "run.json").write_text(payload, encoding="utf-8")
+        (batch_dir / "runs/latest.json").write_text(payload, encoding="utf-8")
+        return state
 
-    def training_status(batch: str) -> tuple[str, str]:
-        state_path = Path(batch) / "runs/latest.json"
+    @app.get("/api/batches/{batch_id}/training")
+    def training_status(batch_id: str) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        state_path = batch_dir / "runs/latest.json"
         if not state_path.is_file():
-            return "尚未启动训练。", ""
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        pid = int(state["pid"])
+            return {"status": "not_started", "log": ""}
+        state: dict[str, object] = json.loads(state_path.read_text(encoding="utf-8"))
         try:
-            os.kill(pid, 0)
+            os.kill(int(state["pid"]), 0)
         except ProcessLookupError:
             state["status"] = "completed_or_failed"
-        log_path = Path(state["log"])
-        tail = log_path.read_text(encoding="utf-8", errors="replace")[-12000:] if log_path.is_file() else ""
-        return _message(state), tail
+        log_path = Path(str(state["log"]))
+        state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-12000:] if log_path.is_file() else ""
+        return state
 
-    with gr.Blocks(title="OCRKit Studio", theme=gr.themes.Soft(), css=STUDIO_CSS) as app:
-        gr.Markdown(
-            "# OCRKit Studio\n"
-            "本机离线的 Recognition 数据集与训练工作台。批次、截图、切片和日志只保存在 `training/.work/studio/`。",
-            elem_id="studio-heading",
-        )
-        batch = gr.Textbox(label="当前批次目录", interactive=False)
-        with gr.Tab("1 · 导入"):
-            uploads = gr.File(label="截图", file_count="multiple", file_types=["image"])
-            ratio = gr.Slider(0, 0.5, value=0.2, step=0.05, label="按原始截图保留 holdout 比例")
-            import_button = gr.Button("创建私有批次", variant="primary")
-            import_summary = gr.Code(label="批次摘要", language="json")
-            previews = gr.Gallery(label="首张截图的规范化画布与固定 ROI", columns=3, height="auto")
-            import_button.click(import_images, [uploads, ratio], [batch, import_summary, previews])
-        with gr.Tab("2 · 候选与 ROI"):
-            generate_button = gr.Button("生成或显示 RapidOCR + Vision 候选", variant="primary")
-            candidate_summary = gr.Code(label="候选生成结果", language="json")
-            counts = gr.Code(label="审核状态", language="json")
-            generate_button.click(generate, batch, [candidate_summary, counts])
-        with gr.Tab("3 · 人工复核"):
-            with gr.Row():
-                split = gr.Radio(["train", "holdout"], value="train", label="数据分组")
-                status_filter = gr.Radio(["pending", "accepted", "rejected", "all"], value="pending", label="筛选")
-                refresh = gr.Button("刷新候选")
-            rows_table = gr.Dataframe(headers=["crop", "ROI", "状态", "候选文本", "置信度"], interactive=False)
-            crop = gr.Dropdown(label="当前切片", choices=[])
-            preview = gr.Image(label="切片预览", type="filepath")
-            transcription = gr.Textbox(label="人工转写")
-            candidate_detail = gr.Code(label="候选详情", language="json")
-            with gr.Row():
-                accept = gr.Button("接受", variant="primary")
-                reject = gr.Button("拒绝")
-            saved = gr.Code(label="保存结果", language="json")
-            refresh.click(list_rows, [batch, split, status_filter], [rows_table, crop])
-            crop.change(select_row, [batch, split, crop], [preview, transcription, candidate_detail])
-            accept.click(lambda b, s, c, t: save_review(b, s, c, "accepted", t), [batch, split, crop, transcription], [saved, counts])
-            reject.click(lambda b, s, c, t: save_review(b, s, c, "rejected", t), [batch, split, crop, transcription], [saved, counts])
-        with gr.Tab("4 · 数据集"):
-            finalize_button = gr.Button("验证并生成 recognition labels", variant="primary")
-            finalize_result = gr.Code(label="结果", language="json")
-            finalize_button.click(finalize, batch, finalize_result)
-        with gr.Tab("5 · 训练"):
-            gr.Markdown("Smoke 训练会在独立进程中运行；它不会发布模型，也不会修改正式数据集。")
-            start = gr.Button("启动 CPU Smoke 训练", variant="primary")
-            poll = gr.Button("刷新训练状态")
-            training_state = gr.Code(label="任务状态", language="json")
-            training_log = gr.Textbox(label="训练日志末尾", lines=18, interactive=False)
-            start.click(start_smoke, batch, training_state)
-            poll.click(training_status, batch, [training_state, training_log])
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="studio")
     return app
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the local-only OCRKit dataset and training studio.")
+    parser = argparse.ArgumentParser(description="Run the local-only OCRKit Studio API and Vite-built frontend.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--work-root", type=Path, default=DEFAULT_WORK_ROOT)
+    parser.add_argument("--frontend-dir", type=Path, default=FRONTEND_DIST)
     args = parser.parse_args()
-    create_app(args.work_root).launch(server_name=args.host, server_port=args.port, inbrowser=False)
+    import uvicorn
+
+    uvicorn.run(create_app(args.work_root, args.frontend_dir), host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

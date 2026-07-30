@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "SF Pro Text", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+  --color-ink: oklch(0.21 0.014 70);
+  --color-paper: oklch(0.965 0.012 85);
+  --color-clay: oklch(0.72 0.11 57);
+  --color-leaf: oklch(0.49 0.08 145);
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--color-paper); color: var(--color-ink); font-family: var(--font-sans); }
+  button, input, select, textarea { font: inherit; }
+  button { cursor: pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid color-mix(in oklch, var(--color-clay), transparent 55%); outline-offset: 3px; }
+}
+
+@layer components {
+  .nav-item { @apply flex shrink-0 items-center gap-2 border-b-2 border-transparent px-3 py-3 text-sm text-ink/55 transition-colors hover:text-ink; }
+  .nav-item span { @apply text-[10px] tracking-widest text-clay; }
+  .nav-current { @apply border-clay text-ink; }
+  .batch-picker { @apply grid min-w-64 gap-2 border-l-2 border-clay pl-4 text-sm; }
+  .batch-picker span { @apply text-ink/55; }
+  .batch-picker select { @apply w-full border-0 border-b border-ink/20 bg-transparent px-0 py-1 font-semibold; }
+  .notice { @apply my-5 border-l-2 border-leaf bg-leaf/8 px-4 py-3 text-sm text-ink; }
+  .error-note { @apply border-red-700 bg-red-50; }
+  .eyebrow { @apply text-xs font-semibold tracking-[.18em] text-clay; }
+  .drop-zone { @apply border border-ink/15 bg-white/50 p-6 sm:p-10; }
+  .drop-zone h2, .stage h2, .review-detail h2, .empty-detail h2 { @apply mt-2 text-3xl font-medium tracking-[-.04em] sm:text-4xl; }
+  .drop-zone > p:not(.eyebrow), .stage p:not(.eyebrow), .empty-detail p:not(.eyebrow) { @apply mt-4 max-w-xl leading-7 text-ink/65; }
+  .file-pick { @apply mt-8 flex min-h-32 items-center justify-center border border-dashed border-ink/30 bg-paper px-5 text-center font-medium transition-colors hover:border-clay hover:bg-clay/8; }
+  .file-pick input { @apply sr-only; }
+  .field { @apply grid gap-2 text-sm font-medium; }
+  .field input, select, textarea { @apply border border-ink/20 bg-white px-3 py-2 text-ink; }
+  .side-note { @apply self-start border-t-2 border-ink bg-ink p-6 text-paper; }
+  .side-note code { @apply bg-white/10 px-1 py-0.5; }
+  .button-primary { @apply bg-ink px-5 py-3 font-medium text-paper transition-transform duration-150 hover:bg-clay active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40; }
+  .button-secondary { @apply border border-ink/25 bg-transparent px-4 py-2 text-sm font-medium transition-colors hover:border-ink hover:bg-ink/5; }
+  .stage { @apply grid gap-8 border-y border-ink/15 py-12 lg:grid-cols-[1fr_auto] lg:items-center; }
+  .review-layout { @apply grid gap-0 border border-ink/15 lg:grid-cols-[minmax(16rem,.6fr)_minmax(0,1.4fr)]; }
+  .review-list { @apply min-h-[32rem] border-b border-ink/15 bg-white/45 lg:border-b-0 lg:border-r; }
+  .filters { @apply grid grid-cols-2 gap-2 p-3; }
+  .filters button { @apply col-span-2; }
+  .countline { @apply border-y border-ink/10 px-4 py-3 text-sm text-ink/60; }
+  .countline b { @apply text-ink; }
+  .candidate { @apply grid w-full grid-cols-[1fr_auto] gap-x-2 border-b border-ink/10 px-4 py-3 text-left transition-colors hover:bg-clay/8; }
+  .candidate span { @apply text-xs text-clay; }
+  .candidate strong { @apply col-span-2 truncate font-medium; }
+  .candidate small { @apply col-start-2 row-start-1 text-xs text-ink/50; }
+  .selected-row { @apply bg-clay/15; }
+  .review-detail { @apply grid min-h-[32rem] content-start gap-6 p-5 sm:grid-cols-[minmax(12rem,.8fr)_1.2fr] sm:p-8; }
+  .review-detail img { @apply max-h-64 w-full self-start border border-ink/15 bg-white object-contain; }
+  .detail-copy textarea { @apply mt-5 min-h-28 w-full resize-y; }
+  dl { @apply mt-5 grid gap-3 text-sm; }
+  dt { @apply text-ink/50; } dd { @apply mt-1 break-all; }
+  .actions { @apply mt-6 flex flex-wrap gap-3; }
+  .empty, .empty-detail { @apply p-5 text-sm leading-6 text-ink/55; }
+  .empty-detail { @apply self-center; }
+  .training pre { @apply overflow-auto border border-ink/15 bg-ink p-4 text-xs leading-5 text-paper; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}

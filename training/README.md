@@ -4,15 +4,22 @@
 
 ## OCRKit Studio (local WebUI)
 
-OCRKit Studio is the local recognition-labeling and smoke-training workbench. It is not part of
-the FastAPI service and does not publish models. Imported screenshots, ROI previews, crops,
-review manifests, and training logs live only in the ignored `training/.work/studio/` workspace.
+OCRKit Studio is the local recognition-labeling and smoke-training workbench. Its responsive UI
+is a Svelte + Vite + Tailwind application served by a local-only FastAPI API; it is not part of
+the production OCR service and does not publish models. Imported screenshots, ROI previews,
+crops, review manifests, and training logs live only in the ignored `training/.work/studio/` workspace.
 
 ```bash
-uv sync --extra studio --extra vision
-uv run --extra studio --extra vision python -m training.studio
+uv sync --extra vision
+pnpm --dir training/studio/frontend install
+pnpm --dir training/studio/frontend build
+uv run python -m training.studio
 # Open http://127.0.0.1:7860
 ```
+
+For frontend development, run `uv run python -m training.studio` in one terminal and
+`pnpm --dir training/studio/frontend dev` in another. Vite serves the adaptive frontend on
+`http://127.0.0.1:5173` and proxies its `/api` calls to Studio.
 
 The WebUI follows one source-safe path:
 

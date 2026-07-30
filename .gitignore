@@ -8,3 +8,5 @@ __pycache__/
 training/.work/
 training/__pycache__/
 *.onnx
+training/studio/frontend/dist/
+training/studio/frontend/node_modules/
