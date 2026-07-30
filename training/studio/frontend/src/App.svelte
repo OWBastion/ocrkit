@@ -143,6 +143,21 @@
     } catch (cause) { message(cause instanceof Error ? cause.message : '导入失败', true) } finally { busy = false }
   }
 
+  async function addFilesToBatch() {
+    if (!batch) return message('先选择要补充截图的批次。', true)
+    if (!files.length) return message('先选择至少一张截图。', true)
+    busy = true
+    try {
+      const data = new FormData()
+      files.forEach((file) => data.append('files', file))
+      const result = await request<{ added: number; batch: Batch }>(`/api/batches/${batch.batch_id}/sources`, { method: 'POST', body: data })
+      await refreshBatches(result.batch.batch_id)
+      files = []
+      message(`已加入 ${result.added} 张新截图；请生成候选并复核新增切片。`)
+      active = 'candidates'
+    } catch (cause) { message(cause instanceof Error ? cause.message : '追加截图失败', true) } finally { busy = false }
+  }
+
   function appendFiles(incoming: File[]) {
     files = [...files, ...incoming]
   }
@@ -429,7 +444,7 @@
         <div class="panel">
           <header class="panel-head">
             <h2>1. 导入截图</h2>
-            <p>选择或粘贴 PNG / JPEG / WebP，设置 holdout 比例后创建批次。重复截图会按内容去重。</p>
+            <p>选择或粘贴 PNG / JPEG / WebP。可创建新批次，或补充到当前选中的批次；重复截图会按内容去重。</p>
           </header>
           <label class="file-pick">
             <input
@@ -447,6 +462,9 @@
             </label>
             <button class="button-primary" disabled={busy || !files.length} on:click={importFiles}>
               {busy ? '创建中…' : '创建批次'}
+            </button>
+            <button class="button-secondary" disabled={busy || !files.length || !batch} on:click={addFilesToBatch}>
+              {busy ? '处理中…' : '加入当前批次'}
             </button>
           </div>
         </div>

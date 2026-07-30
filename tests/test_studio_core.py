@@ -6,11 +6,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from training.studio.core import create_batch, generate_candidates, review_counts, review_rows, update_review_row
+from training.studio.core import append_sources, create_batch, generate_candidates, review_counts, review_rows, update_review_row
 
 
-def _image(path: Path) -> None:
-    encoded, data = cv2.imencode(".png", np.full((40, 60, 3), 200, dtype=np.uint8))
+def _image(path: Path, value: int = 200) -> None:
+    encoded, data = cv2.imencode(".png", np.full((40, 60, 3), value, dtype=np.uint8))
     assert encoded
     path.write_bytes(data.tobytes())
 
@@ -25,6 +25,23 @@ def test_create_batch_deduplicates_and_splits_whole_sources(tmp_path: Path) -> N
     assert summary["sources"] == 1  # identical image bytes are intentionally deduplicated.
     manifest = json.loads((batch_dir / "batch.json").read_text(encoding="utf-8"))
     assert manifest["sources"][0]["split"] == "train"
+
+
+def test_append_sources_keeps_existing_splits_and_assigns_new_holdout(tmp_path: Path) -> None:
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    _image(first, 100)
+    _image(second, 200)
+    batch_dir, _ = create_batch([first], work_root=tmp_path / "studio", holdout_ratio=0.2)
+    original = json.loads((batch_dir / "batch.json").read_text(encoding="utf-8"))["sources"][0]
+
+    result = append_sources(batch_dir, [second])
+
+    manifest = json.loads((batch_dir / "batch.json").read_text(encoding="utf-8"))
+    assert result["added"] == 1
+    assert manifest["sources"][0]["id"] == original["id"]
+    assert manifest["sources"][0]["split"] == "train"
+    assert manifest["sources"][1]["split"] == "holdout"
 
 
 def test_review_updates_are_atomic_and_counted(tmp_path: Path) -> None:

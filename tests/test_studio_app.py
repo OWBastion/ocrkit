@@ -37,6 +37,23 @@ def test_studio_api_imports_image_into_private_batch(tmp_path: Path) -> None:
     assert len(list((tmp_path / "work/batches").iterdir())) == 1
 
 
+def test_studio_api_adds_screenshot_to_existing_batch(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    first = cv2.imencode(".png", np.full((40, 60, 3), 100, dtype=np.uint8))[1].tobytes()
+    second = cv2.imencode(".png", np.full((40, 60, 3), 200, dtype=np.uint8))[1].tobytes()
+    client = TestClient(create_app(tmp_path / "work", frontend))
+    created = client.post("/api/batches", data={"holdout_ratio": "0.2"}, files=[("files", ("first.png", first, "image/png"))])
+    batch_id = created.json()["batch"]["batch_id"]
+
+    response = client.post(f"/api/batches/{batch_id}/sources", files=[("files", ("second.png", second, "image/png"))])
+
+    assert response.status_code == 200
+    assert response.json()["added"] == 1
+    assert response.json()["batch"]["sources"] == 2
+
+
 def test_studio_api_reports_missing_holdout_as_actionable_validation_error(tmp_path: Path) -> None:
     frontend = tmp_path / "frontend"
     frontend.mkdir()
@@ -85,6 +102,6 @@ def test_studio_lists_only_complete_resume_checkpoints(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json() == [{
-        "path": "runs/smoke-20260730-104251/checkpoints/best_accuracy",
-        "name": "smoke-20260730-104251/checkpoints/best_accuracy",
+        "path": "resume-batch:runs/smoke-20260730-104251/checkpoints/best_accuracy",
+        "name": "resume-batch · smoke-20260730-104251/checkpoints/best_accuracy",
     }]

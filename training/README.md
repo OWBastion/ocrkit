@@ -77,6 +77,11 @@ written below `training/.work/evaluations/`; a result below the current `364/379
 the checkpoint for inspection. In Studio, the training page lists complete checkpoints from prior
 Smoke runs. Selecting one creates a new run with PaddleOCR's model, optimizer, and epoch state
 restored; set **target total Epoch** higher than the checkpoint's completed epoch to keep training.
+Use **加入当前批次** on the import page to add newly collected screenshots to an existing batch;
+the original source-level train/holdout assignments stay fixed, while only the added screenshots
+receive a split. Generate and review candidates again before finalizing labels. The checkpoint picker
+includes complete Smoke checkpoints from every local Studio batch, so a new or expanded batch can
+continue from a prior batch's checkpoint.
 
 ## Offline workflow
 

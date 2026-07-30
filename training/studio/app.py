@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from training.studio.core import (
     DEFAULT_WORK_ROOT,
+    append_sources,
     batch_summary,
     create_batch,
     finalize_dataset,
@@ -81,11 +82,16 @@ def _list_batches(work_root: Path) -> list[dict[str, object]]:
     return summaries
 
 
-def _resume_checkpoint(batch_dir: Path, value: str | None) -> Path | None:
+def _resume_checkpoint(work_root: Path, batch_dir: Path, value: str | None) -> Path | None:
     if value is None:
         return None
-    candidate = (batch_dir / value).resolve()
-    runs_dir = (batch_dir / "runs").resolve()
+    owner = batch_dir
+    relative = value
+    if ":" in value:
+        owner_id, relative = value.split(":", 1)
+        owner = _batch_dir(work_root, owner_id)
+    candidate = (owner / relative).resolve()
+    runs_dir = (owner / "runs").resolve()
     if runs_dir not in candidate.parents or candidate.suffix:
         raise HTTPException(status_code=422, detail="invalid resume checkpoint")
     if any(not Path(f"{candidate}{suffix}").is_file() for suffix in (".pdparams", ".pdopt", ".states")):
@@ -93,16 +99,42 @@ def _resume_checkpoint(batch_dir: Path, value: str | None) -> Path | None:
     return candidate
 
 
-def _list_resume_checkpoints(batch_dir: Path) -> list[dict[str, str]]:
-    runs_dir = batch_dir / "runs"
-    if not runs_dir.is_dir():
+def _list_resume_checkpoints(work_root: Path, batch_dir: Path) -> list[dict[str, str]]:
+    batches_dir = work_root / "batches"
+    if not batches_dir.is_dir():
         return []
     checkpoints: list[dict[str, str]] = []
-    for params in sorted(runs_dir.glob("smoke-*/checkpoints/*.pdparams"), reverse=True):
-        checkpoint = params.with_suffix("")
-        if all(Path(f"{checkpoint}{suffix}").is_file() for suffix in (".pdopt", ".states")):
-            checkpoints.append({"path": checkpoint.relative_to(batch_dir).as_posix(), "name": checkpoint.relative_to(runs_dir).as_posix()})
+    for owner in sorted(batches_dir.iterdir(), key=lambda path: (path != batch_dir, path.name), reverse=False):
+        if not (owner / "batch.json").is_file():
+            continue
+        owner_id = owner.name
+        runs_dir = owner / "runs"
+        if not runs_dir.is_dir():
+            continue
+        for params in sorted(runs_dir.glob("smoke-*/checkpoints/*.pdparams"), reverse=True):
+            checkpoint = params.with_suffix("")
+            if all(Path(f"{checkpoint}{suffix}").is_file() for suffix in (".pdopt", ".states")):
+                relative = checkpoint.relative_to(owner).as_posix()
+                checkpoints.append({
+                    "path": f"{owner_id}:{relative}",
+                    "name": f"{owner_id} · {checkpoint.relative_to(runs_dir).as_posix()}",
+                })
     return checkpoints
+
+
+async def _uploaded_paths(files: list[UploadFile], temporary_dir: Path) -> list[Path]:
+    paths: list[Path] = []
+    for index, upload in enumerate(files, 1):
+        suffix = Path(upload.filename or "").suffix.lower()
+        if suffix not in _IMAGE_SUFFIXES:
+            raise HTTPException(status_code=422, detail=f"unsupported image type: {upload.filename}")
+        content = await upload.read(_MAX_UPLOAD_BYTES + 1)
+        if len(content) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail=f"image exceeds {_MAX_UPLOAD_BYTES // 1024 // 1024} MiB: {upload.filename}")
+        path = temporary_dir / f"{index:04d}{suffix}"
+        path.write_bytes(content)
+        paths.append(path)
+    return paths
 
 
 def _poll_training_process(state: dict[str, object]) -> bool:
@@ -147,19 +179,21 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = 
         work_root.mkdir(parents=True, exist_ok=True)
         temporary_dir = Path(tempfile.mkdtemp(prefix="studio-import-", dir=work_root))
         try:
-            paths: list[Path] = []
-            for index, upload in enumerate(files, 1):
-                suffix = Path(upload.filename or "").suffix.lower()
-                if suffix not in _IMAGE_SUFFIXES:
-                    raise HTTPException(status_code=422, detail=f"unsupported image type: {upload.filename}")
-                content = await upload.read(_MAX_UPLOAD_BYTES + 1)
-                if len(content) > _MAX_UPLOAD_BYTES:
-                    raise HTTPException(status_code=413, detail=f"image exceeds {_MAX_UPLOAD_BYTES // 1024 // 1024} MiB: {upload.filename}")
-                path = temporary_dir / f"{index:04d}{suffix}"
-                path.write_bytes(content)
-                paths.append(path)
+            paths = await _uploaded_paths(files, temporary_dir)
             batch_dir, summary = await run_in_threadpool(create_batch, paths, work_root=work_root, holdout_ratio=holdout_ratio)
             return {"batch": summary, "previews": roi_preview_paths(batch_dir)}
+        finally:
+            shutil.rmtree(temporary_dir, ignore_errors=True)
+
+    @app.post("/api/batches/{batch_id}/sources")
+    async def add_sources(batch_id: str, files: list[UploadFile] = File(...)) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        temporary_dir = Path(tempfile.mkdtemp(prefix="studio-append-", dir=work_root))
+        try:
+            paths = await _uploaded_paths(files, temporary_dir)
+            return await run_in_threadpool(append_sources, batch_dir, paths)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             shutil.rmtree(temporary_dir, ignore_errors=True)
 
@@ -211,7 +245,7 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = 
             "--output-dir", str(run_dir / "checkpoints"),
             "--epochs", str(request.epochs),
         ]
-        resume_checkpoint = _resume_checkpoint(batch_dir, request.resume_checkpoint)
+        resume_checkpoint = _resume_checkpoint(work_root, batch_dir, request.resume_checkpoint)
         if resume_checkpoint is not None:
             command.extend(["--resume-checkpoint", str(resume_checkpoint)])
         with log_path.open("ab") as log:
@@ -231,7 +265,7 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = 
 
     @app.get("/api/batches/{batch_id}/training/checkpoints")
     def resume_checkpoints(batch_id: str) -> list[dict[str, str]]:
-        return _list_resume_checkpoints(_batch_dir(work_root, batch_id))
+        return _list_resume_checkpoints(work_root, _batch_dir(work_root, batch_id))
 
     @app.get("/api/batches/{batch_id}/training")
     def training_status(batch_id: str) -> dict[str, object]:

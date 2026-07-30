@@ -38,6 +38,15 @@ def _atomic_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     os.replace(temporary, path)
 
 
+def _invalidate_labels(dataset_dir: Path) -> None:
+    labels_dir = dataset_dir / "labels"
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    for split in ("train", "holdout"):
+        temporary = labels_dir / f"{split}.txt.{uuid.uuid4().hex}.tmp"
+        temporary.write_text("", encoding="utf-8")
+        os.replace(temporary, labels_dir / f"{split}.txt")
+
+
 def _digest(path: Path) -> str:
     hasher = hashlib.sha256()
     with path.open("rb") as handle:
@@ -121,6 +130,61 @@ def create_batch(
     return batch_dir, batch_summary(batch_dir)
 
 
+def append_sources(batch_dir: Path, upload_paths: list[str | Path]) -> dict[str, Any]:
+    """Add new source screenshots without changing existing source-level splits."""
+    manifest = load_manifest(batch_dir)
+    candidates = [Path(item) for item in upload_paths if item]
+    if not candidates:
+        raise ValueError("select at least one image")
+    roi_config = load_roi_config(ROOT / str(manifest["roi_config"]))
+    existing = {str(row["sha256"]) for row in manifest["sources"]}
+    prepared: list[tuple[Path, str, dict[str, Any]]] = []
+    for source in candidates:
+        if source.suffix.lower() not in _IMAGE_SUFFIXES or not source.is_file():
+            continue
+        digest = _digest(source)
+        if digest in existing:
+            continue
+        image = decode_image(source.read_bytes())
+        prepared.append((source, digest, assess_input_quality(image, roi_config.width, roi_config.height)))
+        existing.add(digest)
+    if not prepared:
+        raise ValueError("all selected screenshots already exist in this batch or could not be decoded")
+
+    sources: list[dict[str, Any]] = manifest["sources"]
+    existing_holdout = sum(row["split"] == "holdout" for row in sources)
+    total_sources = len(sources) + len(prepared)
+    target_holdout = int(round(total_sources * float(manifest["holdout_ratio"])))
+    if total_sources >= 2 and float(manifest["holdout_ratio"]) > 0:
+        target_holdout = max(1, min(total_sources - 1, target_holdout))
+    new_holdout = max(0, min(len(prepared), target_holdout - existing_holdout))
+    sources_dir = batch_dir / "sources"
+    next_index = len(sources) + 1
+    added: list[dict[str, Any]] = []
+    for index, (source, digest, quality) in enumerate(sorted(prepared, key=lambda row: row[1])):
+        extension = source.suffix.lower()
+        target_name = f"{next_index + index:04d}-{digest[:12]}{extension}"
+        shutil.copy2(source, sources_dir / target_name)
+        added.append(
+            {
+                "id": f"source-{digest[:12]}",
+                "file": f"sources/{target_name}",
+                "sha256": digest,
+                "split": "holdout" if index < new_holdout else "train",
+                "original_name": source.name,
+                "quality": quality,
+            }
+        )
+    manifest["sources"] = [*sources, *added]
+    manifest["updated_at"] = datetime.now(UTC).isoformat()
+    _atomic_json(batch_dir / "batch.json", manifest)
+    _atomic_json(
+        batch_dir / "cases.json",
+        [{"id": row["id"], "image": row["file"], "split": row["split"]} for row in manifest["sources"]],
+    )
+    return {"added": len(added), "batch": batch_summary(batch_dir)}
+
+
 def load_manifest(batch_dir: Path) -> dict[str, Any]:
     return json.loads((batch_dir / "batch.json").read_text(encoding="utf-8"))
 
@@ -151,6 +215,35 @@ def generate_candidates(batch_dir: Path, *, roi_config_path: Path = DEFAULT_ROI_
                 f"candidate output is incomplete: {dataset_dir}; create a new batch instead of overwriting private review data"
             )
         rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
+        known_sources = {str(row["source_id"]) for split_rows in rows.values() for row in split_rows}
+        missing_sources = [source for source in load_manifest(batch_dir)["sources"] if str(source["id"]) not in known_sources]
+        if missing_sources:
+            temporary_dir = batch_dir / f".candidate-append-{uuid.uuid4().hex}"
+            temporary_cases = temporary_dir / "cases.json"
+            temporary_output = temporary_dir / "dataset"
+            temporary_dir.mkdir()
+            try:
+                _atomic_json(
+                    temporary_cases,
+                    [{"id": row["id"], "image": row["file"], "split": row["split"]} for row in missing_sources],
+                )
+                prepare_candidates(temporary_cases, batch_dir, temporary_output, load_roi_config(roi_config_path))
+                for split in ("train", "holdout"):
+                    rows[split].extend(review_rows(temporary_output, split))
+                    _atomic_jsonl(review_dir / f"{split}.jsonl", rows[split])
+                shutil.copytree(temporary_output / "images", dataset_dir / "images", dirs_exist_ok=True)
+                _invalidate_labels(dataset_dir)
+            finally:
+                shutil.rmtree(temporary_dir, ignore_errors=True)
+            return {
+                "cases": len(load_manifest(batch_dir)["sources"]),
+                "train_cases": len({str(row["source_id"]) for row in rows["train"]}),
+                "holdout_cases": len({str(row["source_id"]) for row in rows["holdout"]}),
+                "train_candidates": len(rows["train"]),
+                "holdout_candidates": len(rows["holdout"]),
+                "auto_accepted": sum(row.get("auto_accept_reason") == "rapidocr_vision_agreement" for split_rows in rows.values() for row in split_rows),
+                "reused_existing_candidates": False,
+            }
         return {
             "cases": len(load_manifest(batch_dir)["sources"]),
             "train_cases": len({str(row["source_id"]) for row in rows["train"]}),
