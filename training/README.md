@@ -2,6 +2,30 @@
 
 `training/` is an offline-only workflow. The API image must not install PaddlePaddle, keep training data, or contain training checkpoints.
 
+## OCRKit Studio (local WebUI)
+
+OCRKit Studio is the local recognition-labeling and smoke-training workbench. It is not part of
+the FastAPI service and does not publish models. Imported screenshots, ROI previews, crops,
+review manifests, and training logs live only in the ignored `training/.work/studio/` workspace.
+
+```bash
+uv sync --extra studio --extra vision
+uv run --extra studio --extra vision python -m training.studio
+# Open http://127.0.0.1:7860
+```
+
+The WebUI follows one source-safe path:
+
+```text
+import screenshots → deterministic source-level train/holdout split → fixed-ROI candidates
+→ human review → validated recognition labels → separate CPU smoke process
+```
+
+It deduplicates source images by SHA-256, never splits crops from one source screenshot across
+train and holdout, and uses atomic replacements when review JSONL files change. The Studio uses
+the existing RapidOCR + optional macOS Vision agreement flow; every non-auto-accepted candidate
+must be accepted or rejected before labels or training can proceed.
+
 ## Layout
 
 - `datasets/labeled/det/labels.txt`: one line per source image, formatted as `relative/image.png<TAB>[{"transcription":"...","points":[[x1,y1],...,[x4,y4]]}]`.

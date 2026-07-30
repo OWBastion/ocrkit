@@ -9,6 +9,23 @@ labels_dir="${root_dir}/datasets/labeled/rec"
 config_path="${paddleocr_dir}/configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml"
 output_dir="${work_dir}/checkpoints/rec_pp_ocrv6_small"
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --labels-dir)
+      labels_dir="$2"
+      shift 2
+      ;;
+    --output-dir)
+      output_dir="$2"
+      shift 2
+      ;;
+    *)
+      printf 'usage: %s [--labels-dir <directory>] [--output-dir <directory>]\n' "$0" >&2
+      exit 2
+      ;;
+  esac
+done
+
 for path in "${paddleocr_dir}" "${python_bin}" "${labels_dir}/labels/train.txt" "${labels_dir}/labels/holdout.txt"; do
   if [[ ! -e "${path}" ]]; then
     printf 'missing required training input: %s\n' "${path}" >&2

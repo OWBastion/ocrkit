@@ -180,7 +180,10 @@ def prepare_candidates(
                 raise FileNotFoundError(f"fixture image does not exist: {image_path}")
             image = decode_image(image_path.read_bytes())
             _, rois = crop_all_rois(image, roi_config)
-            split = split_for_case(case_id)
+            requested_split = case.get("split")
+            if requested_split is not None and requested_split not in {"train", "holdout"}:
+                raise ValueError(f"case {case_id} has invalid split: {requested_split}")
+            split = str(requested_split) if requested_split else split_for_case(case_id)
 
             for roi_name, roi in rois.items():
                 processed = preprocess_by_roi(roi_name, roi)
@@ -240,8 +243,8 @@ def prepare_candidates(
 
     return {
         "cases": len(cases),
-        "train_cases": sum(split_for_case(str(case["id"])) == "train" for case in cases),
-        "holdout_cases": sum(split_for_case(str(case["id"])) == "holdout" for case in cases),
+        "train_cases": sum((str(case.get("split")) if case.get("split") else split_for_case(str(case["id"]))) == "train" for case in cases),
+        "holdout_cases": sum((str(case.get("split")) if case.get("split") else split_for_case(str(case["id"]))) == "holdout" for case in cases),
         "train_candidates": len(rows["train"]),
         "holdout_candidates": len(rows["holdout"]),
         "auto_accepted": sum(row["review_status"] == "accepted" for split_rows in rows.values() for row in split_rows),
