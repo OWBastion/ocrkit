@@ -1,0 +1,74 @@
+name: Python
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "configs/**"
+      - "scripts/**"
+      - "training/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/python.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "configs/**"
+      - "scripts/**"
+      - "training/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/python.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          token: ${{ github.token }}
+
+      - name: Checkout private OCR fixtures
+        uses: actions/checkout@v7
+        with:
+          repository: OWBastion/ocrkit-datasets
+          token: ${{ secrets.OCRKIT_DATASETS_TOKEN }}
+          path: datasets
+          fetch-depth: 0
+
+      - name: Pin OCR fixtures revision
+        run: |
+          dataset_commit="$(git rev-parse HEAD:datasets)"
+          git -C datasets checkout --detach "$dataset_commit"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install test dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Run pytest
+        run: uv run pytest -q
+
+      - name: Run OCR fixture evaluation
+        run: uv run python scripts/batch_eval.py --min-field-accuracy 0.9604221635883905
