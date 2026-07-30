@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from training.studio.core import (
     DEFAULT_WORK_ROOT,
@@ -38,6 +38,11 @@ class ReviewUpdate(BaseModel):
     crop: str
     status: str
     transcription: str | None = None
+
+
+class TrainingStart(BaseModel):
+    resume_checkpoint: str | None = None
+    epochs: int = Field(default=10, ge=1, le=100)
 
 
 def _batch_dir(work_root: Path, batch_id: str) -> Path:
@@ -74,6 +79,30 @@ def _list_batches(work_root: Path) -> list[dict[str, object]]:
         summary["review"] = review_counts(path)
         summaries.append(summary)
     return summaries
+
+
+def _resume_checkpoint(batch_dir: Path, value: str | None) -> Path | None:
+    if value is None:
+        return None
+    candidate = (batch_dir / value).resolve()
+    runs_dir = (batch_dir / "runs").resolve()
+    if runs_dir not in candidate.parents or candidate.suffix:
+        raise HTTPException(status_code=422, detail="invalid resume checkpoint")
+    if any(not Path(f"{candidate}{suffix}").is_file() for suffix in (".pdparams", ".pdopt", ".states")):
+        raise HTTPException(status_code=422, detail="resume checkpoint is incomplete or no longer exists")
+    return candidate
+
+
+def _list_resume_checkpoints(batch_dir: Path) -> list[dict[str, str]]:
+    runs_dir = batch_dir / "runs"
+    if not runs_dir.is_dir():
+        return []
+    checkpoints: list[dict[str, str]] = []
+    for params in sorted(runs_dir.glob("smoke-*/checkpoints/*.pdparams"), reverse=True):
+        checkpoint = params.with_suffix("")
+        if all(Path(f"{checkpoint}{suffix}").is_file() for suffix in (".pdopt", ".states")):
+            checkpoints.append({"path": checkpoint.relative_to(batch_dir).as_posix(), "name": checkpoint.relative_to(runs_dir).as_posix()})
+    return checkpoints
 
 
 def _poll_training_process(state: dict[str, object]) -> bool:
@@ -166,7 +195,7 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEN
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/batches/{batch_id}/training/smoke")
-    async def start_smoke(batch_id: str) -> dict[str, object]:
+    async def start_smoke(batch_id: str, request: TrainingStart) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
         try:
             await run_in_threadpool(finalize_dataset, batch_dir)
@@ -175,26 +204,47 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEN
         run_dir = batch_dir / "runs" / f"smoke-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
         run_dir.mkdir(parents=True, exist_ok=True)
         log_path = run_dir / "training.log"
-        command = [str(ROOT / "training/run_rec_smoke.sh"), "--labels-dir", str(batch_dir / "dataset"), "--output-dir", str(run_dir / "checkpoints")]
+        command = [
+            str(ROOT / "training/run_rec_smoke.sh"),
+            "--labels-dir", str(batch_dir / "dataset"),
+            "--output-dir", str(run_dir / "checkpoints"),
+            "--epochs", str(request.epochs),
+        ]
+        resume_checkpoint = _resume_checkpoint(batch_dir, request.resume_checkpoint)
+        if resume_checkpoint is not None:
+            command.extend(["--resume-checkpoint", str(resume_checkpoint)])
         with log_path.open("ab") as log:
             process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        state: dict[str, object] = {"pid": process.pid, "status": "training", "command": command, "log": str(log_path)}
+        state: dict[str, object] = {
+            "pid": process.pid,
+            "status": "training",
+            "command": command,
+            "log": str(log_path),
+            "epochs": request.epochs,
+            "resume_checkpoint": request.resume_checkpoint,
+        }
         payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
         (run_dir / "run.json").write_text(payload, encoding="utf-8")
         (batch_dir / "runs/latest.json").write_text(payload, encoding="utf-8")
         return state
+
+    @app.get("/api/batches/{batch_id}/training/checkpoints")
+    def resume_checkpoints(batch_id: str) -> list[dict[str, str]]:
+        return _list_resume_checkpoints(_batch_dir(work_root, batch_id))
 
     @app.get("/api/batches/{batch_id}/training")
     def training_status(batch_id: str) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
         state_path = batch_dir / "runs/latest.json"
         if not state_path.is_file():
-            return {"status": "not_started", "log": ""}
+            return {"status": "not_started", "log": "", "log_tail": ""}
         state: dict[str, object] = json.loads(state_path.read_text(encoding="utf-8"))
         state_changed = _poll_training_process(state)
-        log_path = Path(str(state["log"]))
-        state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-12000:] if log_path.is_file() else ""
+        log_path = Path(str(state.get("log", "")))
+        # Keep a generous plain-text tail for the studio log viewer.
+        state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-48000:] if log_path.is_file() else ""
         if state_changed:
+            # Persist terminal status without embedding the log body into latest.json.
             persisted = {key: value for key, value in state.items() if key != "log_tail"}
             state_path.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return state

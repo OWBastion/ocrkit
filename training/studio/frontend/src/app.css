@@ -207,8 +207,66 @@
   .empty-detail p {
     @apply mt-2 max-w-md text-sm leading-6 text-ink/55;
   }
-  .training pre {
-    @apply mt-5 w-full overflow-auto border border-ink/15 bg-ink p-4 text-xs leading-5 text-paper;
+  .training-panel {
+    @apply grid gap-4 border border-ink/12 bg-white/55 p-5 sm:p-6;
+  }
+  .training-head {
+    @apply flex flex-wrap items-end justify-between gap-4;
+  }
+  .training-head .panel-actions { @apply mt-0; }
+  .training-status {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-2 text-sm;
+  }
+  .status-pill {
+    @apply rounded-full bg-ink/8 px-2.5 py-1 text-xs font-semibold tracking-wide text-ink/70;
+  }
+  .status-running {
+    @apply bg-clay/20 text-ink;
+  }
+  .status-done {
+    @apply bg-leaf/15 text-leaf;
+  }
+  .status-failed {
+    @apply bg-red-100 text-red-800;
+  }
+  .status-meta {
+    @apply text-xs tabular-nums text-ink/45;
+  }
+  .status-live {
+    @apply text-leaf;
+  }
+  .training-command {
+    @apply grid gap-1 text-xs text-ink/50;
+  }
+  .training-command code {
+    @apply block overflow-x-auto whitespace-nowrap rounded border border-ink/10 bg-paper px-3 py-2 font-mono text-[11px] leading-5 text-ink/75;
+  }
+  .log-panel {
+    @apply overflow-hidden border border-ink/12 bg-ink text-paper;
+  }
+  .log-toolbar {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-3 py-2.5;
+    background: color-mix(in oklch, black 22%, transparent);
+  }
+  .log-toolbar > span {
+    @apply text-[11px] font-semibold tracking-[.16em] text-paper/55;
+  }
+  .log-toolbar-actions {
+    @apply flex flex-wrap items-center gap-3;
+  }
+  .log-follow {
+    @apply flex items-center gap-1.5 text-xs text-paper/70;
+  }
+  .log-follow input { @apply accent-clay; }
+  .log-path {
+    @apply max-w-[16rem] truncate text-paper/40;
+  }
+  .log-tail {
+    @apply m-0 max-h-[min(65vh,36rem)] min-h-72 overflow-auto overscroll-contain p-4;
+    @apply font-mono text-[12px] leading-6 text-paper/90;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 2;
   }
 }
 
@@ -216,6 +274,9 @@
   .crop-panel, .crop-toolbar {
     backdrop-filter: none;
     background: white;
+  }
+  .log-toolbar {
+    background: #1a1a1a;
   }
 }
 

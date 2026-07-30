@@ -1,10 +1,17 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
 
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; review?: ReviewCounts }
   type Row = { crop: string; roi: string; review_status: string; candidate_text?: string; transcription?: string; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
+  type TrainingState = {
+    status?: string
+    pid?: number
+    log?: string
+    log_tail?: string
+    command?: string[]
+  }
 
   let batches: Batch[] = []
   let batch: Batch | null = null
@@ -18,10 +25,16 @@
   let error = ''
   let busy = false
   let active = 'import'
-  let training: Record<string, unknown> | null = null
+  let training: TrainingState | null = null
+  let trainingUpdatedAt = ''
+  let trainingPolling = false
+  let followLog = true
+  let logEl: HTMLPreElement | null = null
   let cropZoom: CropZoom = 'auto'
   let cropNatural = { w: 0, h: 0 }
+  let trainingPollTimer: ReturnType<typeof setInterval> | null = null
   const cropZoomSteps: CropZoom[] = ['auto', 1, 2, 3, 4]
+  const TRAINING_POLL_MS = 2000
   const supportedClipboardTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
   const nav = [
@@ -33,9 +46,23 @@
   ] as const
 
   function openStep(step: (typeof nav)[number][0]) {
+    if (step !== 'training') stopTrainingPoll()
     active = step
     if (step === 'review' && batch) void refreshReview()
-    if (step === 'training' && batch) void refreshTraining()
+    if (step === 'training' && batch) void loadTrainingStep()
+  }
+
+  async function selectBatch(batchId: string) {
+    batch = batches.find((item) => item.batch_id === batchId) || null
+    selected = null
+    rows = []
+    if (active === 'training') {
+      if (batch) await loadTrainingStep()
+      else {
+        training = null
+        stopTrainingPoll()
+      }
+    }
   }
 
   function batchHint() {
@@ -248,22 +275,95 @@
       const result = await request<Record<string, number>>(`/api/batches/${batch.batch_id}/finalize`, { method: 'POST' })
       message(`标签已生成：train ${result.validated_train}，holdout ${result.validated_holdout}。`)
       active = 'training'
+      await loadTrainingStep()
     } catch (cause) { message(cause instanceof Error ? cause.message : '生成标签失败', true) } finally { busy = false }
+  }
+
+  function trainingStatusLabel(value?: string) {
+    switch (value) {
+      case 'training': return '运行中'
+      case 'completed': return '成功'
+      case 'failed': return '失败'
+      case 'completed_or_failed': return '已结束'
+      case 'not_started': return '未开始'
+      default: return value || '未知'
+    }
+  }
+
+  function trainingIsRunning(value?: string) {
+    return value === 'training'
+  }
+
+  function trainingIsDone(value?: string) {
+    return value === 'completed' || value === 'failed' || value === 'completed_or_failed'
+  }
+
+  function stopTrainingPoll() {
+    if (trainingPollTimer) {
+      clearInterval(trainingPollTimer)
+      trainingPollTimer = null
+    }
+    trainingPolling = false
+  }
+
+  function startTrainingPoll() {
+    if (trainingPollTimer || active !== 'training' || !batch) return
+    trainingPolling = true
+    trainingPollTimer = setInterval(() => {
+      void refreshTraining({ silent: true })
+    }, TRAINING_POLL_MS)
+  }
+
+  async function scrollLogToBottom() {
+    if (!followLog || !logEl) return
+    await tick()
+    logEl.scrollTop = logEl.scrollHeight
+  }
+
+  async function refreshTraining(options?: { silent?: boolean }) {
+    if (!batch) return
+    try {
+      const previousStatus = training?.status
+      training = await request<TrainingState>(`/api/batches/${batch.batch_id}/training`)
+      trainingUpdatedAt = new Date().toLocaleTimeString()
+      if (trainingIsRunning(training.status)) {
+        if (active === 'training') startTrainingPoll()
+      } else {
+        stopTrainingPoll()
+        if (!options?.silent && previousStatus === 'training' && trainingIsDone(training.status)) {
+          message(training.status === 'completed' ? 'Smoke 训练已成功结束。' : 'Smoke 训练已结束，请查看日志。')
+        }
+      }
+      await scrollLogToBottom()
+    } catch (cause) {
+      stopTrainingPoll()
+      if (!options?.silent) message(cause instanceof Error ? cause.message : '获取训练状态失败', true)
+    }
+  }
+
+  async function loadTrainingStep() {
+    await refreshTraining()
+    if (trainingIsRunning(training?.status)) startTrainingPoll()
   }
 
   async function startTraining() {
     if (!batch) return message('先选择批次。', true)
     busy = true
     try {
-      training = await request(`/api/batches/${batch.batch_id}/training/smoke`, { method: 'POST' })
-      message('Smoke 训练已启动。')
+      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/smoke`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      message('Smoke 训练已启动，状态将自动刷新。')
+      followLog = true
       await refreshTraining()
+      startTrainingPoll()
     } catch (cause) { message(cause instanceof Error ? cause.message : '训练启动失败', true) } finally { busy = false }
   }
 
-  async function refreshTraining() { if (batch) training = await request(`/api/batches/${batch.batch_id}/training`) }
-
   onMount(async () => { try { await refreshBatches() } catch { message('无法连接 Studio API。', true) } })
+  onDestroy(stopTrainingPoll)
 </script>
 
 <svelte:window on:paste={pasteImages} />
@@ -281,11 +381,7 @@
         <span>批次</span>
         <select
           value={batch?.batch_id || ''}
-          on:change={(event) => {
-            batch = batches.find((item) => item.batch_id === (event.currentTarget as HTMLSelectElement).value) || null
-            selected = null
-            rows = []
-          }}
+          on:change={(event) => void selectBatch((event.currentTarget as HTMLSelectElement).value)}
         >
           <option value="">未选择</option>
           {#each batches as item}
@@ -524,19 +620,59 @@
         </div>
       </section>
     {:else}
-      <section class="panel stage-panel training">
-        <header class="panel-head">
-          <h2>5. Smoke 训练</h2>
-          <p>在当前批次 labels 上启动本地 CPU Smoke。可刷新查看进程状态与输出。</p>
-        </header>
-        <div class="panel-actions">
-          <button class="button-secondary" disabled={!batch} on:click={refreshTraining}>刷新状态</button>
-          <button class="button-primary" disabled={!batch || busy} on:click={startTraining}>
-            {busy ? '启动中…' : '启动训练'}
-          </button>
+      <section class="training-panel">
+        <div class="training-head">
+          <header class="panel-head">
+            <h2>5. Smoke 训练</h2>
+            <p>在当前批次 labels 上启动本地 CPU Smoke。运行中会自动刷新状态与日志。</p>
+          </header>
+          <div class="panel-actions">
+            <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshTraining()}>立即刷新</button>
+            <button class="button-primary" disabled={!batch || busy || trainingIsRunning(training?.status)} on:click={startTraining}>
+              {busy ? '启动中…' : trainingIsRunning(training?.status) ? '训练中…' : '启动训练'}
+            </button>
+          </div>
         </div>
-        {#if training}
-          <pre>{JSON.stringify(training, null, 2)}</pre>
+
+        {#if !batch}
+          <p class="empty">请先选择批次。</p>
+        {:else if !training || training.status === 'not_started'}
+          <p class="empty">尚未启动训练。生成 labels 后点击「启动训练」。</p>
+        {:else}
+          <div class="training-status" aria-live="polite">
+            <span
+              class="status-pill"
+              class:status-running={trainingIsRunning(training.status)}
+              class:status-done={training.status === 'completed'}
+              class:status-failed={training.status === 'failed' || training.status === 'completed_or_failed'}
+            >{trainingStatusLabel(training.status)}</span>
+            {#if training.pid}<span class="status-meta">PID {training.pid}</span>{/if}
+            {#if trainingPolling}<span class="status-meta status-live">自动刷新中 · 每 {TRAINING_POLL_MS / 1000}s</span>{/if}
+            {#if trainingUpdatedAt}<span class="status-meta">更新于 {trainingUpdatedAt}</span>{/if}
+          </div>
+
+          {#if training.command?.length}
+            <p class="training-command" title={training.command.join(' ')}>
+              <span>命令</span>
+              <code>{training.command.join(' ')}</code>
+            </p>
+          {/if}
+
+          <section class="log-panel" aria-label="训练日志">
+            <header class="log-toolbar">
+              <span>日志</span>
+              <div class="log-toolbar-actions">
+                <label class="log-follow">
+                  <input type="checkbox" bind:checked={followLog} on:change={() => void scrollLogToBottom()} />
+                  跟随底部
+                </label>
+                {#if training.log}
+                  <span class="status-meta log-path" title={training.log}>{training.log.split('/').slice(-3).join('/')}</span>
+                {/if}
+              </div>
+            </header>
+            <pre class="log-tail" bind:this={logEl}>{training.log_tail?.trimEnd() || '（暂无输出，启动后将显示在这里）'}</pre>
+          </section>
         {/if}
       </section>
     {/if}
