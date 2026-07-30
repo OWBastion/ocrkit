@@ -80,11 +80,13 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT):
             raise gr.Error("先导入一个批次。")
         return _message(generate_candidates(Path(batch))), _message(review_counts(Path(batch)))
 
-    def list_rows(batch: str, split: str, status: str) -> tuple[list[list[str]], list[str]]:
+    def list_rows(batch: str, split: str, status: str) -> tuple[list[list[str]], Any]:
         rows = review_rows(Path(batch), split, status) if batch else []
         choices = [str(row["crop"]) for row in rows]
         table = [[row["crop"], row.get("roi", ""), row.get("review_status", ""), row.get("candidate_text") or "", str(row.get("confidence") or "")] for row in rows]
-        return table, choices
+        # A stale selection is invalid after status filtering; clear it before the
+        # dropdown's change handler receives the new choice list.
+        return table, gr.Dropdown(choices=choices, value=None)
 
     def select_row(batch: str, split: str, crop: str) -> tuple[str | None, str, str]:
         rows = review_rows(Path(batch), split) if batch else []
