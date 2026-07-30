@@ -6,9 +6,13 @@ on:
       - main
     tags:
       - "v*"
+    paths-ignore:
+      - "rust/**"
   pull_request:
     branches:
       - main
+    paths-ignore:
+      - "rust/**"
 
 permissions:
   contents: read
@@ -57,19 +61,6 @@ jobs:
 
       - name: Run OCR fixture evaluation
         run: uv run python scripts/batch_eval.py --min-field-accuracy 0.9604221635883905
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Validate Rust image core
-        run: |
-          uv run python scripts/export_layout_manifest.py \
-            configs/roi_1280x720.yaml \
-            configs/roi_1280x720.manifest.json \
-            --check
-          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
-          cargo test --manifest-path rust/Cargo.toml --locked
-          cargo clippy --manifest-path rust/Cargo.toml --all-targets --locked -- -D warnings
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

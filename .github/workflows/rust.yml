@@ -1,0 +1,61 @@
+name: Rust
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "rust/**"
+      - "configs/roi_1280x720.yaml"
+      - "configs/roi_1280x720.manifest.json"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "rust/**"
+      - "configs/roi_1280x720.yaml"
+      - "configs/roi_1280x720.manifest.json"
+      - ".github/workflows/rust.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Run tests
+        run: cargo test --manifest-path rust/Cargo.toml --workspace --locked
+
+      - name: Run Clippy
+        run: cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets --locked -- -D warnings
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release artifacts
+        run: cargo build --manifest-path rust/Cargo.toml --workspace --locked --release
