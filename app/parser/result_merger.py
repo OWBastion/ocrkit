@@ -29,6 +29,7 @@ def merge_result(
         duration_text=duration_text,
         duration_seconds=duration_seconds,
         map_name=right.map_name,
+        map_variant=right.map_variant,
         difficulty=right.difficulty,
         version=right.version,
     )

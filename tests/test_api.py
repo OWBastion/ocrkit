@@ -89,7 +89,7 @@ def test_extract_uses_viewer_player_only(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "app.service.parse_right_panel",
-        lambda text, map_names, map_aliases: RightPanel(None, None, None),
+        lambda text, map_names, map_aliases: RightPanel(None, None, None, "classic"),
     )
 
     response = extract_structured(
@@ -106,6 +106,8 @@ def test_extract_uses_viewer_player_only(monkeypatch) -> None:
     )
 
     assert response.data.viewer_player == "viewer-player"
+    assert response.data.map_variant == "classic"
+    assert response.fields["map_variant"].value == "classic"
     assert response.warnings == [
         "left_panel.hero_progress_missing",
         "left_panel.deaths_skips_missing",
@@ -215,6 +217,7 @@ def test_by_object_ok_with_debug() -> None:
         "duration_text",
         "duration_seconds",
         "map_name",
+        "map_variant",
         "difficulty",
         "version",
     }

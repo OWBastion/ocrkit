@@ -24,6 +24,8 @@ _MAP_TEXT_CLEAN = str.maketrans(
 )
 _MAP_COMPAT_FIX = str.maketrans({"0": "O", "1": "I", "5": "S", "8": "B"})
 _MAP_VARIANT_SUFFIXES = ("经典版", "经典")
+_CLASSIC_MAP_VARIANT = "classic"
+_CLASSIC_MAP_VARIANT_LABEL = re.compile(r"(?:经典版|经典)\s*[：:]")
 
 
 @dataclass
@@ -31,6 +33,7 @@ class RightPanel:
     map_name: str | None
     difficulty: str | None
     version: str | None
+    map_variant: str | None = None
 
 
 def _normalize_map_text(text: str) -> str:
@@ -72,6 +75,16 @@ def _map_candidate_before_difficulty(raw_text: str, difficulty_match: re.Match[s
     candidate = head[split_pos + 1 :] if split_pos >= 0 else head[max(0, len(head) - 24) :]
     candidate = _normalize_map_text(candidate)
     return candidate or None
+
+
+def _parse_map_variant(raw_text: str, anchored_map: str | None) -> str | None:
+    if anchored_map and any(
+        _normalize_map_text(anchored_map).endswith(suffix) for suffix in _MAP_VARIANT_SUFFIXES
+    ):
+        return _CLASSIC_MAP_VARIANT
+    if _CLASSIC_MAP_VARIANT_LABEL.search(raw_text):
+        return _CLASSIC_MAP_VARIANT
+    return None
 
 
 def _best_map(raw_text: str, map_names: list[str]) -> str | None:
@@ -129,6 +142,7 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
         map_name = _best_map(text, list(map_aliases))
         if map_name is not None:
             map_name = map_aliases[map_name]
+    map_variant = _parse_map_variant(text, anchored_map)
 
     version = None
     vm = _VERSION.search(text)
@@ -142,4 +156,5 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
         map_name=map_name,
         difficulty=difficulty,
         version=version,
+        map_variant=map_variant,
     )

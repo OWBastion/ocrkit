@@ -28,6 +28,7 @@ _FIELD_ROIS = {
     "duration_text": ("left_panel", "center_banner"),
     "duration_seconds": ("left_panel", "center_banner"),
     "map_name": ("right_panel",),
+    "map_variant": ("right_panel",),
     "difficulty": ("right_panel",),
     "version": ("right_panel",),
 }

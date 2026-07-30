@@ -44,6 +44,7 @@ class ChallengeData(BaseModel):
     duration_text: str | None
     duration_seconds: float | None
     map_name: str | None
+    map_variant: str | None
     difficulty: str | None
     version: str | None
 

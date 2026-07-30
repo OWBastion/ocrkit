@@ -85,6 +85,8 @@ for this signal. If the ROI or catalog cannot be read, the title fields are empt
 `viewer_player` is the only player identity field suitable for account matching. The
 central completion banner is not an authoritative player source, so its player name is
 not included in `ChallengeData` or field evidence.
+`map_variant` is `"classic"` when the right-panel map label contains `经典版` or `经典`,
+and `null` when the variant is not detected.
 
 ### R2 Object Mode
 

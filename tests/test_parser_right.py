@@ -6,6 +6,7 @@ def test_parse_right_panel_fixed_format_and_version() -> None:
     assert out.map_name == "巴黎"
     assert out.difficulty == "地狱"
     assert out.version == "26.0506.1"
+    assert out.map_variant is None
 
 
 def test_parse_right_panel_classic_map_variant() -> None:
@@ -14,6 +15,14 @@ def test_parse_right_panel_classic_map_variant() -> None:
     assert out.map_name == "巴黎"
     assert out.difficulty == "地狱"
     assert out.version == "26.0703.1"
+    assert out.map_variant == "classic"
+
+
+def test_parse_right_panel_classic_map_variant_without_version() -> None:
+    out = parse_right_panel("皇家赛道·经典：地狱", ["皇家赛道"])
+
+    assert out.map_name == "皇家赛道"
+    assert out.map_variant == "classic"
 
 
 def test_parse_right_panel_colon_variant() -> None:

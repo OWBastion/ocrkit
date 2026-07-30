@@ -22,12 +22,18 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
         clear_time="2小时20分38秒",
         clear_time_seconds=8438.0,
     )
-    right = RightPanel(map_name="萨摩亚：地狱", difficulty="地狱", version="26.0513.6")
+    right = RightPanel(
+        map_name="萨摩亚：地狱",
+        difficulty="地狱",
+        version="26.0513.6",
+        map_variant="classic",
+    )
 
     out = merge_result(center, left, BottomLeftHero(player="bottom-player"), right)
     assert out.deaths == 114
     assert out.skips == 0
     assert out.viewer_player == "bottom-player"
+    assert out.map_variant == "classic"
     assert out.achievement_title is None
     assert out.achievement_titles == []
     assert out.achievement_unlocked is None
