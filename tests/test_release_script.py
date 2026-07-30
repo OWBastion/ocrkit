@@ -41,3 +41,5 @@ def test_release_accepts_an_explicit_studio_checkpoint() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
 
     assert "--checkpoint" in text
+    assert "publish_model_channel.py" in text
+    assert "--release-channel" in text

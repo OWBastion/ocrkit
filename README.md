@@ -111,13 +111,16 @@ artifact manifest from Cloudflare R2; the service image does not contain PaddleO
 model binaries. It reuses the existing R2 endpoint and credentials, plus:
 
 - `OCRKIT_R2_DEFAULT_BUCKET`
-- `OCRKIT_MODEL_MANIFEST_KEY` (a versioned `models/pp-ocrv6-small/<version>/manifest.json` key)
+- `OCRKIT_MODEL_MANIFEST_KEY` (the initial versioned fallback manifest)
+- `OCRKIT_MODEL_RELEASE_CHANNEL_KEY` (recommended: `models/pp-ocrv6-small/channels/stable.json`)
+- `OCRKIT_MODEL_REFRESH_SECONDS` (release-channel polling interval; default `60`)
 - `OCRKIT_MODEL_CACHE_DIR` (default: `/var/lib/ocrkit/models`)
 - `OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS` (default: `30`)
 
-When `OCRKIT_MODEL_MANIFEST_KEY` is configured, a missing, incomplete, or checksum-invalid
-model artifact prevents the service from starting. Without it, local development uses
-RapidOCR's bundled default model.
+When a release channel is configured, it takes precedence over the fallback manifest. The service
+periodically reads the channel, verifies a newly selected immutable artifact in full, then atomically
+switches OCR engines; a failed refresh keeps the active model. Without either model setting, local
+development uses RapidOCR's bundled default model.
 
 PaddleOCR is only used offline for fine-tuning and export. See
 [`training/README.md`](training/README.md) for the PP-OCRv6 small det/rec label formats,
@@ -130,16 +133,19 @@ uv run python scripts/batch_eval.py
 ## Docker Compose
 
 For a deployed model, copy `.env.model.example` to a deployment-only `.env`, fill in the R2
-credentials and set `OCRKIT_MODEL_MANIFEST_KEY` to the released version. Models use the reserved
-`models/pp-ocrv6-small/` prefix; user screenshots use `uploads/`. Do not commit that file.
-The container downloads and verifies the model at startup, then caches it in the named volume.
+credentials, retain a known-good `OCRKIT_MODEL_MANIFEST_KEY` for initial fallback, and set the stable
+`OCRKIT_MODEL_RELEASE_CHANNEL_KEY` once. Models use the reserved `models/pp-ocrv6-small/` prefix;
+user screenshots use `uploads/`. Do not commit that file. The container downloads and verifies the
+model at startup, then follows the channel without later environment edits.
 
 ```bash
 docker compose up --build -d
 docker compose ps
 ```
 
-To switch or roll back, change only `OCRKIT_MODEL_MANIFEST_KEY` and recreate the service:
+Studio updates the stable channel after a fully verified publication. To switch or roll back manually,
+update that channel to another already-published manifest; the service will converge on the next poll.
+The old environment-variable flow remains available for initial migration:
 
 ```bash
 docker compose up -d --force-recreate

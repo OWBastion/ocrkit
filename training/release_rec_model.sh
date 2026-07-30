@@ -14,6 +14,7 @@ work_dir="${root_dir}/training/.work"
 training_python="${work_dir}/venv/bin/python"
 paddle2onnx_bin="${work_dir}/venv/bin/paddle2onnx"
 checkpoint="${work_dir}/checkpoints/rec_pp_ocrv6_small/best_accuracy"
+release_channel="${OCRKIT_MODEL_RELEASE_CHANNEL_KEY:-models/pp-ocrv6-small/channels/stable.json}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --checkpoint)
@@ -24,8 +25,16 @@ while [[ $# -gt 0 ]]; do
       checkpoint="$2"
       shift 2
       ;;
+    --release-channel)
+      if [[ $# -lt 2 ]]; then
+        printf 'usage: %s [--checkpoint <checkpoint_base>] [--release-channel <channel_key>]\n' "$0" >&2
+        exit 2
+      fi
+      release_channel="$2"
+      shift 2
+      ;;
     *)
-      printf 'usage: %s [--checkpoint <checkpoint_base>]\n' "$0" >&2
+      printf 'usage: %s [--checkpoint <checkpoint_base>] [--release-channel <channel_key>]\n' "$0" >&2
       exit 2
       ;;
   esac
@@ -50,7 +59,12 @@ uv run python training/scripts/upload_artifacts.py --artifact-dir "${artifact_di
 uv run python training/scripts/verify_published_artifact.py \
   --bucket "${bucket}" \
   --manifest-key "models/pp-ocrv6-small/${version}/manifest.json"
+uv run python training/scripts/publish_model_channel.py \
+  --bucket "${bucket}" \
+  --channel-key "${release_channel}" \
+  --manifest-key "models/pp-ocrv6-small/${version}/manifest.json"
 
 printf 'model_version=%s\n' "${version}"
 printf 'manifest_key=models/pp-ocrv6-small/%s/manifest.json\n' "${version}"
 printf 'OCRKIT_MODEL_MANIFEST_KEY=models/pp-ocrv6-small/%s/manifest.json\n' "${version}"
+printf 'OCRKIT_MODEL_RELEASE_CHANNEL_KEY=%s\n' "${release_channel}"
