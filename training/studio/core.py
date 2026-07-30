@@ -216,7 +216,28 @@ def review_counts(batch_dir: Path) -> dict[str, int]:
     return {"total": len(rows), "accepted": counts["accepted"], "pending": counts["pending"], "rejected": counts["rejected"]}
 
 
+def _validate_review_readiness(batch_dir: Path) -> None:
+    manifest = load_manifest(batch_dir)
+    sources = manifest["sources"]
+    split_sources = Counter(str(source["split"]) for source in sources)
+    if split_sources["train"] == 0 or split_sources["holdout"] == 0:
+        raise ValueError(
+            "training labels require at least two distinct source screenshots so one can be held out for evaluation; "
+            "create a new batch with at least two unique images"
+        )
+
+    for split in ("train", "holdout"):
+        rows = review_rows(batch_dir, split)
+        pending = sum(row.get("review_status") == "pending" for row in rows)
+        accepted = sum(row.get("review_status") == "accepted" for row in rows)
+        if pending:
+            raise ValueError(f"{split} review still has {pending} pending candidate(s); accept or reject every candidate first")
+        if not accepted:
+            raise ValueError(f"{split} requires at least one accepted transcription for training and evaluation")
+
+
 def finalize_dataset(batch_dir: Path) -> dict[str, int]:
+    _validate_review_readiness(batch_dir)
     dataset_dir = batch_dir / "dataset"
     result = finalize(dataset_dir)
     result["validated_train"] = validate_rec(dataset_dir / "labels/train.txt")

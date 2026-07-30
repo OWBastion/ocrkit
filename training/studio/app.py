@@ -137,12 +137,18 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEN
 
     @app.post("/api/batches/{batch_id}/finalize")
     async def finalize(batch_id: str) -> dict[str, int]:
-        return await run_in_threadpool(finalize_dataset, _batch_dir(work_root, batch_id))
+        try:
+            return await run_in_threadpool(finalize_dataset, _batch_dir(work_root, batch_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/batches/{batch_id}/training/smoke")
     async def start_smoke(batch_id: str) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
-        await run_in_threadpool(finalize_dataset, batch_dir)
+        try:
+            await run_in_threadpool(finalize_dataset, batch_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         run_dir = batch_dir / "runs" / f"smoke-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
         run_dir.mkdir(parents=True, exist_ok=True)
         log_path = run_dir / "training.log"
