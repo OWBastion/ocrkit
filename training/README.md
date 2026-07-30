@@ -10,13 +10,13 @@ the production OCR service and does not publish models. Imported screenshots, RO
 crops, review manifests, and training logs live only in the ignored `training/.work/studio/` workspace.
 
 ```bash
-./training/studio/run.sh
+./studio.sh
 # Open http://127.0.0.1:7860
 ```
 
 The launcher installs the locked frontend dependencies, builds the UI, and starts Studio with the
-macOS Vision extra. Use `./training/studio/run.sh build` to build only, or pass server options via
-`./training/studio/run.sh start --port 7861`.
+macOS Vision extra. Use `./studio.sh build` to build only, or pass server options via
+`./studio.sh start --port 7861`.
 
 For frontend development, run `uv run python -m training.studio` in one terminal and
 `pnpm --dir training/studio/frontend dev` in another. Vite serves the adaptive frontend on
