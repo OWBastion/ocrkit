@@ -18,9 +18,16 @@ The launcher installs the locked frontend dependencies, builds the UI, and start
 macOS Vision extra. Use `./studio.sh build` to build only, or pass server options via
 `./studio.sh start --port 7861`.
 
-For frontend development, run `uv run python -m training.studio` in one terminal and
-`pnpm --dir training/studio/frontend dev` in another. Vite serves the adaptive frontend on
-`http://127.0.0.1:5173` and proxies its `/api` calls to Studio.
+For frontend development with hot reload, run:
+
+```bash
+./studio.sh dev
+# Open http://127.0.0.1:5173
+```
+
+This starts the local Studio API on port `7860` and Vite on port `5173`. Changes under
+`training/studio/frontend/src/` update in the browser without restarting either process; `/api`
+requests are proxied to the local API. Press `Ctrl+C` to stop both processes.
 
 The WebUI follows one source-safe path:
 
