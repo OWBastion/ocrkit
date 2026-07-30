@@ -17,7 +17,6 @@ class AppContext:
     ocr_engine: OcrEngine
     object_store: R2ObjectStore | None = None
     model_version: str = "builtin"
-    model_manifest_key: str = ""
     engine_name: str = "rapidocr"
     layout_version: str = "1280x720-v3"
     achievement_titles: tuple[str, ...] = ()

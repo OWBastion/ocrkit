@@ -4,8 +4,6 @@ import json
 
 import pytest
 
-from app.core.context import AppContext
-from app import main
 from app.model_artifacts.channel import load_release_channel
 
 
@@ -46,26 +44,3 @@ def test_load_release_channel_rejects_non_model_manifest() -> None:
             "models",
             "models/pp-ocrv6-small/channels/stable.json",
         )
-
-
-def test_release_channel_refresh_swaps_only_after_new_model_loads(monkeypatch) -> None:
-    context = AppContext(
-        roi_config=None,  # type: ignore[arg-type]
-        map_names=[],
-        map_aliases={},
-        ocr_engine="old",  # type: ignore[arg-type]
-        model_version="v1",
-        model_manifest_key="models/pp-ocrv6-small/v1/manifest.json",
-    )
-    monkeypatch.setattr(main.settings, "model_release_channel_key", "models/pp-ocrv6-small/channels/stable.json")
-    monkeypatch.setattr(main, "_model_store", lambda: object())
-    monkeypatch.setattr(main, "_selected_model_manifest", lambda store: "models/pp-ocrv6-small/v2/manifest.json")
-    monkeypatch.setattr(main, "_load_model", lambda manifest_key: ("v2", "config-v2"))
-    monkeypatch.setattr(main, "_create_ocr_engine", lambda config_path: "new")
-
-    refreshed = main._refresh_channel_model(context)
-
-    assert refreshed is not None
-    assert refreshed.model_version == "v2"
-    assert refreshed.model_manifest_key.endswith("v2/manifest.json")
-    assert refreshed.ocr_engine == "new"

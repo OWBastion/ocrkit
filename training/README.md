@@ -133,8 +133,8 @@ The command exports `best_accuracy`, runs the full test suite, requires fixture 
 of at least `364/379`, builds a versioned manifest, refuses an already used R2 version, uploads,
 then downloads and checksum-validates the published artifact before loading it with RapidOCR.
 Finally it updates `models/pp-ocrv6-small/channels/stable.json` to the verified manifest. Production
-instances configured once with `OCRKIT_MODEL_RELEASE_CHANNEL_KEY` poll that channel and safely switch
-to the new model without a server environment edit or restart.
+instances configured once with `OCRKIT_MODEL_RELEASE_CHANNEL_KEY` adopt that channel target at the
+next container restart, without a server environment edit.
 
 ## Apple Silicon training
 

@@ -24,7 +24,6 @@ class Settings(BaseSettings):
     r2_read_timeout_seconds: int = 10
     model_manifest_key: str = ""
     model_release_channel_key: str = ""
-    model_refresh_seconds: int = 60
     model_cache_dir: Path = Path("/var/lib/ocrkit/models")
     model_download_timeout_seconds: int = 30
     agents_api_base_url: str = ""

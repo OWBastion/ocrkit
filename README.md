@@ -113,14 +113,12 @@ model binaries. It reuses the existing R2 endpoint and credentials, plus:
 - `OCRKIT_R2_DEFAULT_BUCKET`
 - `OCRKIT_MODEL_MANIFEST_KEY` (the initial versioned fallback manifest)
 - `OCRKIT_MODEL_RELEASE_CHANNEL_KEY` (recommended: `models/pp-ocrv6-small/channels/stable.json`)
-- `OCRKIT_MODEL_REFRESH_SECONDS` (release-channel polling interval; default `60`)
 - `OCRKIT_MODEL_CACHE_DIR` (default: `/var/lib/ocrkit/models`)
 - `OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS` (default: `30`)
 
-When a release channel is configured, it takes precedence over the fallback manifest. The service
-periodically reads the channel, verifies a newly selected immutable artifact in full, then atomically
-switches OCR engines; a failed refresh keeps the active model. Without either model setting, local
-development uses RapidOCR's bundled default model.
+When a release channel is configured, it takes precedence over the fallback manifest at container
+startup. The service verifies the selected immutable artifact before serving traffic. Without either
+model setting, local development uses RapidOCR's bundled default model.
 
 PaddleOCR is only used offline for fine-tuning and export. See
 [`training/README.md`](training/README.md) for the PP-OCRv6 small det/rec label formats,
@@ -143,9 +141,9 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Studio updates the stable channel after a fully verified publication. To switch or roll back manually,
-update that channel to another already-published manifest; the service will converge on the next poll.
-The old environment-variable flow remains available for initial migration:
+Studio updates the stable channel after a fully verified publication. Restart or recreate the OCRKit
+container to adopt a newly published or rolled-back channel target. The old environment-variable flow
+remains available for initial migration:
 
 ```bash
 docker compose up -d --force-recreate

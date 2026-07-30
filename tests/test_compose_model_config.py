@@ -20,7 +20,6 @@ def test_compose_passes_model_r2_configuration_without_secrets() -> None:
         "OCRKIT_R2_ALLOWED_BUCKETS",
         "OCRKIT_MODEL_MANIFEST_KEY",
         "OCRKIT_MODEL_RELEASE_CHANNEL_KEY",
-        "OCRKIT_MODEL_REFRESH_SECONDS",
         "OCRKIT_MODEL_CACHE_DIR",
     }
     assert expected <= set(environment)
