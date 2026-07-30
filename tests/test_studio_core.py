@@ -88,3 +88,26 @@ def test_generate_candidates_reuses_completed_review_manifest(tmp_path: Path) ->
 
     assert summary["train_candidates"] == 1
     assert summary["reused_existing_candidates"] is True
+
+
+def test_generate_candidates_uses_rust_crops_for_new_batch(tmp_path: Path, monkeypatch) -> None:
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "cases.json").write_text("[]", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_prepare(*args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "cases": 0,
+            "train_cases": 0,
+            "holdout_cases": 0,
+            "train_candidates": 0,
+            "holdout_candidates": 0,
+            "auto_accepted": 0,
+        }
+
+    monkeypatch.setattr(studio_core, "prepare_candidates", fake_prepare)
+    generate_candidates(batch)
+
+    assert captured["crop_backend"] == "rust"

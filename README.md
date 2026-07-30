@@ -124,8 +124,9 @@ model setting, local development uses RapidOCR's bundled default model.
 
 ## Rust image preflight
 
-The first-stage Rust image core validates the versioned ROI layout manifest, maps
-standard-layout coordinates onto an uploaded image, and reports aspect-ratio
+The Rust image core validates the versioned ROI layout manifest, decodes and
+normalizes training screenshots, exports raw ROI PNGs, records source/crop
+SHA-256 provenance, maps standard-layout coordinates, and reports aspect-ratio
 quality warnings. The authoritative layout remains
 configs/roi_1280x720.yaml; regenerate and check its JSON manifest with:
 
@@ -137,8 +138,10 @@ uv run python scripts/export_layout_manifest.py \
 cargo test --manifest-path rust/Cargo.toml
 ~~~
 
-The native CLI is a preflight and fixture tool only. It does not perform OCR,
-replace the Python/OpenCV production path, or make approval decisions. See
+The native CLI participates in Studio training-data preparation only. Python
+continues to perform ROI-specific preprocessing, RapidOCR/Vision recognition,
+human review, and PaddleOCR training. Rust does not replace the production OCR
+path or make approval decisions. See
 rust/README.md.
 
 PaddleOCR is only used offline for fine-tuning and export. See

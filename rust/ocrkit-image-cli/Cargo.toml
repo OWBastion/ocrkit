@@ -5,5 +5,8 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+image = { version = "0.25.8", default-features = false, features = ["jpeg", "png", "webp"] }
 ocrkit-image-core = { path = "../ocrkit-image-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.10.9"
 serde_json = "1.0.150"

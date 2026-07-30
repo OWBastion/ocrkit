@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
+import subprocess
+import tempfile
 import unicodedata
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -155,6 +158,77 @@ def _write_label_scaffold(output_dir: Path) -> None:
     )
 
 
+def _rust_cli_command() -> list[str]:
+    configured = os.environ.get("OCRKIT_RUST_IMAGE_CLI")
+    if configured:
+        return [configured]
+    return [
+        "cargo",
+        "run",
+        "--manifest-path",
+        str(ROOT / "rust/Cargo.toml"),
+        "--locked",
+        "-p",
+        "ocrkit-image-cli",
+        "--quiet",
+        "--",
+    ]
+
+
+def _run_rust_crop_batch(
+    cases_path: Path,
+    fixture_dir: Path,
+    roi_config_path: Path,
+    workspace: Path,
+) -> dict[tuple[str, str], dict[str, str]]:
+    layout_manifest = workspace / "layout.manifest.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/export_layout_manifest.py"),
+            str(roi_config_path),
+            str(layout_manifest),
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    crop_root = workspace / "rust-crops"
+    command = [
+        *_rust_cli_command(),
+        "crop-batch",
+        "--manifest",
+        str(layout_manifest),
+        "--cases",
+        str(cases_path),
+        "--input-root",
+        str(fixture_dir),
+        "--output-dir",
+        str(crop_root),
+    ]
+    try:
+        subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "unknown Rust crop error").strip()
+        raise RuntimeError(f"Rust crop batch failed: {detail}") from exc
+
+    manifest_path = crop_root / "crop_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    crops: dict[tuple[str, str], dict[str, str]] = {}
+    for source in manifest.get("sources", []):
+        source_id = str(source["source_id"])
+        for roi_name, artifact in source["rois"].items():
+            relative = Path(str(artifact["path"]))
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError(f"Rust crop manifest contains an unsafe path: {relative}")
+            crops[(source_id, str(roi_name))] = {
+                "path": str(crop_root / relative),
+                "sha256": str(artifact["sha256"]),
+            }
+    return crops
+
+
 def prepare_candidates(
     cases_path: Path,
     fixture_dir: Path,
@@ -162,28 +236,53 @@ def prepare_candidates(
     roi_config: RoiConfig,
     ocr_factory: Callable[[], Any] = RapidOCR,
     vision_factory: Callable[[], Any] = VisionOcr,
+    crop_backend: str = "python",
+    roi_config_path: Path = DEFAULT_ROI_CONFIG,
 ) -> dict[str, int]:
     """Create editable recognition-label candidates without changing fixture files."""
     cases = load_cases(cases_path)
     if output_dir.exists():
         raise FileExistsError(f"output already exists: {output_dir}; remove it after review or choose another path")
+    if crop_backend not in {"python", "rust"}:
+        raise ValueError(f"unsupported crop backend: {crop_backend}")
 
     ocr = ocr_factory()
     vision = vision_factory()
     rows: dict[str, list[dict[str, Any]]] = {"train": [], "holdout": []}
+    rust_workspace: Path | None = None
     output_dir.mkdir(parents=True)
     try:
+        rust_crops: dict[tuple[str, str], dict[str, str]] = {}
+        if crop_backend == "rust":
+            rust_workspace = Path(tempfile.mkdtemp(prefix=".rust-crops-", dir=str(output_dir.parent)))
+            rust_crops = _run_rust_crop_batch(cases_path, fixture_dir, roi_config_path, rust_workspace)
+            shutil.copy2(
+                rust_workspace / "rust-crops/crop_manifest.json",
+                output_dir / "crop_manifest.json",
+            )
+
         for case in cases:
             case_id = str(case["id"])
             image_path = fixture_dir / str(case["image"])
             if not image_path.is_file():
                 raise FileNotFoundError(f"fixture image does not exist: {image_path}")
-            image = decode_image(image_path.read_bytes())
-            _, rois = crop_all_rois(image, roi_config)
             requested_split = case.get("split")
             if requested_split is not None and requested_split not in {"train", "holdout"}:
                 raise ValueError(f"case {case_id} has invalid split: {requested_split}")
             split = str(requested_split) if requested_split else split_for_case(case_id)
+            if crop_backend == "rust":
+                rois = {}
+                for roi_name in roi_config.rois:
+                    artifact = rust_crops.get((case_id, roi_name))
+                    if artifact is None:
+                        raise RuntimeError(f"Rust crop manifest is missing {case_id}/{roi_name}")
+                    raw_roi = cv2.imread(artifact["path"], cv2.IMREAD_COLOR)
+                    if raw_roi is None:
+                        raise RuntimeError(f"cannot read Rust crop: {artifact['path']}")
+                    rois[roi_name] = raw_roi
+            else:
+                image = decode_image(image_path.read_bytes())
+                _, rois = crop_all_rois(image, roi_config)
 
             for roi_name, roi in rois.items():
                 processed = preprocess_by_roi(roi_name, roi)
@@ -226,6 +325,8 @@ def prepare_candidates(
                             "rapidocr_confidence": round(rapid_line.confidence, 4) if rapid_line else None,
                             "vision_text": vision_text,
                             "vision_confidence": round(vision_line.confidence, 4) if vision_line else None,
+                            "crop_backend": crop_backend,
+                            "raw_roi_sha256": rust_crops.get((case_id, roi_name), {}).get("sha256"),
                             "review_status": "accepted" if auto_accepted else "pending",
                             "transcription": canonicalize(rapid_line.text) if auto_accepted else None,
                             "auto_accept_reason": "rapidocr_vision_agreement" if auto_accepted else None,
@@ -240,6 +341,9 @@ def prepare_candidates(
     except Exception:
         shutil.rmtree(output_dir)
         raise
+    finally:
+        if rust_workspace is not None:
+            shutil.rmtree(rust_workspace, ignore_errors=True)
 
     return {
         "cases": len(cases),
@@ -256,6 +360,7 @@ def main() -> None:
     parser.add_argument("--fixtures", type=Path, default=DEFAULT_FIXTURES)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--roi-config", type=Path, default=DEFAULT_ROI_CONFIG)
+    parser.add_argument("--crop-backend", choices=("python", "rust"), default="python")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -264,6 +369,8 @@ def main() -> None:
                 args.fixtures,
                 args.output,
                 load_roi_config(args.roi_config),
+                crop_backend=args.crop_backend,
+                roi_config_path=args.roi_config,
             ),
             ensure_ascii=False,
         )

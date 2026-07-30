@@ -48,6 +48,20 @@ def _invalidate_labels(dataset_dir: Path) -> None:
         os.replace(temporary, labels_dir / f"{split}.txt")
 
 
+def _merge_crop_manifests(dataset_dir: Path, temporary_dir: Path) -> None:
+    temporary_manifest = temporary_dir / "crop_manifest.json"
+    if not temporary_manifest.is_file():
+        return
+    destination = dataset_dir / "crop_manifest.json"
+    incoming = json.loads(temporary_manifest.read_text(encoding="utf-8"))
+    if destination.is_file():
+        existing = json.loads(destination.read_text(encoding="utf-8"))
+        existing["sources"] = [*existing.get("sources", []), *incoming.get("sources", [])]
+        _atomic_json(destination, existing)
+    else:
+        shutil.copy2(temporary_manifest, destination)
+
+
 def _digest(path: Path) -> str:
     hasher = hashlib.sha256()
     with path.open("rb") as handle:
@@ -206,7 +220,12 @@ def batch_summary(batch_dir: Path) -> dict[str, Any]:
     }
 
 
-def generate_candidates(batch_dir: Path, *, roi_config_path: Path = DEFAULT_ROI_CONFIG) -> dict[str, int | bool]:
+def generate_candidates(
+    batch_dir: Path,
+    *,
+    roi_config_path: Path = DEFAULT_ROI_CONFIG,
+    crop_backend: str = "rust",
+) -> dict[str, int | bool]:
     dataset_dir = batch_dir / "dataset"
     review_dir = dataset_dir / "review"
     review_files = [review_dir / "train.jsonl", review_dir / "holdout.jsonl"]
@@ -228,11 +247,20 @@ def generate_candidates(batch_dir: Path, *, roi_config_path: Path = DEFAULT_ROI_
                     temporary_cases,
                     [{"id": row["id"], "image": row["file"], "split": row["split"]} for row in missing_sources],
                 )
-                prepare_candidates(temporary_cases, batch_dir, temporary_output, load_roi_config(roi_config_path))
+                prepare_candidates(
+                    temporary_cases,
+                    batch_dir,
+                    temporary_output,
+                    load_roi_config(roi_config_path),
+                    crop_backend=crop_backend,
+                    roi_config_path=roi_config_path,
+                )
                 for split in ("train", "holdout"):
                     rows[split].extend(review_rows(temporary_output, split))
                     _atomic_jsonl(review_dir / f"{split}.jsonl", rows[split])
                 shutil.copytree(temporary_output / "images", dataset_dir / "images", dirs_exist_ok=True)
+                if crop_backend == "rust":
+                    _merge_crop_manifests(dataset_dir, temporary_output)
                 _invalidate_labels(dataset_dir)
             finally:
                 shutil.rmtree(temporary_dir, ignore_errors=True)
@@ -254,7 +282,14 @@ def generate_candidates(batch_dir: Path, *, roi_config_path: Path = DEFAULT_ROI_
             "auto_accepted": sum(row.get("auto_accept_reason") == "rapidocr_vision_agreement" for split_rows in rows.values() for row in split_rows),
             "reused_existing_candidates": True,
         }
-    return prepare_candidates(batch_dir / "cases.json", batch_dir, dataset_dir, load_roi_config(roi_config_path))
+    return prepare_candidates(
+        batch_dir / "cases.json",
+        batch_dir,
+        dataset_dir,
+        load_roi_config(roi_config_path),
+        crop_backend=crop_backend,
+        roi_config_path=roi_config_path,
+    )
 
 
 def roi_preview_paths(batch_dir: Path) -> list[tuple[str, str]]:

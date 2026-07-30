@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 
 from app.core.roi_config import RoiBox, RoiConfig
+import training.scripts.prepare_rec_candidates as prepare_module
 from training.scripts.prepare_rec_candidates import HOLDOUT_IDS, prepare_candidates, split_for_case
 from training.vision import VisionLine
 
@@ -91,3 +92,56 @@ def test_prepare_candidates_honors_explicit_source_level_split(tmp_path: Path) -
     rows = [json.loads(line) for line in (tmp_path / "labeled/review/holdout.jsonl").read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 1
     assert rows[0]["split"] == "holdout"
+
+
+def test_prepare_candidates_can_consume_rust_crop_manifest(tmp_path: Path, monkeypatch) -> None:
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    source = np.full((40, 60, 3), 200, dtype=np.uint8)
+    (fixtures / "sample.png").write_bytes(cv2.imencode(".png", source)[1].tobytes())
+    (fixtures / "cases.json").write_text(
+        json.dumps([{"id": "sample_01", "image": "sample.png"}]), encoding="utf-8"
+    )
+    config = RoiConfig(width=60, height=40, rois={"left_panel": RoiBox(0, 0, 30, 20)})
+
+    def fake_rust_crops(cases_path: Path, fixture_dir: Path, roi_config_path: Path, workspace: Path) -> dict:
+        crop_root = workspace / "rust-crops/images/train/sample_01/left_panel"
+        crop_root.mkdir(parents=True)
+        crop_path = crop_root / "000.png"
+        crop_path.write_bytes(cv2.imencode(".png", np.full((20, 30, 3), 200, dtype=np.uint8))[1].tobytes())
+        (workspace / "rust-crops/crop_manifest.json").write_text(
+            json.dumps(
+                {
+                    "sources": [
+                        {
+                            "source_id": "sample_01",
+                            "rois": {
+                                "left_panel": {
+                                    "path": "images/train/sample_01/left_panel/000.png",
+                                    "sha256": "raw-roi-hash",
+                                }
+                            },
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {("sample_01", "left_panel"): {"path": str(crop_path), "sha256": "raw-roi-hash"}}
+
+    monkeypatch.setattr(prepare_module, "_run_rust_crop_batch", fake_rust_crops)
+    summary = prepare_candidates(
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=FakeRapidOCR,
+        vision_factory=FakeVisionOcr,
+        crop_backend="rust",
+    )
+
+    row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
+    assert summary["train_candidates"] == 1
+    assert row["crop_backend"] == "rust"
+    assert row["raw_roi_sha256"] == "raw-roi-hash"
+    assert (tmp_path / "labeled/crop_manifest.json").is_file()

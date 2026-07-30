@@ -69,6 +69,7 @@ jobs:
             --check
           cargo fmt --manifest-path rust/Cargo.toml --all -- --check
           cargo test --manifest-path rust/Cargo.toml --locked
+          cargo clippy --manifest-path rust/Cargo.toml --all-targets --locked -- -D warnings
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

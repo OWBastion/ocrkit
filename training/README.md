@@ -32,14 +32,19 @@ requests are proxied to the local API. Press `Ctrl+C` to stop both processes.
 The WebUI follows one source-safe path:
 
 ```text
-import screenshots → deterministic source-level train/holdout split → fixed-ROI candidates
+import screenshots → deterministic source-level train/holdout split → Rust fixed-ROI crops
 → human review → validated recognition labels → separate CPU smoke process
 ```
 
 It deduplicates source images by SHA-256, never splits crops from one source screenshot across
-train and holdout, and uses atomic replacements when review JSONL files change. The Studio uses
-the existing RapidOCR + optional macOS Vision agreement flow; every non-auto-accepted candidate
+train and holdout, and uses atomic replacements when review JSONL files change. Studio candidate
+generation invokes the Rust image CLI for source decoding, normalization, ROI export, and crop
+provenance. It then uses the existing Python preprocessing, RapidOCR, and optional macOS Vision
+agreement flow; every non-auto-accepted candidate
 must be accepted or rejected before labels or training can proceed.
+
+Set OCRKIT_RUST_IMAGE_CLI to a prebuilt ocrkit-image-cli path when Studio should avoid invoking
+Cargo. Without it, Studio invokes Cargo once per candidate batch.
 
 Studio keeps active import and review work under `training/.work/studio/` so incomplete labels and
 private screenshots do not silently alter the dataset repository. After validation, use **导出到私有
