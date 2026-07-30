@@ -289,6 +289,11 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = 
     return app
 
 
+def create_api_app() -> FastAPI:
+    """Uvicorn reload factory for Studio development mode."""
+    return create_app(frontend_dir=None)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the local-only OCRKit Studio API and Vite-built frontend.")
     parser.add_argument("--host", default="127.0.0.1")
@@ -296,9 +301,22 @@ def main() -> None:
     parser.add_argument("--work-root", type=Path, default=DEFAULT_WORK_ROOT)
     parser.add_argument("--frontend-dir", type=Path, default=FRONTEND_DIST)
     parser.add_argument("--api-only", action="store_true")
+    parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
     import uvicorn
 
+    if args.reload:
+        if not args.api_only or args.work_root != DEFAULT_WORK_ROOT:
+            parser.error("--reload currently requires --api-only with the default work root")
+        uvicorn.run(
+            "training.studio.app:create_api_app",
+            factory=True,
+            host=args.host,
+            port=args.port,
+            reload=True,
+            reload_dirs=[str(ROOT / "training/studio")],
+        )
+        return
     uvicorn.run(create_app(args.work_root, None if args.api_only else args.frontend_dir), host=args.host, port=args.port)
 
 

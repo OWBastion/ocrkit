@@ -15,7 +15,7 @@ build_frontend() {
 
 start_development() {
   install_frontend
-  uv run --extra vision python -m training.studio --port 7860 --api-only &
+  uv run --extra vision python -m training.studio --port 7860 --api-only --reload &
   api_pid="$!"
   trap 'kill "${api_pid}" 2>/dev/null || true' EXIT INT TERM
   pnpm --dir "${frontend_dir}" run dev

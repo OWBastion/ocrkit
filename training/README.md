@@ -15,7 +15,7 @@ crops, review manifests, and training logs live only in the ignored `training/.w
 ```
 
 The default launcher starts the local API with the macOS Vision extra plus the Vite HMR frontend.
-Changes under `training/studio/frontend/src/` update in the browser without a restart. Use
+Changes under `training/studio/frontend/src/` and `training/studio/` update without a restart. Use
 `./studio.sh build` to build only, or `./studio.sh start --port 7861` for the built static preview.
 
 The explicit development form is also available:
