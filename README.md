@@ -133,8 +133,8 @@ uv run python scripts/batch_eval.py
 ## Docker Compose
 
 For a deployed model, copy `.env.model.example` to a deployment-only `.env`, fill in the R2
-credentials, retain a known-good `OCRKIT_MODEL_MANIFEST_KEY` for initial fallback, and set the stable
-`OCRKIT_MODEL_RELEASE_CHANNEL_KEY` once. Models use the reserved `models/pp-ocrv6-small/` prefix;
+credentials, retain a known-good `OCRKIT_MODEL_MANIFEST_KEY` for legacy rollback, and set the stable
+`OCRKIT_MODEL_RELEASE_CHANNEL_KEY` once after that channel exists. Models use the reserved `models/pp-ocrv6-small/` prefix;
 user screenshots use `uploads/`. Do not commit that file. The container downloads and verifies the
 model at startup, then follows the channel without later environment edits.
 
