@@ -403,61 +403,68 @@
 
 <main class="app-shell">
   <div class="app-frame">
-    <header class="app-header">
-      <div class="brand">
-        <h1>OCRKit Studio</h1>
-        <p class="flow-hint">{batchHint()}</p>
-      </div>
-      <label class="batch-picker">
-        <span>批次</span>
-        <select
-          value={batch?.batch_id || ''}
-          on:change={(event) => void selectBatch((event.currentTarget as HTMLSelectElement).value)}
-        >
-          <option value="">未选择</option>
-          {#each batches as item}
-            <option value={item.batch_id}>{item.batch_id}</option>
-          {/each}
-        </select>
-      </label>
-    </header>
+    <div class="app-chrome">
+      <header class="app-header">
+        <div class="brand">
+          <h1>OCRKit Studio</h1>
+          <p class="flow-hint">{batchHint()}</p>
+        </div>
+        <label class="batch-picker">
+          <span>批次</span>
+          <select
+            value={batch?.batch_id || ''}
+            on:change={(event) => void selectBatch((event.currentTarget as HTMLSelectElement).value)}
+          >
+            <option value="">未选择</option>
+            {#each batches as item}
+              <option value={item.batch_id}>{item.batch_id}</option>
+            {/each}
+          </select>
+        </label>
+      </header>
 
-    <nav class="step-nav" aria-label="操作流程">
-      {#each nav as item}
-        <button
-          type="button"
-          class:nav-current={active === item[0]}
-          class="nav-item"
-          on:click={() => openStep(item[0])}
-        >
-          <span>{item[1]}</span>{item[2]}
-        </button>
-      {/each}
-    </nav>
+      <nav class="step-nav" aria-label="操作流程">
+        {#each nav as item}
+          <button
+            type="button"
+            class:nav-current={active === item[0]}
+            class="nav-item"
+            on:click={() => openStep(item[0])}
+          >
+            <span class="nav-index">{item[1]}</span>
+            <span class="nav-label">{item[2]}</span>
+          </button>
+        {/each}
+      </nav>
+    </div>
 
     {#if notice || error}
       <div class:error-note={error} class="notice" role="status">{error || notice}</div>
     {/if}
 
+    <div class="app-content">
+
     {#if active === 'import'}
       <section class="panel-grid">
         <div class="panel">
           <header class="panel-head">
-            <h2>1. 导入截图</h2>
-            <p>选择或粘贴 PNG / JPEG / WebP。可创建新批次，或补充到当前选中的批次；重复截图会按内容去重。</p>
+            <p class="eyebrow">步骤 1</p>
+            <h2>导入截图</h2>
+            <p>选择或粘贴 PNG / JPEG / WebP。可创建新批次，或补充到当前批次；重复内容会自动去重。</p>
           </header>
-          <label class="file-pick">
+          <label class="file-pick" class:file-pick-ready={files.length > 0}>
             <input
               type="file"
               multiple
               accept="image/png,image/jpeg,image/webp"
               on:change={(event) => appendFiles(Array.from((event.currentTarget as HTMLInputElement).files || []))}
             />
-            <span>{files.length ? `已选 ${files.length} 张` : '选择截图，或 ⌘V / Ctrl+V 粘贴'}</span>
+            <span class="file-pick-title">{files.length ? `已选 ${files.length} 张` : '选择截图'}</span>
+            <span class="file-pick-sub">{files.length ? '可继续添加，或直接创建 / 加入批次' : '也可 ⌘V / Ctrl+V 粘贴'}</span>
           </label>
           <div class="panel-actions">
-            <label class="field">
-              Holdout 比例
+            <label class="field field-compact">
+              <span>Holdout</span>
               <input type="number" min="0" max="0.5" step="0.05" bind:value={holdoutRatio} />
             </label>
             <button class="button-primary" disabled={busy || !files.length} on:click={importFiles}>
@@ -469,13 +476,13 @@
           </div>
         </div>
         <aside class="panel panel-side">
-          <h3>操作流程</h3>
+          <h3>流程</h3>
           <ol class="flow-list">
-            <li class:flow-current={active === 'import'}><b>导入</b>创建批次</li>
-            <li><b>候选</b> 跑 RapidOCR + Vision</li>
-            <li><b>复核</b> 接受 / 拒绝每条切片</li>
-            <li><b>标签</b> 生成 train / holdout labels</li>
-            <li><b>训练</b> 启动 CPU Smoke</li>
+            <li class="flow-current"><b>1</b><span><strong>导入</strong> 创建批次</span></li>
+            <li><b>2</b><span><strong>候选</strong> RapidOCR + Vision</span></li>
+            <li><b>3</b><span><strong>复核</strong> 接受 / 拒绝</span></li>
+            <li><b>4</b><span><strong>标签</strong> train / holdout</span></li>
+            <li><b>5</b><span><strong>训练</strong> CPU Smoke</span></li>
           </ol>
           {#if batch}
             <dl class="batch-stats">
@@ -490,8 +497,9 @@
     {:else if active === 'candidates'}
       <section class="panel stage-panel">
         <header class="panel-head">
-          <h2>2. 生成候选</h2>
-          <p>对当前批次按固定 ROI 切片，并用 RapidOCR 与 Vision 写复核清单。若已生成过，会直接打开现有结果，不会覆盖人工修改。</p>
+          <p class="eyebrow">步骤 2</p>
+          <h2>生成候选</h2>
+          <p>按固定 ROI 切片，并用 RapidOCR 与 Vision 写入复核清单。已有结果会直接打开，不会覆盖人工修改。</p>
         </header>
         <div class="panel-actions">
           <button class="button-primary" disabled={!batch || busy} on:click={candidates}>
@@ -503,44 +511,50 @@
       <section class="review-layout">
         <aside class="review-list">
           <div class="filters">
-            <select bind:value={split} on:change={() => refreshReview()}>
+            <select class="control" bind:value={split} on:change={() => refreshReview()}>
               <option value="train">Train</option>
               <option value="holdout">Holdout</option>
             </select>
-            <select bind:value={status} on:change={() => refreshReview()}>
+            <select class="control" bind:value={status} on:change={() => refreshReview()}>
               <option value="pending">待复核</option>
               <option value="accepted">已接受</option>
               <option value="rejected">已拒绝</option>
               <option value="all">全部</option>
             </select>
-            <button class="button-secondary" on:click={() => refreshReview()}>刷新</button>
+            <button class="button-secondary button-compact" on:click={() => refreshReview()}>刷新</button>
           </div>
           <div class="countline">
-            <b>{batch?.review?.pending || 0}</b> 待复核 / {batch?.review?.total || 0} 总计
+            <b>{batch?.review?.pending || 0}</b>
+            <span>待复核</span>
+            <i>/</i>
+            <b>{batch?.review?.total || 0}</b>
+            <span>总计</span>
           </div>
-          {#if rows.length}
-            {#each rows as row}
-              <button
-                type="button"
-                class:selected-row={selected?.crop === row.crop}
-                class="candidate"
-                on:click={() => selectCandidate(row)}
-              >
-                <span>{row.roi}</span>
-                <strong>{row.candidate_text || '无候选文本'}</strong>
-                <small>{confidenceLabel(row.confidence)}</small>
-              </button>
-            {/each}
-          {:else}
-            <p class="empty">当前筛选无结果。若尚未生成候选，请回到上一步。</p>
-          {/if}
+          <div class="candidate-scroll">
+            {#if rows.length}
+              {#each rows as row}
+                <button
+                  type="button"
+                  class:selected-row={selected?.crop === row.crop}
+                  class="candidate"
+                  on:click={() => selectCandidate(row)}
+                >
+                  <span>{row.roi}</span>
+                  <strong>{row.candidate_text || '无候选文本'}</strong>
+                  <small>{confidenceLabel(row.confidence)}</small>
+                </button>
+              {/each}
+            {:else}
+              <p class="empty">当前筛选无结果。若尚未生成候选，请回到上一步。</p>
+            {/if}
+          </div>
         </aside>
         <article class="review-detail">
           {#if selected && batch}
             <header class="detail-header">
               <div>
                 <p class="eyebrow">{selected.roi} · {selected.review_status}</p>
-                <h2>3. 复核</h2>
+                <h2>复核</h2>
               </div>
               {#if cropNatural.w}
                 <p class="crop-meta" aria-live="polite">
@@ -552,12 +566,12 @@
             <section class="crop-panel" aria-label="切片预览">
               <div class="crop-toolbar">
                 <span class="crop-toolbar-label">切片</span>
-                <div class="crop-zoom" role="group" aria-label="切片缩放">
+                <div class="segmented" role="group" aria-label="切片缩放">
                   {#each cropZoomSteps as step}
                     <button
                       type="button"
-                      class="crop-zoom-btn"
-                      class:crop-zoom-active={cropZoom === step}
+                      class="segmented-btn"
+                      class:segmented-active={cropZoom === step}
                       aria-pressed={cropZoom === step}
                       on:click={() => cropZoom = step}
                     >{cropZoomLabel(step)}</button>
@@ -578,7 +592,7 @@
             </section>
 
             <div class="detail-copy">
-              <p class="engine-hint">点选引擎结果填入转写，或直接编辑后接受 / 拒绝。</p>
+              <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
               <div class="engine-picks" role="group" aria-label="双引擎识别结果">
                 <button
                   type="button"
@@ -635,6 +649,7 @@
             </div>
           {:else}
             <div class="empty-detail">
+              <p class="eyebrow">步骤 3</p>
               <h2>从左侧选择一条候选</h2>
               <p>筛选 train / holdout 与状态，点条目后对照切片校正转写。</p>
             </div>
@@ -644,8 +659,9 @@
     {:else if active === 'dataset'}
       <section class="panel stage-panel">
         <header class="panel-head">
-          <h2>4. 生成标签</h2>
-          <p>全部候选需已接受或拒绝。通过后写出 train / holdout recognition labels，并做格式校验。</p>
+          <p class="eyebrow">步骤 4</p>
+          <h2>生成标签</h2>
+          <p>全部候选需已接受或拒绝。通过后写出 train / holdout recognition labels 并校验格式。</p>
         </header>
         <div class="panel-actions">
           <button class="button-primary" disabled={!batch || busy} on:click={finalize}>
@@ -657,8 +673,9 @@
       <section class="training-panel">
         <div class="training-head">
           <header class="panel-head">
-            <h2>5. Smoke 训练</h2>
-            <p>在当前批次 labels 上启动本地 CPU Smoke。未通过的 run 可从保留 checkpoint 恢复到新的 run。</p>
+            <p class="eyebrow">步骤 5</p>
+            <h2>Smoke 训练</h2>
+            <p>在当前批次 labels 上启动本地 CPU Smoke。失败 run 可从 checkpoint 恢复到新的 run。</p>
           </header>
           <div class="panel-actions">
             <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshTraining()}>立即刷新</button>
@@ -668,27 +685,31 @@
           </div>
         </div>
 
-        <div class="panel-actions">
+        <div class="training-config">
           <label class="field">
             <span>恢复 checkpoint</span>
-            <select bind:value={resumeCheckpoint} disabled={!batch || busy || trainingIsRunning(training?.status)}>
+            <select class="control" bind:value={resumeCheckpoint} disabled={!batch || busy || trainingIsRunning(training?.status)}>
               <option value="">从 PP-OCRv6 预训练权重开始</option>
               {#each resumeCheckpoints as checkpoint}
                 <option value={checkpoint.path}>{checkpoint.name}</option>
               {/each}
             </select>
           </label>
-          <label class="field">
-            <span>目标总 Epoch</span>
-            <input type="number" min="1" max="100" bind:value={trainingEpochs} disabled={!batch || busy || trainingIsRunning(training?.status)} />
+          <label class="field field-compact">
+            <span>目标 Epoch</span>
+            <input class="control" type="number" min="1" max="100" bind:value={trainingEpochs} disabled={!batch || busy || trainingIsRunning(training?.status)} />
           </label>
+          <p class="config-note">恢复会带入模型、优化器与 epoch 状态，不覆盖原 run；目标 Epoch 须高于 checkpoint 已完成进度。</p>
         </div>
-        <p class="flow-hint">恢复会带入模型、优化器和 epoch 状态，且不会覆盖原 run；目标总 Epoch 必须高于 checkpoint 已完成的 epoch 才会继续训练。</p>
 
         {#if !batch}
           <p class="empty">请先选择批次。</p>
         {:else if !training || training.status === 'not_started'}
-          <p class="empty">尚未启动训练。生成 labels 后点击「启动训练」。</p>
+          <div class="empty-card">
+            <p class="eyebrow">就绪</p>
+            <h3>尚未启动训练</h3>
+            <p>生成 labels 后配置 checkpoint 与 epoch，再点击「启动训练」。</p>
+          </div>
         {:else}
           <div class="training-status" aria-live="polite">
             <span
@@ -698,15 +719,15 @@
               class:status-failed={training.status === 'failed' || training.status === 'completed_or_failed'}
             >{trainingStatusLabel(training.status)}</span>
             {#if training.pid}<span class="status-meta">PID {training.pid}</span>{/if}
-            {#if trainingPolling}<span class="status-meta status-live">自动刷新中 · 每 {TRAINING_POLL_MS / 1000}s</span>{/if}
+            {#if trainingPolling}<span class="status-meta status-live">自动刷新 · {TRAINING_POLL_MS / 1000}s</span>{/if}
             {#if trainingUpdatedAt}<span class="status-meta">更新于 {trainingUpdatedAt}</span>{/if}
           </div>
 
           {#if training.command?.length}
-            <p class="training-command" title={training.command.join(' ')}>
+            <div class="training-command">
               <span>命令</span>
-              <code>{training.command.join(' ')}</code>
-            </p>
+              <code title={training.command.join(' ')}>{training.command.join(' ')}</code>
+            </div>
           {/if}
 
           <section class="log-panel" aria-label="训练日志">
@@ -727,5 +748,6 @@
         {/if}
       </section>
     {/if}
+    </div>
   </div>
 </main>
