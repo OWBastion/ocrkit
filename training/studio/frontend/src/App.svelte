@@ -12,6 +12,7 @@
     log_tail?: string
     command?: string[]
   }
+  type ResumeCheckpoint = { path: string; name: string }
 
   let batches: Batch[] = []
   let batch: Batch | null = null
@@ -26,6 +27,9 @@
   let busy = false
   let active = 'import'
   let training: TrainingState | null = null
+  let resumeCheckpoints: ResumeCheckpoint[] = []
+  let resumeCheckpoint = ''
+  let trainingEpochs = 10
   let trainingUpdatedAt = ''
   let trainingPolling = false
   let followLog = true
@@ -342,8 +346,20 @@
   }
 
   async function loadTrainingStep() {
-    await refreshTraining()
+    await Promise.all([refreshTraining(), refreshResumeCheckpoints()])
     if (trainingIsRunning(training?.status)) startTrainingPoll()
+  }
+
+  async function refreshResumeCheckpoints() {
+    if (!batch) {
+      resumeCheckpoints = []
+      resumeCheckpoint = ''
+      return
+    }
+    resumeCheckpoints = await request<ResumeCheckpoint[]>(`/api/batches/${batch.batch_id}/training/checkpoints`)
+    if (resumeCheckpoint && !resumeCheckpoints.some((checkpoint) => checkpoint.path === resumeCheckpoint)) {
+      resumeCheckpoint = ''
+    }
   }
 
   async function startTraining() {
@@ -353,9 +369,9 @@
       await request<TrainingState>(`/api/batches/${batch.batch_id}/training/smoke`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ resume_checkpoint: resumeCheckpoint || null, epochs: trainingEpochs }),
       })
-      message('Smoke 训练已启动，状态将自动刷新。')
+      message(resumeCheckpoint ? '已从所选 checkpoint 恢复训练，状态将自动刷新。' : 'Smoke 训练已启动，状态将自动刷新。')
       followLog = true
       await refreshTraining()
       startTrainingPoll()
@@ -624,7 +640,7 @@
         <div class="training-head">
           <header class="panel-head">
             <h2>5. Smoke 训练</h2>
-            <p>在当前批次 labels 上启动本地 CPU Smoke。运行中会自动刷新状态与日志。</p>
+            <p>在当前批次 labels 上启动本地 CPU Smoke。未通过的 run 可从保留 checkpoint 恢复到新的 run。</p>
           </header>
           <div class="panel-actions">
             <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshTraining()}>立即刷新</button>
@@ -633,6 +649,23 @@
             </button>
           </div>
         </div>
+
+        <div class="panel-actions">
+          <label class="field">
+            <span>恢复 checkpoint</span>
+            <select bind:value={resumeCheckpoint} disabled={!batch || busy || trainingIsRunning(training?.status)}>
+              <option value="">从 PP-OCRv6 预训练权重开始</option>
+              {#each resumeCheckpoints as checkpoint}
+                <option value={checkpoint.path}>{checkpoint.name}</option>
+              {/each}
+            </select>
+          </label>
+          <label class="field">
+            <span>目标总 Epoch</span>
+            <input type="number" min="1" max="100" bind:value={trainingEpochs} disabled={!batch || busy || trainingIsRunning(training?.status)} />
+          </label>
+        </div>
+        <p class="flow-hint">恢复会带入模型、优化器和 epoch 状态，且不会覆盖原 run；目标总 Epoch 必须高于 checkpoint 已完成的 epoch 才会继续训练。</p>
 
         {#if !batch}
           <p class="empty">请先选择批次。</p>

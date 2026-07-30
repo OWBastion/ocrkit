@@ -74,7 +74,9 @@ uv run python training/scripts/evaluate_rec_candidates.py
 checkpoint. It does not train detection and it does not upload any artifact to R2. After training,
 it exports `best_accuracy` and runs the same end-to-end fixture gate used by release. The report is
 written below `training/.work/evaluations/`; a result below the current `364/379` baseline returns non-zero while keeping
-the checkpoint for inspection.
+the checkpoint for inspection. In Studio, the training page lists complete checkpoints from prior
+Smoke runs. Selecting one creates a new run with PaddleOCR's model, optimizer, and epoch state
+restored; set **target total Epoch** higher than the checkpoint's completed epoch to keep training.
 
 ## Offline workflow
 

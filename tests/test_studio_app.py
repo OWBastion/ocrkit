@@ -66,3 +66,25 @@ def test_training_status_reaps_failed_child_process(monkeypatch) -> None:
 
     assert changed is True
     assert state == {"pid": 123, "status": "failed", "exit_code": 1}
+
+
+def test_studio_lists_only_complete_resume_checkpoints(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    batch = tmp_path / "work/batches/resume-batch"
+    checkpoints = batch / "runs/smoke-20260730-104251/checkpoints"
+    checkpoints.mkdir(parents=True)
+    (batch / "batch.json").write_text("{}", encoding="utf-8")
+    for suffix in (".pdparams", ".pdopt", ".states"):
+        (checkpoints / f"best_accuracy{suffix}").write_text("checkpoint", encoding="utf-8")
+    (checkpoints / "latest.pdparams").write_text("incomplete", encoding="utf-8")
+    client = TestClient(create_app(tmp_path / "work", frontend))
+
+    response = client.get("/api/batches/resume-batch/training/checkpoints")
+
+    assert response.status_code == 200
+    assert response.json() == [{
+        "path": "runs/smoke-20260730-104251/checkpoints/best_accuracy",
+        "name": "smoke-20260730-104251/checkpoints/best_accuracy",
+    }]

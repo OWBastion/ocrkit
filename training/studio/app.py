@@ -195,8 +195,9 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path = FRONTEN
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/batches/{batch_id}/training/smoke")
-    async def start_smoke(batch_id: str, request: TrainingStart) -> dict[str, object]:
+    async def start_smoke(batch_id: str, request: TrainingStart | None = None) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
+        request = request or TrainingStart()
         try:
             await run_in_threadpool(finalize_dataset, batch_dir)
         except ValueError as exc:
