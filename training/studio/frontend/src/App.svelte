@@ -24,6 +24,7 @@
   let holdoutRatio = 0.2
   let notice = ''
   let error = ''
+  let toastVisible = false
   let busy = false
   let active = 'import'
   let training: TrainingState | null = null
@@ -35,12 +36,18 @@
   let trainingUpdatedAt = ''
   let trainingPolling = false
   let followLog = true
+  let followPublishLog = true
   let logEl: HTMLPreElement | null = null
+  let publishLogEl: HTMLPreElement | null = null
   let cropZoom: CropZoom = 'auto'
   let cropNatural = { w: 0, h: 0 }
   let trainingPollTimer: ReturnType<typeof setInterval> | null = null
+  let toastTimer: ReturnType<typeof setTimeout> | null = null
+  let lastFinalize: { train: number; holdout: number } | null = null
+  let lastExportPath = ''
   const cropZoomSteps: CropZoom[] = ['auto', 1, 2, 3, 4]
   const TRAINING_POLL_MS = 2000
+  const TOAST_MS = 4200
   const supportedClipboardTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
   const nav = [
@@ -88,9 +95,44 @@
     return response.json() as Promise<T>
   }
 
+  function clearToastTimer() {
+    if (toastTimer) {
+      clearTimeout(toastTimer)
+      toastTimer = null
+    }
+  }
+
+  function dismissToast() {
+    clearToastTimer()
+    toastVisible = false
+    notice = ''
+    error = ''
+  }
+
   function message(value: string, isError = false) {
+    clearToastTimer()
     error = isError ? value : ''
     notice = isError ? '' : value
+    toastVisible = true
+    // Success banners auto-dismiss; errors stay until dismissed.
+    if (!isError) {
+      toastTimer = setTimeout(() => {
+        toastVisible = false
+        notice = ''
+      }, TOAST_MS)
+    }
+  }
+
+  function toastKind() {
+    return error ? 'error' : 'success'
+  }
+
+  function toastTitle() {
+    return error ? '操作未完成' : '已完成'
+  }
+
+  function toastBody() {
+    return error || notice
   }
 
   async function refreshBatches(selectId?: string) {
@@ -294,9 +336,8 @@
     busy = true
     try {
       const result = await request<Record<string, number>>(`/api/batches/${batch.batch_id}/finalize`, { method: 'POST' })
+      lastFinalize = { train: result.validated_train, holdout: result.validated_holdout }
       message(`标签已生成：train ${result.validated_train}，holdout ${result.validated_holdout}。`)
-      active = 'training'
-      await loadTrainingStep()
     } catch (cause) { message(cause instanceof Error ? cause.message : '生成标签失败', true) } finally { busy = false }
   }
 
@@ -305,8 +346,27 @@
     busy = true
     try {
       const result = await request<{ export_dir: string; validated_train: number; validated_holdout: number }>(`/api/batches/${batch.batch_id}/dataset/export`, { method: 'POST' })
+      lastFinalize = { train: result.validated_train, holdout: result.validated_holdout }
+      lastExportPath = result.export_dir
       message(`已导出私有数据集：${result.validated_train} train / ${result.validated_holdout} holdout。`)
     } catch (cause) { message(cause instanceof Error ? cause.message : '导出数据集失败', true) } finally { busy = false }
+  }
+
+  function datasetReadyHint() {
+    if (!batch) return '先选择批次'
+    const pending = batch.review?.pending ?? null
+    if (pending == null) return '尚未生成候选'
+    if (pending > 0) return `还有 ${pending} 条待复核`
+    if ((batch.review?.accepted ?? 0) === 0 && (batch.review?.total ?? 0) > 0) return '至少需要一条已接受转写'
+    return '可以生成 labels'
+  }
+
+  function canPublish() {
+    return Boolean(batch && training?.status === 'completed' && publishConfirmed && publication?.status !== 'publishing' && !busy)
+  }
+
+  function publicationIsActive() {
+    return publication?.status === 'publishing'
   }
 
   function trainingStatusLabel(value?: string) {
@@ -351,9 +411,9 @@
   }
 
   async function scrollLogToBottom() {
-    if (!followLog || !logEl) return
     await tick()
-    logEl.scrollTop = logEl.scrollHeight
+    if (followLog && logEl) logEl.scrollTop = logEl.scrollHeight
+    if (followPublishLog && publishLogEl) publishLogEl.scrollTop = publishLogEl.scrollHeight
   }
 
   async function refreshTraining(options?: { silent?: boolean }) {
@@ -366,7 +426,7 @@
         if (active === 'training') startTrainingPoll()
       } else {
         if (!hasActiveBackgroundWork()) stopTrainingPoll()
-        if (!options?.silent && previousStatus === 'training' && trainingIsDone(training.status)) {
+        if (previousStatus === 'training' && trainingIsDone(training.status)) {
           message(training.status === 'completed' ? 'Smoke 训练已成功结束。' : 'Smoke 训练已结束，请查看日志。')
         }
       }
@@ -385,9 +445,15 @@
   async function refreshPublication(options?: { silent?: boolean }) {
     if (!batch) return
     try {
+      const previous = publication?.status
       publication = await request<TrainingState>(`/api/batches/${batch.batch_id}/publication`)
       if (publication.status === 'publishing' && active === 'training') startTrainingPoll()
       if (publication.status !== 'publishing' && !trainingIsRunning(training?.status)) stopTrainingPoll()
+      // Surface completion even during silent polling so operators see the outcome.
+      if (previous === 'publishing' && publication.status && publication.status !== 'publishing') {
+        message(publication.status === 'completed' ? '模型已发布到 R2。' : '模型发布已结束，请查看发布日志。')
+      }
+      if (followPublishLog) await scrollLogToBottom()
     } catch (cause) {
       if (!options?.silent) message(cause instanceof Error ? cause.message : '获取发布状态失败', true)
     }
@@ -437,7 +503,10 @@
   }
 
   onMount(async () => { try { await refreshBatches() } catch { message('无法连接 Studio API。', true) } })
-  onDestroy(stopTrainingPoll)
+  onDestroy(() => {
+    stopTrainingPoll()
+    clearToastTimer()
+  })
 </script>
 
 <svelte:window on:paste={pasteImages} />
@@ -481,8 +550,21 @@
       </nav>
     </div>
 
-    {#if notice || error}
-      <div class:error-note={error} class="notice" role="status">{error || notice}</div>
+    {#if toastVisible && toastBody()}
+      <div
+        class="toast"
+        class:toast-error={toastKind() === 'error'}
+        class:toast-success={toastKind() === 'success'}
+        role="status"
+        aria-live={toastKind() === 'error' ? 'assertive' : 'polite'}
+      >
+        <span class="toast-mark" aria-hidden="true">{toastKind() === 'error' ? '!' : '✓'}</span>
+        <div class="toast-copy">
+          <strong>{toastTitle()}</strong>
+          <p>{toastBody()}</p>
+        </div>
+        <button type="button" class="toast-dismiss" on:click={dismissToast} aria-label="关闭提示">关闭</button>
+      </div>
     {/if}
 
     <div class="app-content">
@@ -700,21 +782,70 @@
         </article>
       </section>
     {:else if active === 'dataset'}
-      <section class="panel stage-panel">
-        <header class="panel-head">
+      <section class="dataset-layout">
+        <header class="panel panel-head dataset-intro">
           <p class="eyebrow">步骤 4</p>
-          <h2>生成标签</h2>
-          <p>全部候选需已接受或拒绝。通过后写出 train / holdout recognition labels 并校验格式。</p>
+          <h2>生成与导出标签</h2>
+          <p>先校验并写出 recognition labels，再按需导出到私有 datasets。导出不会自动提交或推送。</p>
+          <div class="dataset-readiness" aria-live="polite">
+            <span class="status-pill" class:status-done={(batch?.review?.pending ?? 1) === 0 && (batch?.review?.total ?? 0) > 0} class:status-running={(batch?.review?.pending ?? 0) > 0}>
+              {datasetReadyHint()}
+            </span>
+            {#if batch?.review}
+              <span class="status-meta">已接受 {batch.review.accepted}</span>
+              <span class="status-meta">待复核 {batch.review.pending}</span>
+              <span class="status-meta">已拒绝 {batch.review.rejected}</span>
+              <span class="status-meta">总计 {batch.review.total}</span>
+            {/if}
+          </div>
         </header>
-        <div class="panel-actions">
-          <button class="button-primary" disabled={!batch || busy} on:click={finalize}>
-            {busy ? '生成中…' : '生成 labels'}
-          </button>
-          <button class="button-secondary" disabled={!batch || busy} on:click={exportDataset}>
-            导出到私有 datasets
-          </button>
+
+        <div class="dataset-cards">
+          <article class="panel action-card">
+            <header>
+              <p class="eyebrow">校验</p>
+              <h3>生成 labels</h3>
+              <p>要求所有候选已接受或拒绝，且 train / holdout 各至少一条已接受转写。</p>
+            </header>
+            <ul class="checklist">
+              <li class:check-ok={(batch?.review?.pending ?? -1) === 0}>无待复核项</li>
+              <li class:check-ok={(batch?.review?.accepted ?? 0) > 0}>至少一条已接受</li>
+              <li class:check-ok={(batch?.train_sources ?? 0) > 0 && (batch?.holdout_sources ?? 0) > 0}>train / holdout 均有源图</li>
+            </ul>
+            {#if lastFinalize}
+              <p class="result-chip">最近生成 · train {lastFinalize.train} / holdout {lastFinalize.holdout}</p>
+            {/if}
+            <div class="panel-actions">
+              <button class="button-primary" disabled={!batch || busy} on:click={finalize}>
+                {busy ? '生成中…' : '生成 labels'}
+              </button>
+              <button class="button-secondary" disabled={!batch || busy || !lastFinalize} on:click={() => { active = 'training'; void loadTrainingStep() }}>
+                前往训练
+              </button>
+            </div>
+          </article>
+
+          <article class="panel action-card">
+            <header>
+              <p class="eyebrow">归档</p>
+              <h3>导出私有数据集</h3>
+              <p>复制到 <code>datasets/labeled/rec/studio/&lt;batch-id&gt;/</code>，作为不可变导出包。</p>
+            </header>
+            <ul class="checklist">
+              <li>先完成 labels 校验</li>
+              <li>导出路径按批次固定，已存在则拒绝覆盖</li>
+              <li>不自动 git commit / push</li>
+            </ul>
+            {#if lastExportPath}
+              <p class="result-chip" title={lastExportPath}>最近导出 · {lastExportPath.split('/').slice(-3).join('/')}</p>
+            {/if}
+            <div class="panel-actions">
+              <button class="button-secondary" disabled={!batch || busy} on:click={exportDataset}>
+                {busy ? '导出中…' : '导出到私有 datasets'}
+              </button>
+            </div>
+          </article>
         </div>
-        <p class="config-note">导出会写入 `datasets/labeled/rec/studio/&lt;batch-id&gt;/`，不自动提交或推送数据仓库。</p>
       </section>
     {:else}
       <section class="training-panel">
@@ -777,27 +908,9 @@
             </div>
           {/if}
 
-          <section class="training-config" aria-label="R2 模型发布">
-            <div>
-              <p class="eyebrow">发布</p>
-              <h3>发布通过 Smoke 的模型</h3>
-              <p class="config-note">发布会重新运行完整评测，生成新的不可变版本，再上传 R2 并下载校验。不会覆盖历史模型。</p>
-            </div>
-            <label class="field">
-              <span><input type="checkbox" bind:checked={publishConfirmed} disabled={busy || publication?.status === 'publishing'} /> 我确认写入 R2</span>
-            </label>
-            <button class="button-primary" disabled={busy || training?.status !== 'completed' || !publishConfirmed || publication?.status === 'publishing'} on:click={startPublication}>
-              {publication?.status === 'publishing' ? '发布中…' : '发布到 R2'}
-            </button>
-            {#if publication && publication.status !== 'not_started'}
-              <p class="status-meta">发布状态：{trainingStatusLabel(publication.status)}</p>
-              {#if publication.log_tail}<pre class="log-tail">{publication.log_tail.trimEnd()}</pre>{/if}
-            {/if}
-          </section>
-
           <section class="log-panel" aria-label="训练日志">
             <header class="log-toolbar">
-              <span>日志</span>
+              <span>训练日志</span>
               <div class="log-toolbar-actions">
                 <label class="log-follow">
                   <input type="checkbox" bind:checked={followLog} on:change={() => void scrollLogToBottom()} />
@@ -811,6 +924,74 @@
             <pre class="log-tail" bind:this={logEl}>{training.log_tail?.trimEnd() || '（暂无输出，启动后将显示在这里）'}</pre>
           </section>
         {/if}
+
+        <section class="publish-panel" aria-label="R2 模型发布">
+          <div class="publish-head">
+            <header class="panel-head">
+              <p class="eyebrow">发布</p>
+              <h2>发布到 R2</h2>
+              <p>仅在 Smoke 成功后可用。将重新评测、导出新的不可变版本、上传 R2 并下载校验，不覆盖历史模型。</p>
+            </header>
+            <div class="publish-status" aria-live="polite">
+              <span
+                class="status-pill"
+                class:status-running={publicationIsActive()}
+                class:status-done={publication?.status === 'completed'}
+                class:status-failed={publication?.status === 'failed' || publication?.status === 'completed_or_failed'}
+              >{trainingStatusLabel(publication?.status || 'not_started')}</span>
+              {#if publication?.pid}<span class="status-meta">PID {publication.pid}</span>{/if}
+            </div>
+          </div>
+
+          {#if training?.status !== 'completed'}
+            <div class="empty-card">
+              <p class="eyebrow">门槛</p>
+              <h3>需要先完成 Smoke</h3>
+              <p>当前训练状态为「{trainingStatusLabel(training?.status || 'not_started')}」。发布按钮将在 Smoke 成功后启用。</p>
+            </div>
+          {:else}
+            <div class="publish-steps" aria-hidden="true">
+              <span>评测</span><i></i><span>导出</span><i></i><span>上传</span><i></i><span>校验</span>
+            </div>
+            <label class="confirm-row">
+              <input type="checkbox" bind:checked={publishConfirmed} disabled={busy || publicationIsActive()} />
+              <span>
+                <strong>确认写入 R2</strong>
+                <small>我理解这会创建新的模型版本前缀，并触发完整发布流水线。</small>
+              </span>
+            </label>
+            <div class="panel-actions">
+              <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshPublication()}>刷新发布状态</button>
+              <button class="button-primary" disabled={!canPublish()} on:click={startPublication}>
+                {publicationIsActive() ? '发布中…' : '发布到 R2'}
+              </button>
+            </div>
+          {/if}
+
+          {#if publication && publication.status !== 'not_started'}
+            {#if publication.command?.length}
+              <div class="training-command">
+                <span>发布命令</span>
+                <code title={publication.command.join(' ')}>{publication.command.join(' ')}</code>
+              </div>
+            {/if}
+            <section class="log-panel log-panel-publish" aria-label="发布日志">
+              <header class="log-toolbar">
+                <span>发布日志</span>
+                <div class="log-toolbar-actions">
+                  <label class="log-follow">
+                    <input type="checkbox" bind:checked={followPublishLog} on:change={() => void scrollLogToBottom()} />
+                    跟随底部
+                  </label>
+                  {#if publication.log}
+                    <span class="status-meta log-path" title={publication.log}>{publication.log.split('/').slice(-3).join('/')}</span>
+                  {/if}
+                </div>
+              </header>
+              <pre class="log-tail" bind:this={publishLogEl}>{publication.log_tail?.trimEnd() || '（暂无发布输出）'}</pre>
+            </section>
+          {/if}
+        </section>
       </section>
     {/if}
     </div>
