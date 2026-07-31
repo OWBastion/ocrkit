@@ -390,6 +390,19 @@
     }
   }
 
+  async function refreshVision() {
+    if (!batch) return message('先选择或创建批次。', true)
+    busy = true
+    try {
+      const result = await request<{ review: ReviewCounts; summary: { rows: number; vision_covered: number; auto_accepted: number; preserved_accepted: number; preserved_rejected: number } }>(`/api/batches/${batch.batch_id}/candidates/refresh-vision`, { method: 'POST' })
+      batch = { ...batch, review: result.review }
+      message(`已补回 Vision：${result.summary.vision_covered}/${result.summary.rows} 条有结果；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
+      active = 'review'
+      await refreshReview()
+      if (rows[0]) selectCandidate(rows[0])
+    } catch (cause) { message(cause instanceof Error ? cause.message : '补回 Vision 结果失败', true) } finally { busy = false }
+  }
+
   async function finalize() {
     if (!batch) return message('先选择批次。', true)
     busy = true
@@ -741,6 +754,9 @@
         <div class="panel-actions">
           <button class="button-primary" disabled={!batch || busy} on:click={candidates}>
             {busy ? '生成中…' : batch?.review?.total ? '打开候选' : '生成候选'}
+          </button>
+          <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={() => void refreshVision()}>
+            {busy ? '补回中…' : '补回 Vision（保留标注）'}
           </button>
         </div>
       </section>

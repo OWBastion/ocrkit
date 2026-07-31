@@ -7,7 +7,8 @@ import cv2
 import numpy as np
 
 from training.studio import core as studio_core
-from training.studio.core import append_sources, create_batch, export_dataset, generate_candidates, review_counts, review_rows, update_review_row
+from training.studio.core import append_sources, create_batch, export_dataset, generate_candidates, refresh_vision_candidates, review_counts, review_rows, update_review_row
+from training.vision import VisionLine
 
 
 def _image(path: Path, value: int = 200) -> None:
@@ -131,3 +132,51 @@ def test_generate_candidates_uses_rust_crops_for_new_batch(tmp_path: Path, monke
     generate_candidates(batch)
 
     assert captured["crop_backend"] == "rust"
+
+
+def test_refresh_vision_preserves_manual_review_and_updates_pending_rows(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    dataset = batch / "dataset"
+    review = dataset / "review"
+    (dataset / "images/train/source-a").mkdir(parents=True)
+    review.mkdir(parents=True)
+    image = cv2.imencode(".png", np.full((40, 60, 3), 200, dtype=np.uint8))[1].tobytes()
+    (dataset / "images/train/source-a/000.png").write_bytes(image)
+    pending = {
+        "crop": "images/train/source-a/000.png",
+        "rapidocr_text": "模型文本",
+        "rapidocr_confidence": 0.99,
+        "review_status": "pending",
+        "transcription": None,
+    }
+    manual = {
+        "crop": "images/train/source-a/000.png",
+        "rapidocr_text": "模型文本",
+        "rapidocr_confidence": 0.99,
+        "review_status": "accepted",
+        "transcription": "人工文本",
+        "auto_accept_reason": None,
+    }
+    rejected = {
+        "crop": "images/train/source-a/000.png",
+        "rapidocr_text": "模型文本",
+        "rapidocr_confidence": 0.99,
+        "review_status": "rejected",
+        "transcription": None,
+        "auto_accept_reason": None,
+    }
+    (review / "train.jsonl").write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in (pending, manual, rejected)) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    class FakeVision:
+        def recognize(self, _image: np.ndarray) -> list[VisionLine]:
+            return [VisionLine("模型文本", 0.99, np.zeros((4, 2), dtype=np.float32))]
+
+    summary = refresh_vision_candidates(batch, vision_factory=FakeVision)
+    rows = review_rows(batch, "train")
+
+    assert summary == {"rows": 3, "vision_covered": 3, "auto_accepted": 1, "preserved_accepted": 1, "preserved_rejected": 1}
+    assert rows[0]["review_status"] == "accepted"
+    assert rows[0]["transcription"] == "模型文本"
+    assert rows[1]["transcription"] == "人工文本"
+    assert rows[2]["review_status"] == "rejected"

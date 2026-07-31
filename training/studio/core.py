@@ -8,7 +8,7 @@ import uuid
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import cv2
 
@@ -17,8 +17,9 @@ from app.image.loader import decode_image
 from app.image.quality import assess_input_quality
 from app.image.roi import crop_all_rois
 from training.scripts.finalize_rec_labels import finalize
-from training.scripts.prepare_rec_candidates import prepare_candidates
+from training.scripts.prepare_rec_candidates import canonicalize, prepare_candidates
 from training.scripts.validate_annotations import validate_rec
+from training.vision import VisionLine, VisionOcr
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORK_ROOT = ROOT / "training/.work/studio"
@@ -298,6 +299,87 @@ def generate_candidates(
         crop_backend=crop_backend,
         roi_config_path=roi_config_path,
     )
+
+
+def refresh_vision_candidates(
+    batch_dir: Path,
+    *,
+    vision_factory: Callable[[], Any] = VisionOcr,
+) -> dict[str, int]:
+    """Refresh Vision fields while preserving all existing human review data."""
+    dataset_dir = batch_dir / "dataset"
+    review_dir = dataset_dir / "review"
+    review_paths = {split: review_dir / f"{split}.jsonl" for split in ("train", "holdout")}
+    if not all(path.is_file() for path in review_paths.values()):
+        raise ValueError("generate candidates before refreshing Vision results")
+
+    vision = vision_factory()
+    updated: dict[str, list[dict[str, Any]]] = {}
+    summary = {
+        "rows": 0,
+        "vision_covered": 0,
+        "auto_accepted": 0,
+        "preserved_accepted": 0,
+        "preserved_rejected": 0,
+    }
+    for split, path in review_paths.items():
+        rows = review_rows(batch_dir, split)
+        refreshed: list[dict[str, Any]] = []
+        for row in rows:
+            crop = Path(str(row.get("crop", "")))
+            if crop.is_absolute() or ".." in crop.parts:
+                raise ValueError(f"candidate contains an unsafe crop path: {crop}")
+            crop_path = (dataset_dir / crop).resolve()
+            if dataset_dir.resolve() not in crop_path.parents or not crop_path.is_file():
+                raise ValueError(f"candidate crop does not exist: {crop}")
+
+            lines = vision.recognize(decode_image(crop_path.read_bytes()))
+            best: VisionLine | None = max(lines, key=lambda line: (line.confidence, len(line.text)), default=None)
+            row["vision_text"] = best.text if best else None
+            row["vision_confidence"] = round(best.confidence, 4) if best else None
+            rapid_text = row.get("rapidocr_text")
+            rapid_confidence = row.get("rapidocr_confidence")
+            confidences = [value for value in (rapid_confidence, row["vision_confidence"]) if isinstance(value, (int, float))]
+            if confidences:
+                row["confidence"] = round(max(confidences), 4)
+
+            was_auto_accepted = row.get("auto_accept_reason") == "rapidocr_vision_agreement"
+            agrees = (
+                isinstance(rapid_text, str)
+                and best is not None
+                and isinstance(rapid_confidence, (int, float))
+                and rapid_confidence >= 0.98
+                and best.confidence >= 0.98
+                and canonicalize(rapid_text) == canonicalize(best.text)
+            )
+            if row.get("review_status") == "pending":
+                if agrees:
+                    row["review_status"] = "accepted"
+                    row["transcription"] = canonicalize(rapid_text)
+                    row["auto_accept_reason"] = "rapidocr_vision_agreement"
+            elif was_auto_accepted:
+                if agrees:
+                    row["auto_accept_reason"] = "rapidocr_vision_agreement"
+                else:
+                    row["review_status"] = "pending"
+                    row["transcription"] = None
+                    row["auto_accept_reason"] = None
+
+            summary["rows"] += 1
+            if best is not None and best.text.strip():
+                summary["vision_covered"] += 1
+            if row.get("auto_accept_reason") == "rapidocr_vision_agreement":
+                summary["auto_accepted"] += 1
+            if row.get("review_status") == "accepted" and not row.get("auto_accept_reason"):
+                summary["preserved_accepted"] += 1
+            if row.get("review_status") == "rejected":
+                summary["preserved_rejected"] += 1
+            refreshed.append(row)
+        updated[split] = refreshed
+
+    for split, path in review_paths.items():
+        _atomic_jsonl(path, updated[split])
+    return summary
 
 
 def roi_preview_paths(batch_dir: Path) -> list[tuple[str, str]]:
