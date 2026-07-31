@@ -302,10 +302,15 @@
     return `${Math.round(value * 100)}%`
   }
 
-  function selectCandidate(row: Row) {
+  function selectCandidate(row: Row, event?: MouseEvent) {
     selected = { ...row, transcription: row.transcription || row.candidate_text || '' }
     cropZoom = 'auto'
     cropNatural = { w: 0, h: 0 }
+    // Keep focus scroll inside the list pane; avoid jumping the whole page.
+    const target = event?.currentTarget
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
   }
 
   function onCropLoad(event: Event) {
@@ -791,7 +796,7 @@
                   type="button"
                   class:selected-row={selected?.crop === row.crop}
                   class="candidate"
-                  on:click={() => selectCandidate(row)}
+                  on:click={(event) => selectCandidate(row, event)}
                 >
                   <span>{row.roi}</span>
                   <strong>{row.candidate_text || '无候选文本'}</strong>
