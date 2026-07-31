@@ -13,6 +13,8 @@
     command?: string[]
   }
   type ResumeCheckpoint = { path: string; name: string }
+  type RemoteConfig = { configured: boolean; bucket: string; allowed_prefixes: string[]; max_objects?: number; max_object_bytes?: number }
+  type RemoteObject = { key: string; size: number; etag?: string | null; last_modified?: string | null }
 
   let batches: Batch[] = []
   let batch: Batch | null = null
@@ -39,6 +41,12 @@
   let followPublishLog = true
   let logEl: HTMLPreElement | null = null
   let publishLogEl: HTMLPreElement | null = null
+  let remoteConfig: RemoteConfig | null = null
+  let remotePrefix = ''
+  let remoteObjects: RemoteObject[] = []
+  let remoteCursor: string | null = null
+  let remoteSelected = new Set<string>()
+  let remoteLoading = false
   let cropZoom: CropZoom = 'auto'
   let cropNatural = { w: 0, h: 0 }
   let trainingPollTimer: ReturnType<typeof setInterval> | null = null
@@ -138,6 +146,57 @@
   async function refreshBatches(selectId?: string) {
     batches = await request<Batch[]>('/api/batches')
     batch = batches.find((item) => item.batch_id === (selectId || batch?.batch_id)) || batches[0] || null
+  }
+
+  function formatBytes(value: number) {
+    if (value < 1024 * 1024) return `${Math.round(value / 1024)} KiB`
+    return `${(value / 1024 / 1024).toFixed(1)} MiB`
+  }
+
+  async function loadRemoteStatus() {
+    remoteConfig = await request<RemoteConfig>('/api/r2/status')
+    if (remoteConfig.configured && !remotePrefix) remotePrefix = remoteConfig.allowed_prefixes[0] || ''
+  }
+
+  async function loadRemoteImages(append = false) {
+    if (!remoteConfig?.configured) return message('Studio 尚未配置 R2 远程数据源。', true)
+    if (!remotePrefix) return message('请输入或选择一个 R2 prefix。', true)
+    remoteLoading = true
+    try {
+      const cursor = append ? remoteCursor : null
+      const query = new URLSearchParams({ prefix: remotePrefix })
+      if (cursor) query.set('cursor', cursor)
+      const result = await request<{ objects: RemoteObject[]; next_cursor: string | null }>(`/api/r2/images?${query.toString()}`)
+      remoteObjects = append ? [...remoteObjects, ...result.objects] : result.objects
+      remoteCursor = result.next_cursor
+      if (!append) remoteSelected = new Set()
+      message(`已加载 ${result.objects.length} 张可用远程截图。`)
+    } catch (cause) { message(cause instanceof Error ? cause.message : '读取 R2 图片失败', true) } finally { remoteLoading = false }
+  }
+
+  function toggleRemoteSelection(key: string) {
+    const next = new Set(remoteSelected)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    remoteSelected = next
+  }
+
+  async function importRemoteImages() {
+    if (!remoteSelected.size) return message('先选择至少一张 R2 截图。', true)
+    const addingToExistingBatch = Boolean(batch)
+    busy = true
+    try {
+      const endpoint = batch ? `/api/batches/${batch.batch_id}/remote-sources` : '/api/batches/r2'
+      const result = await request<{ added?: number; batch: Batch }>(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ keys: [...remoteSelected], holdout_ratio: holdoutRatio }),
+      })
+      await refreshBatches(result.batch.batch_id)
+      remoteSelected = new Set()
+      message(addingToExistingBatch ? `已从 R2 加入 ${result.added || 0} 张截图。` : `已用 R2 截图创建批次（${result.batch.sources} 张）。`)
+      active = 'candidates'
+    } catch (cause) { message(cause instanceof Error ? cause.message : '导入 R2 图片失败', true) } finally { busy = false }
   }
 
   async function refreshReview(options?: { keepSelection?: boolean; preferCrops?: string[] }) {
@@ -502,7 +561,11 @@
     } catch (cause) { message(cause instanceof Error ? cause.message : '训练启动失败', true) } finally { busy = false }
   }
 
-  onMount(async () => { try { await refreshBatches() } catch { message('无法连接 Studio API。', true) } })
+  onMount(async () => {
+    try {
+      await Promise.all([refreshBatches(), loadRemoteStatus()])
+    } catch { message('无法连接 Studio API。', true) }
+  })
   onDestroy(() => {
     stopTrainingPoll()
     clearToastTimer()
@@ -599,6 +662,55 @@
               {busy ? '处理中…' : '加入当前批次'}
             </button>
           </div>
+          <section class="remote-import" aria-label="R2 远程截图">
+            <header class="remote-head">
+              <div>
+                <p class="eyebrow">线上数据源</p>
+                <h3>从 R2 获取截图</h3>
+                <p>凭据只在 Studio 后端使用。远程截图会复制到私有 batch，并与本地截图一起进入候选复核。</p>
+              </div>
+              {#if remoteConfig?.configured}
+                <span class="status-pill status-done">只读 · {remoteConfig.bucket}</span>
+              {/if}
+            </header>
+            {#if !remoteConfig?.configured}
+              <p class="remote-empty">未配置 Studio R2。设置 <code>OCRKIT_STUDIO_R2_BUCKET</code> 与 <code>OCRKIT_STUDIO_R2_ALLOWED_PREFIXES</code> 后重启 Studio。</p>
+            {:else}
+              <div class="remote-controls">
+                <label class="field">
+                  <span>Prefix</span>
+                  <input class="control" bind:value={remotePrefix} placeholder={remoteConfig.allowed_prefixes[0]} />
+                </label>
+                <button class="button-secondary" disabled={remoteLoading || busy} on:click={() => void loadRemoteImages()}>
+                  {remoteLoading ? '读取中…' : '加载对象'}
+                </button>
+              </div>
+              {#if remoteObjects.length}
+                <div class="remote-list">
+                  {#each remoteObjects as object}
+                    <label class="remote-object">
+                      <input type="checkbox" checked={remoteSelected.has(object.key)} on:change={() => toggleRemoteSelection(object.key)} />
+                      <span class="remote-object-copy">
+                        <strong title={object.key}>{object.key}</strong>
+                        <small>{formatBytes(object.size)}</small>
+                      </span>
+                    </label>
+                  {/each}
+                </div>
+                <div class="remote-actions">
+                  <span class="status-meta">已选 {remoteSelected.size} / {remoteObjects.length}</span>
+                  {#if remoteCursor}
+                    <button class="button-secondary button-compact" disabled={remoteLoading || busy} on:click={() => void loadRemoteImages(true)}>加载下一页</button>
+                  {/if}
+                  <button class="button-primary" disabled={busy || !remoteSelected.size} on:click={() => void importRemoteImages()}>
+                    {batch ? '加入当前批次' : '用所选截图创建批次'}
+                  </button>
+                </div>
+              {:else}
+                <p class="remote-empty">输入允许的 prefix 后点击「加载对象」。只显示支持的图片格式和大小范围内的对象。</p>
+              {/if}
+            {/if}
+          </section>
         </div>
         <aside class="panel panel-side">
           <h3>流程</h3>

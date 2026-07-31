@@ -106,6 +106,21 @@ For platform evidence, the caller must provide `bucket` explicitly in the
 platform bucket when it is reserved for OCRKit models or other service-owned
 objects.
 
+The local OCRKit Studio can use the same read-only R2 credential set to import
+screenshot sources without a platform API token. Configure the
+Studio-only bucket and prefix allowlist:
+
+- `OCRKIT_STUDIO_R2_BUCKET`
+- `OCRKIT_STUDIO_R2_ALLOWED_PREFIXES` (comma-separated, for example `uploads/`)
+- `OCRKIT_STUDIO_R2_MAX_OBJECTS` (default: `200`)
+- `OCRKIT_STUDIO_R2_MAX_OBJECT_BYTES` (default: `26214400`)
+
+These settings affect only the local Studio API. Credentials stay server-side;
+the browser receives object metadata and the selected images are copied into
+the private ignored Studio batch. Use a dedicated R2 access key with read-only
+permission scoped to this bucket and prefix. Studio never lists or reads the
+production model prefix through this import path.
+
 ## OCR Engine and Model Artifacts
 
 Default engine is `rapidocr`. Production RapidOCR loads a versioned PP-OCRv6 small

@@ -24,6 +24,14 @@ class ObjectDownloadError(Exception):
     pass
 
 
+class ObjectListError(Exception):
+    pass
+
+
+class ObjectTooLargeError(Exception):
+    pass
+
+
 @dataclass
 class R2ObjectStore:
     endpoint_url: str
@@ -76,13 +84,48 @@ class R2ObjectStore:
             raise ObjectAccessDeniedError("Bucket is not allowed")
         return selected
 
-    def get_object_bytes(self, bucket: str, object_key: str, version_id: str | None = None) -> bytes:
+    def list_objects(
+        self,
+        bucket: str,
+        prefix: str,
+        continuation_token: str | None = None,
+        max_keys: int = 100,
+    ) -> dict[str, object]:
+        kwargs: dict[str, object] = {"Bucket": bucket, "Prefix": prefix, "MaxKeys": max_keys}
+        if continuation_token:
+            kwargs["ContinuationToken"] = continuation_token
+        try:
+            response = self._client.list_objects_v2(**kwargs)
+            return response
+        except (ConnectTimeoutError, ReadTimeoutError, SocketTimeout) as exc:
+            raise ObjectTimeoutError("Object listing timed out") from exc
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in {"AccessDenied", "403"}:
+                raise ObjectAccessDeniedError("Object listing access denied") from exc
+            raise ObjectListError("Object listing failed") from exc
+
+    def get_object_bytes(
+        self,
+        bucket: str,
+        object_key: str,
+        version_id: str | None = None,
+        *,
+        max_bytes: int | None = None,
+    ) -> bytes:
         kwargs: dict[str, str] = {"Bucket": bucket, "Key": object_key}
         if version_id:
             kwargs["VersionId"] = version_id
         try:
             response = self._client.get_object(**kwargs)
-            return response["Body"].read()
+            body = response["Body"]
+            try:
+                content = body.read(max_bytes + 1) if max_bytes is not None else body.read()
+            finally:
+                body.close()
+            if max_bytes is not None and len(content) > max_bytes:
+                raise ObjectTooLargeError("Object exceeds the configured size limit")
+            return content
         except (ConnectTimeoutError, ReadTimeoutError, SocketTimeout) as exc:
             raise ObjectTimeoutError("Object download timed out") from exc
         except ClientError as exc:

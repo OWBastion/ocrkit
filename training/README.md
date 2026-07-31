@@ -54,6 +54,25 @@ push the `datasets` submodule. A passed Smoke run can then use **发布到 R2**:
 explicit confirmation and runs the complete release gate, a new immutable version, upload, and
 download verification in a separate local process.
 
+### Import from R2
+
+Studio can combine local screenshots with screenshots stored in R2. It uses the same R2 credentials as
+the service, but only in the local Studio backend; the browser never receives R2 credentials or object
+URLs. Configure a read-only key and a narrow bucket/prefix allowlist before starting Studio:
+
+```bash
+export OCRKIT_R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+export OCRKIT_R2_ACCESS_KEY_ID=<read-only-access-key>
+export OCRKIT_R2_SECRET_ACCESS_KEY=<read-only-secret>
+export OCRKIT_STUDIO_R2_BUCKET=owbastion-codes-evidence
+export OCRKIT_STUDIO_R2_ALLOWED_PREFIXES=uploads/
+```
+
+In **导入**, load an allowed prefix, select images, then either create a new batch or add them to the
+current batch. Studio filters supported image types, applies a 200-image page/import limit and a 25 MiB
+per-object limit by default, deduplicates by SHA-256, and records the private R2 bucket/key provenance
+in `batch.json`. Remote images still require candidate review before labels or training can proceed.
+
 ## Layout
 
 - `datasets/labeled/det/labels.txt`: one line per source image, formatted as `relative/image.png<TAB>[{"transcription":"...","points":[[x1,y1],...,[x4,y4]]}]`.

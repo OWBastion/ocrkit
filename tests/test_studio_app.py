@@ -11,6 +11,29 @@ from fastapi.testclient import TestClient
 
 from training.studio import app as studio_app
 from training.studio.app import create_app
+from training.studio.r2 import StudioR2Store
+
+
+class _FakeR2Client:
+    def list_objects(self, bucket: str, prefix: str, continuation_token: str | None = None, max_keys: int = 100) -> dict[str, object]:
+        assert bucket == "evidence"
+        assert prefix == "uploads/"
+        return {
+            "Contents": [
+                {"Key": "uploads/one.png", "Size": 100},
+                {"Key": "uploads/notes.txt", "Size": 100},
+            ],
+            "IsTruncated": False,
+        }
+
+    def get_object_bytes(self, bucket: str, key: str, version_id: str | None = None, *, max_bytes: int | None = None) -> bytes:
+        assert bucket == "evidence"
+        assert key == "uploads/one.png"
+        return cv2.imencode(".png", np.full((40, 60, 3), 200, dtype=np.uint8))[1].tobytes()
+
+
+def _remote_store() -> StudioR2Store:
+    return StudioR2Store(_FakeR2Client(), "evidence", ("uploads/",), 200, 25 * 1024 * 1024)
 
 
 def test_studio_api_serves_local_frontend_and_rejects_unknown_batch(tmp_path: Path) -> None:
@@ -37,6 +60,59 @@ def test_studio_api_imports_image_into_private_batch(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["batch"]["sources"] == 1
     assert len(list((tmp_path / "work/batches").iterdir())) == 1
+
+
+def test_studio_api_lists_and_imports_r2_images_into_a_new_batch(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    client = TestClient(create_app(tmp_path / "work", frontend, _remote_store()))
+
+    listed = client.get("/api/r2/images", params={"prefix": "uploads/"})
+    assert listed.status_code == 200
+    assert listed.json()["objects"] == [{"key": "uploads/one.png", "size": 100, "etag": None, "last_modified": None}]
+
+    imported = client.post("/api/batches/r2", json={"keys": ["uploads/one.png"], "holdout_ratio": 0.2})
+
+    assert imported.status_code == 200
+    batch_id = imported.json()["batch"]["batch_id"]
+    manifest = json.loads((tmp_path / "work/batches" / batch_id / "batch.json").read_text(encoding="utf-8"))
+    assert manifest["sources"][0]["provenance"] == {
+        "source": "r2",
+        "bucket": "evidence",
+        "object_key": "uploads/one.png",
+        "sha256": manifest["sources"][0]["sha256"],
+    }
+
+
+def test_studio_api_rejects_r2_key_outside_allowlist(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    client = TestClient(create_app(tmp_path / "work", frontend, _remote_store()))
+
+    response = client.post("/api/batches/r2", json={"keys": ["../private.png"]})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "R2 bucket 或 prefix 不在 Studio 白名单内"
+
+
+def test_studio_api_appends_r2_images_to_an_existing_batch(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    local = cv2.imencode(".png", np.full((40, 60, 3), 100, dtype=np.uint8))[1].tobytes()
+    client = TestClient(create_app(tmp_path / "work", frontend, _remote_store()))
+    created = client.post("/api/batches", data={"holdout_ratio": "0.2"}, files=[("files", ("local.png", local, "image/png"))])
+    batch_id = created.json()["batch"]["batch_id"]
+
+    response = client.post(f"/api/batches/{batch_id}/remote-sources", json={"keys": ["uploads/one.png"]})
+
+    assert response.status_code == 200
+    assert response.json()["added"] == 1
+    manifest = json.loads((tmp_path / "work/batches" / batch_id / "batch.json").read_text(encoding="utf-8"))
+    assert len(manifest["sources"]) == 2
+    assert manifest["sources"][1]["provenance"]["object_key"] == "uploads/one.png"
 
 
 def test_studio_api_adds_screenshot_to_existing_batch(tmp_path: Path) -> None:

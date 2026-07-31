@@ -86,6 +86,7 @@ def create_batch(
     work_root: Path = DEFAULT_WORK_ROOT,
     roi_config_path: Path = DEFAULT_ROI_CONFIG,
     holdout_ratio: float = 0.2,
+    provenance_by_digest: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     """Copy valid uploads into a private, ignored batch workspace and assign source-level splits."""
     candidates = [Path(item) for item in upload_paths if item]
@@ -118,16 +119,17 @@ def create_batch(
         extension = source.suffix.lower()
         target_name = f"{index:04d}-{digest[:12]}{extension}"
         shutil.copy2(source, sources_dir / target_name)
-        sources.append(
-            {
-                "id": f"source-{digest[:12]}",
-                "file": f"sources/{target_name}",
-                "sha256": digest,
-                "split": splits[digest],
-                "original_name": source.name,
-                "quality": quality,
-            }
-        )
+        row: dict[str, Any] = {
+            "id": f"source-{digest[:12]}",
+            "file": f"sources/{target_name}",
+            "sha256": digest,
+            "split": splits[digest],
+            "original_name": source.name,
+            "quality": quality,
+        }
+        if provenance_by_digest and digest in provenance_by_digest:
+            row["provenance"] = provenance_by_digest[digest]
+        sources.append(row)
     manifest = {
         "schema_version": "1",
         "batch_id": batch_id,
@@ -145,7 +147,12 @@ def create_batch(
     return batch_dir, batch_summary(batch_dir)
 
 
-def append_sources(batch_dir: Path, upload_paths: list[str | Path]) -> dict[str, Any]:
+def append_sources(
+    batch_dir: Path,
+    upload_paths: list[str | Path],
+    *,
+    provenance_by_digest: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Add new source screenshots without changing existing source-level splits."""
     manifest = load_manifest(batch_dir)
     candidates = [Path(item) for item in upload_paths if item]
@@ -180,16 +187,17 @@ def append_sources(batch_dir: Path, upload_paths: list[str | Path]) -> dict[str,
         extension = source.suffix.lower()
         target_name = f"{next_index + index:04d}-{digest[:12]}{extension}"
         shutil.copy2(source, sources_dir / target_name)
-        added.append(
-            {
-                "id": f"source-{digest[:12]}",
-                "file": f"sources/{target_name}",
-                "sha256": digest,
-                "split": "holdout" if index < new_holdout else "train",
-                "original_name": source.name,
-                "quality": quality,
-            }
-        )
+        row: dict[str, Any] = {
+            "id": f"source-{digest[:12]}",
+            "file": f"sources/{target_name}",
+            "sha256": digest,
+            "split": "holdout" if index < new_holdout else "train",
+            "original_name": source.name,
+            "quality": quality,
+        }
+        if provenance_by_digest and digest in provenance_by_digest:
+            row["provenance"] = provenance_by_digest[digest]
+        added.append(row)
     manifest["sources"] = [*sources, *added]
     manifest["updated_at"] = datetime.now(UTC).isoformat()
     _atomic_json(batch_dir / "batch.json", manifest)

@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     r2_default_bucket: str = ""
     r2_allowed_buckets: str = ""
     r2_read_timeout_seconds: int = 10
+    studio_r2_bucket: str = ""
+    studio_r2_allowed_prefixes: str = ""
+    studio_r2_max_objects: int = Field(default=200, ge=1, le=1000)
+    studio_r2_max_object_bytes: int = Field(default=25 * 1024 * 1024, ge=1)
     model_manifest_key: str = ""
     model_release_channel_key: str = ""
     model_cache_dir: Path = Path("/var/lib/ocrkit/models")

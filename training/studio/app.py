@@ -28,6 +28,7 @@ from training.studio.core import (
     roi_preview_paths,
     update_review_row,
 )
+from training.studio.r2 import StudioR2Store, r2_error_detail
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = ROOT / "training/studio/frontend/dist"
@@ -49,6 +50,11 @@ class TrainingStart(BaseModel):
 
 class PublishStart(BaseModel):
     confirmed: bool = False
+
+
+class RemoteSourceSelection(BaseModel):
+    keys: list[str] = Field(min_length=1, max_length=200)
+    holdout_ratio: float = Field(default=0.2, ge=0, lt=1)
 
 
 def _batch_dir(work_root: Path, batch_id: str) -> Path:
@@ -209,7 +215,11 @@ def _checkpoint_from_training_state(batch_dir: Path) -> Path:
     return checkpoint
 
 
-def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = FRONTEND_DIST) -> FastAPI:
+def create_app(
+    work_root: Path = DEFAULT_WORK_ROOT,
+    frontend_dir: Path | None = FRONTEND_DIST,
+    remote_store: StudioR2Store | None = None,
+) -> FastAPI:
     if frontend_dir is not None and not (frontend_dir / "index.html").is_file():
         raise RuntimeError(f"Studio frontend is missing: run `pnpm --dir training/studio/frontend build` ({frontend_dir})")
 
@@ -222,6 +232,61 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = 
     @app.get("/api/batches")
     def batches() -> list[dict[str, object]]:
         return _list_batches(work_root)
+
+    @app.get("/api/r2/status")
+    def r2_status() -> dict[str, object]:
+        store = remote_store or StudioR2Store.from_settings()
+        if store is None:
+            return {"configured": False, "bucket": "", "allowed_prefixes": []}
+        return {
+            "configured": True,
+            "bucket": store.bucket,
+            "allowed_prefixes": list(store.allowed_prefixes),
+            "max_objects": store.max_objects,
+            "max_object_bytes": store.max_object_bytes,
+        }
+
+    @app.get("/api/r2/images")
+    def r2_images(prefix: str = "", cursor: str | None = None) -> dict[str, object]:
+        store = remote_store or StudioR2Store.from_settings()
+        if store is None:
+            raise HTTPException(status_code=503, detail="Studio R2 未配置")
+        selected_prefix = prefix or store.allowed_prefixes[0]
+        try:
+            return store.list_images(selected_prefix, cursor)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=r2_error_detail(exc)) from exc
+
+    def download_remote_sources(selection: RemoteSourceSelection, temporary_dir: Path) -> tuple[list[Path], dict[str, dict[str, object]]]:
+        store = remote_store or StudioR2Store.from_settings()
+        if store is None:
+            raise HTTPException(status_code=503, detail="Studio R2 未配置")
+        try:
+            downloaded = store.download_images(selection.keys, temporary_dir)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=r2_error_detail(exc)) from exc
+        return [item.path for item in downloaded], {
+            str(item.provenance["sha256"]): item.provenance for item in downloaded
+        }
+
+    @app.post("/api/batches/r2")
+    async def import_remote_batch(selection: RemoteSourceSelection) -> dict[str, object]:
+        work_root.mkdir(parents=True, exist_ok=True)
+        temporary_dir = Path(tempfile.mkdtemp(prefix="studio-r2-import-", dir=work_root))
+        try:
+            paths, provenance = download_remote_sources(selection, temporary_dir)
+            batch_dir, summary = await run_in_threadpool(
+                create_batch,
+                paths,
+                work_root=work_root,
+                holdout_ratio=selection.holdout_ratio,
+                provenance_by_digest=provenance,
+            )
+            return {"batch": summary, "previews": roi_preview_paths(batch_dir)}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            shutil.rmtree(temporary_dir, ignore_errors=True)
 
     @app.post("/api/batches")
     async def import_images(files: list[UploadFile] = File(...), holdout_ratio: float = Form(0.2)) -> dict[str, object]:
@@ -241,6 +306,18 @@ def create_app(work_root: Path = DEFAULT_WORK_ROOT, frontend_dir: Path | None = 
         try:
             paths = await _uploaded_paths(files, temporary_dir)
             return await run_in_threadpool(append_sources, batch_dir, paths)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            shutil.rmtree(temporary_dir, ignore_errors=True)
+
+    @app.post("/api/batches/{batch_id}/remote-sources")
+    async def add_remote_sources(batch_id: str, selection: RemoteSourceSelection) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        temporary_dir = Path(tempfile.mkdtemp(prefix="studio-r2-append-", dir=work_root))
+        try:
+            paths, provenance = download_remote_sources(selection, temporary_dir)
+            return await run_in_threadpool(append_sources, batch_dir, paths, provenance_by_digest=provenance)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
