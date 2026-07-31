@@ -21,6 +21,7 @@ class _FakeR2Client:
         return {
             "Contents": [
                 {"Key": "uploads/one.png", "Size": 100},
+                {"Key": "uploads/submissions/submission-1/hash.upload", "Size": 100},
                 {"Key": "uploads/notes.txt", "Size": 100},
             ],
             "IsTruncated": False,
@@ -28,7 +29,7 @@ class _FakeR2Client:
 
     def get_object_bytes(self, bucket: str, key: str, version_id: str | None = None, *, max_bytes: int | None = None) -> bytes:
         assert bucket == "evidence"
-        assert key == "uploads/one.png"
+        assert key in {"uploads/one.png", "uploads/submissions/submission-1/hash.upload"}
         return cv2.imencode(".png", np.full((40, 60, 3), 200, dtype=np.uint8))[1].tobytes()
 
 
@@ -70,7 +71,10 @@ def test_studio_api_lists_and_imports_r2_images_into_a_new_batch(tmp_path: Path)
 
     listed = client.get("/api/r2/images", params={"prefix": "uploads/"})
     assert listed.status_code == 200
-    assert listed.json()["objects"] == [{"key": "uploads/one.png", "size": 100, "etag": None, "last_modified": None}]
+    assert listed.json()["objects"] == [
+        {"key": "uploads/one.png", "size": 100, "etag": None, "last_modified": None},
+        {"key": "uploads/submissions/submission-1/hash.upload", "size": 100, "etag": None, "last_modified": None},
+    ]
 
     imported = client.post("/api/batches/r2", json={"keys": ["uploads/one.png"], "holdout_ratio": 0.2})
 
@@ -113,6 +117,20 @@ def test_studio_api_appends_r2_images_to_an_existing_batch(tmp_path: Path) -> No
     manifest = json.loads((tmp_path / "work/batches" / batch_id / "batch.json").read_text(encoding="utf-8"))
     assert len(manifest["sources"]) == 2
     assert manifest["sources"][1]["provenance"]["object_key"] == "uploads/one.png"
+
+
+def test_studio_api_imports_platform_upload_objects(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    client = TestClient(create_app(tmp_path / "work", frontend, _remote_store()))
+
+    response = client.post("/api/batches/r2", json={"keys": ["uploads/submissions/submission-1/hash.upload"]})
+
+    assert response.status_code == 200
+    batch_id = response.json()["batch"]["batch_id"]
+    manifest = json.loads((tmp_path / "work/batches" / batch_id / "batch.json").read_text(encoding="utf-8"))
+    assert manifest["sources"][0]["file"].endswith(".png")
 
 
 def test_studio_api_adds_screenshot_to_existing_batch(tmp_path: Path) -> None:

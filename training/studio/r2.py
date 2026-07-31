@@ -16,6 +16,7 @@ from app.storage.r2_client import (
 )
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+_REMOTE_IMAGE_SUFFIXES = _IMAGE_SUFFIXES | {".upload"}
 
 
 @dataclass(frozen=True)
@@ -76,9 +77,19 @@ class StudioR2Store:
             raise ObjectAccessDeniedError("Invalid R2 object key")
         if not any(self._is_under_allowed_prefix(normalized, allowed) for allowed in self.allowed_prefixes):
             raise ObjectAccessDeniedError("R2 object key is not allowed")
-        if Path(normalized).suffix.lower() not in _IMAGE_SUFFIXES:
+        if Path(normalized).suffix.lower() not in _REMOTE_IMAGE_SUFFIXES:
             raise ObjectAccessDeniedError("R2 object is not a supported image")
         return normalized
+
+    @staticmethod
+    def _content_suffix(content: bytes) -> str:
+        if content.startswith(b"\x89PNG\r\n\x1a\n"):
+            return ".png"
+        if content.startswith(b"\xff\xd8\xff"):
+            return ".jpg"
+        if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+            return ".webp"
+        raise ValueError("R2 object content is not a supported image")
 
     @staticmethod
     def _is_under_allowed_prefix(value: str, allowed: str) -> bool:
@@ -99,7 +110,7 @@ class StudioR2Store:
                 continue
             key = str(item.get("Key", ""))
             size = int(item.get("Size", 0) or 0)
-            if Path(key).suffix.lower() not in _IMAGE_SUFFIXES or size > self.max_object_bytes:
+            if Path(key).suffix.lower() not in _REMOTE_IMAGE_SUFFIXES or size > self.max_object_bytes:
                 continue
             last_modified = item.get("LastModified")
             objects.append(
@@ -130,7 +141,7 @@ class StudioR2Store:
                 max_bytes=self.max_object_bytes,
             )
             digest = hashlib.sha256(content).hexdigest()
-            suffix = Path(key).suffix.lower()
+            suffix = self._content_suffix(content)
             path = temporary_dir / f"{index:04d}{suffix}"
             path.write_bytes(content)
             downloaded.append(
