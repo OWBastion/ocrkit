@@ -4,6 +4,15 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 frontend_dir="${root_dir}/training/studio/frontend"
 
+load_dotenv() {
+  if [[ -f "${root_dir}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${root_dir}/.env"
+    set +a
+  fi
+}
+
 install_frontend() {
   pnpm --dir "${frontend_dir}" install --frozen-lockfile
 }
@@ -14,6 +23,7 @@ build_frontend() {
 }
 
 start_development() {
+  load_dotenv
   install_frontend
   uv run --extra vision python -m training.studio --port 7860 --api-only --reload &
   api_pid="$!"
@@ -41,6 +51,7 @@ case "${command}" in
     if [[ $# -gt 0 ]]; then
       shift
     fi
+    load_dotenv
     build_frontend
     exec uv run --extra vision python -m training.studio "$@"
     ;;
