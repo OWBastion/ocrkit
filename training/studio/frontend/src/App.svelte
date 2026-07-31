@@ -3,7 +3,7 @@
 
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; review?: ReviewCounts }
-  type Row = { crop: string; roi: string; review_status: string; candidate_text?: string; transcription?: string; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number }
+  type Row = { crop: string; roi: string; review_status: string; auto_accept_reason?: string | null; candidate_text?: string; transcription?: string; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
     status?: string
@@ -755,6 +755,7 @@
             <select class="control" bind:value={status} on:change={() => refreshReview()}>
               <option value="pending">待复核</option>
               <option value="accepted">已接受</option>
+              <option value="auto_accepted">自动接受</option>
               <option value="rejected">已拒绝</option>
               <option value="all">全部</option>
             </select>
@@ -778,7 +779,7 @@
                 >
                   <span>{row.roi}</span>
                   <strong>{row.candidate_text || '无候选文本'}</strong>
-                  <small>{confidenceLabel(row.confidence)}</small>
+                  <small>{row.auto_accept_reason ? '自动 · 可复核' : confidenceLabel(row.confidence)}</small>
                 </button>
               {/each}
             {:else}
@@ -790,7 +791,7 @@
           {#if selected && batch}
             <header class="detail-header">
               <div>
-                <p class="eyebrow">{selected.roi} · {selected.review_status}</p>
+                <p class="eyebrow">{selected.roi} · {selected.auto_accept_reason ? '自动接受 · 可人工覆盖' : selected.review_status}</p>
                 <h2>复核</h2>
               </div>
               {#if cropNatural.w}
@@ -830,6 +831,9 @@
 
             <div class="detail-copy">
               <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
+              {#if selected.auto_accept_reason}
+                <p class="auto-review-hint">这条切片由双模型一致且高置信度自动接受；仍可修改转写或点击「拒绝」进行人工覆盖。</p>
+              {/if}
               <div class="engine-picks" role="group" aria-label="双引擎识别结果">
                 <button
                   type="button"

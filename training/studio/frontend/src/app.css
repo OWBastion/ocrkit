@@ -413,6 +413,7 @@
 
   .detail-copy { @apply grid gap-0; }
   .engine-hint { @apply text-sm leading-6 text-ink/55; }
+  .auto-review-hint { @apply mt-2 rounded-lg bg-leaf/10 px-3 py-2 text-sm leading-6 text-leaf; }
   .engine-picks { @apply mt-3 grid gap-3 sm:grid-cols-2; }
   .engine-pick {
     @apply grid gap-2 rounded-[var(--radius-control)] border border-ink/12 bg-white px-4 py-3 text-left;

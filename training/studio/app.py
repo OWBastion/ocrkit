@@ -332,7 +332,7 @@ def create_app(
     @app.get("/api/batches/{batch_id}/review")
     def review(batch_id: str, split: str = "train", status: str = "pending") -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
-        if split not in {"train", "holdout"} or status not in {"pending", "accepted", "rejected", "all"}:
+        if split not in {"train", "holdout"} or status not in {"pending", "accepted", "auto_accepted", "rejected", "all"}:
             raise HTTPException(status_code=422, detail="invalid review filter")
         rows = review_rows(batch_dir, split, status)
         return {"rows": rows, "counts": review_counts(batch_dir)}

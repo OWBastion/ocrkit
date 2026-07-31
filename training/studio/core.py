@@ -324,7 +324,9 @@ def review_rows(batch_dir: Path, split: str, status: str = "all") -> list[dict[s
     if not path.is_file():
         return []
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if status != "all":
+    if status == "auto_accepted":
+        rows = [row for row in rows if row.get("auto_accept_reason") == "rapidocr_vision_agreement"]
+    elif status != "all":
         rows = [row for row in rows if row.get("review_status") == status]
     return rows
 
@@ -339,9 +341,15 @@ def update_review_row(batch_dir: Path, split: str, crop: str, status: str, trans
             continue
         if status == "accepted" and not (transcription or "").strip():
             raise ValueError("accepted candidates require a transcription")
+        previous_transcription = row.get("transcription")
+        was_auto_accepted = row.get("auto_accept_reason") == "rapidocr_vision_agreement"
         row["review_status"] = status
         row["transcription"] = transcription.strip() if status == "accepted" and transcription else None
-        row["auto_accept_reason"] = row.get("auto_accept_reason") if status == "accepted" else None
+        row["auto_accept_reason"] = (
+            row.get("auto_accept_reason")
+            if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription
+            else None
+        )
         _atomic_jsonl(path, rows)
         return row
     raise ValueError("review candidate no longer exists")

@@ -75,6 +75,26 @@ def test_review_updates_are_atomic_and_counted(tmp_path: Path) -> None:
     assert review_counts(batch) == {"total": 1, "accepted": 1, "pending": 0, "rejected": 0}
 
 
+def test_auto_accepted_rows_are_filterable_and_manual_text_override_clears_marker(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    review = batch / "dataset/review"
+    review.mkdir(parents=True)
+    row = {
+        "crop": "images/train/source/000.png",
+        "review_status": "accepted",
+        "transcription": "模型文本",
+        "auto_accept_reason": "rapidocr_vision_agreement",
+    }
+    (review / "train.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    assert review_rows(batch, "train", "auto_accepted")[0]["crop"] == row["crop"]
+    updated = update_review_row(batch, "train", row["crop"], "accepted", "人工修正")
+
+    assert updated["transcription"] == "人工修正"
+    assert updated["auto_accept_reason"] is None
+
+
 def test_generate_candidates_reuses_completed_review_manifest(tmp_path: Path) -> None:
     batch = tmp_path / "batch"
     review = batch / "dataset/review"
