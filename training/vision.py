@@ -49,8 +49,12 @@ class VisionOcr:
         ci_image = self._quartz.CIImage.imageWithData_(image_data)
         handler = self._handler_type.alloc().initWithCIImage_options_(ci_image, None)
         success, error = handler.performRequests_error_([request], None)
-        if not success and error is not None:
-            raise RuntimeError(f"Apple Vision recognition failed: {error}")
+        if not success:
+            detail = str(error) if error is not None else "the Vision request returned no error details"
+            raise RuntimeError(
+                "Apple Vision recognition failed: "
+                f"{detail}. The process may not have access to macOS Vision inference."
+            )
 
         height, width = image.shape[:2]
         lines: list[VisionLine] = []

@@ -124,3 +124,58 @@ def test_vision_recognize_converts_bottom_left_coordinates(
     assert lines[0].text == "挑战 完成"
     assert lines[0].confidence == 0.991
     assert lines[0].box.tolist() == [[20.0, 40.0], [80.0, 40.0], [80.0, 80.0], [20.0, 80.0]]
+
+
+def test_vision_recognize_reports_failed_request_without_error_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Request:
+        @classmethod
+        def alloc(cls) -> "Request":
+            return cls()
+
+        def initWithCompletionHandler_(self, _completion_handler: object) -> "Request":
+            return self
+
+        def setRecognitionLevel_(self, _value: object) -> None:
+            pass
+
+        def setRecognitionLanguages_(self, _value: list[str]) -> None:
+            pass
+
+        def setAutomaticallyDetectsLanguage_(self, _value: bool) -> None:
+            pass
+
+        def setUsesLanguageCorrection_(self, _value: bool) -> None:
+            pass
+
+    class Handler:
+        @classmethod
+        def alloc(cls) -> "Handler":
+            return cls()
+
+        def initWithCIImage_options_(self, _image: object, _options: object) -> "Handler":
+            return self
+
+        def performRequests_error_(self, _requests: list[Request], _error: object) -> tuple[bool, None]:
+            return False, None
+
+    fake_vision = SimpleNamespace(
+        VNImageRequestHandler=Handler,
+        VNRecognizeTextRequest=Request,
+        VNRequestTextRecognitionLevelAccurate="accurate",
+    )
+    monkeypatch.setitem(sys.modules, "Vision", fake_vision)
+    monkeypatch.setitem(
+        sys.modules,
+        "Foundation",
+        SimpleNamespace(NSData=SimpleNamespace(dataWithBytes_length_=lambda data, length: data)),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "Quartz",
+        SimpleNamespace(CIImage=SimpleNamespace(imageWithData_=lambda _data: "ci-image")),
+    )
+
+    with pytest.raises(RuntimeError, match="no error details"):
+        VisionOcr().recognize(np.zeros((20, 20, 3), dtype=np.uint8))
