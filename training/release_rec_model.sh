@@ -65,6 +65,6 @@ uv run python training/scripts/publish_model_channel.py \
   --manifest-key "models/pp-ocrv6-small/${version}/manifest.json"
 
 printf 'model_version=%s\n' "${version}"
-printf 'manifest_key=models/pp-ocrv6-small/%s/manifest.json\n' "${version}"
-printf 'OCRKIT_MODEL_MANIFEST_KEY=models/pp-ocrv6-small/%s/manifest.json\n' "${version}"
-printf 'OCRKIT_MODEL_RELEASE_CHANNEL_KEY=%s\n' "${release_channel}"
+printf 'published_manifest_key=models/pp-ocrv6-small/%s/manifest.json\n' "${version}"
+printf 'release_channel_key=%s\n' "${release_channel}"
+printf 'deployment_action=recreate the OCRKit container; no per-release env update is required\n'

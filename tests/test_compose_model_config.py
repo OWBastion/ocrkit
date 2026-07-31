@@ -35,3 +35,13 @@ def test_compose_persists_model_cache_in_named_volume() -> None:
 
     assert "ocrkit-models" in compose["volumes"]
     assert "ocrkit-models:/var/lib/ocrkit/models" in compose["services"]["ocrkit"]["volumes"]
+
+
+def test_production_compose_defaults_to_stable_model_channel() -> None:
+    compose = yaml.safe_load(Path("docker-compose.production.yml").read_text(encoding="utf-8"))
+    environment = compose["services"]["ocrkit"]["environment"]
+
+    assert environment["OCRKIT_MODEL_MANIFEST_KEY"] == "${OCRKIT_MODEL_MANIFEST_KEY:-}"
+    assert environment["OCRKIT_MODEL_RELEASE_CHANNEL_KEY"] == (
+        "${OCRKIT_MODEL_RELEASE_CHANNEL_KEY:-models/pp-ocrv6-small/channels/stable.json}"
+    )
