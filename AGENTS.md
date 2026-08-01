@@ -8,7 +8,7 @@
 
 OCRKit extracts structured fields from known Bastion Escape 3 screenshot layouts.
 
-It is not a generic OCR product and not an achievement-review engine. Its output is evidence used by `owbastion.codes`, which owns business rules and final decisions.
+It is not a generic OCR product and not an achievement-review engine. Its output is evidence used by `owbastion.com`, which owns business rules and final decisions.
 
 The service should identify fields such as:
 
@@ -35,7 +35,7 @@ The system should return structured JSON suitable for a Web API, automation pipe
 | Repository | Ownership |
 | --- | --- |
 | `OWBastion/Bastion` | Released game definitions and screenshot HUD contract |
-| `OWBastion/owbastion.codes` | OCR orchestration, review, corrections, training feedback |
+| `OWBastion/owbastion.com` | OCR orchestration, review, corrections, training feedback |
 | `OWBastion/qqbot` | QQ user entry and notifications |
 | `OWBastion/ocrkit` | Recognition, parsing, confidence, model publication |
 
@@ -195,7 +195,7 @@ Training data, fixtures, and production evidence have different purposes:
 - fixture regression set: stable service-level cases;
 - production evidence: private user data, not automatically a training sample.
 
-A reviewer correction from `owbastion.codes` becomes training data only after explicit approval and provenance recording.
+A reviewer correction from `owbastion.com` becomes training data only after explicit approval and provenance recording.
 
 ## 10. Evaluation Standard
 
@@ -264,7 +264,7 @@ When Bastion changes HUD layout, labels, map aliases, or version formatting:
 - update layout/parser configuration;
 - add representative fixtures;
 - preserve compatibility where possible;
-- coordinate the new output schema with `owbastion.codes`;
+- coordinate the new output schema with `owbastion.com`;
 - document the minimum compatible game version.
 
 When the platform requests a new extracted field:
