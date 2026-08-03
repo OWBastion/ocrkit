@@ -20,9 +20,10 @@ _FIELD_ROIS = {
     "heroes_completed": ("left_panel",),
     "heroes_total": ("left_panel",),
     "viewer_player": ("bottom_left_hero",),
-    "achievement_title": ("left_panel",),
-    "achievement_titles": ("left_panel",),
-    "achievement_unlocked": ("left_panel",),
+    "achievement_title": ("left_panel", "achievement_panel"),
+    "achievement_titles": ("left_panel", "achievement_panel"),
+    "achievement_unlocked": ("left_panel", "achievement_panel"),
+    "achievement_panel_text": ("achievement_panel",),
     "deaths": ("left_panel", "center_banner"),
     "skips": ("left_panel", "center_banner"),
     "duration_text": ("left_panel", "center_banner"),
@@ -80,7 +81,9 @@ def extract_structured(
 
     center = parse_center_summary(raw_text.get("center_banner", ""))
     left_text = raw_text.get("left_panel", "")
-    left = parse_left_panel(left_text, achievement_titles) if achievement_titles else parse_left_panel(left_text)
+    achievement_text = raw_text.get("achievement_panel", "")
+    title_text = " ".join(part for part in (left_text, achievement_text) if part)
+    left = parse_left_panel(title_text, achievement_titles) if achievement_titles else parse_left_panel(title_text)
     bottom_left = parse_bottom_left_hero(raw_text.get("bottom_left_hero", ""))
     right = parse_right_panel(raw_text.get("right_panel", ""), map_names, map_aliases)
     data = merge_result(
@@ -88,6 +91,7 @@ def extract_structured(
         left,
         bottom_left,
         right,
+        achievement_panel_text=achievement_text.strip() or None,
     )
 
     warnings: list[str] = list(input_quality["warnings"])

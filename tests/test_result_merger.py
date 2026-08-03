@@ -29,7 +29,13 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
         map_variant="classic",
     )
 
-    out = merge_result(center, left, BottomLeftHero(player="bottom-player"), right)
+    out = merge_result(
+        center,
+        left,
+        BottomLeftHero(player="bottom-player"),
+        right,
+        achievement_panel_text="生命守护生命 ✓",
+    )
     assert out.deaths == 114
     assert out.skips == 0
     assert out.viewer_player == "bottom-player"
@@ -37,6 +43,7 @@ def test_merge_result_prefers_left_deaths_skips() -> None:
     assert out.achievement_title is None
     assert out.achievement_titles == []
     assert out.achievement_unlocked is None
+    assert out.achievement_panel_text == "生命守护生命 ✓"
 
 
 def test_merge_result_prefers_left_duration() -> None:

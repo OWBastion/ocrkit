@@ -39,6 +39,7 @@ class ChallengeData(BaseModel):
     achievement_title: str | None
     achievement_titles: list[str]
     achievement_unlocked: bool | None
+    achievement_panel_text: str | None
     deaths: int | None
     skips: int | None
     duration_text: str | None

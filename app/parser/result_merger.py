@@ -13,6 +13,7 @@ def merge_result(
     left: LeftPanel,
     bottom_left: BottomLeftHero,
     right: RightPanel,
+    achievement_panel_text: str | None = None,
 ) -> ChallengeData:
     duration_text = left.clear_time if left.clear_time_seconds is not None else center.duration_text
     duration_seconds = left.clear_time_seconds if left.clear_time_seconds is not None else center.duration_seconds
@@ -24,6 +25,7 @@ def merge_result(
         achievement_title=left.achievement_title,
         achievement_titles=list(left.achievement_titles),
         achievement_unlocked=left.achievement_unlocked,
+        achievement_panel_text=achievement_panel_text,
         deaths=left.total_deaths if left.total_deaths is not None else center.deaths,
         skips=left.total_skips if left.total_skips is not None else center.skips,
         duration_text=duration_text,

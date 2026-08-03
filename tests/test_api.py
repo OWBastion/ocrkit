@@ -26,6 +26,13 @@ class StubEngine:
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
+class AchievementPanelEngine:
+    def recognize(self, image: np.ndarray) -> OcrResult:
+        if image.shape[:2] == (870, 660):
+            return OcrResult(text="生命守护生命 ✓", confidence=0.93, chunks=[])
+        return OcrResult(text="", confidence=0.5, chunks=[])
+
+
 class StubObjectStore:
     def __init__(self, payload: bytes | None = None, err: Exception | None = None) -> None:
         self.payload = payload
@@ -115,6 +122,28 @@ def test_extract_uses_viewer_player_only(monkeypatch) -> None:
     ]
 
 
+def test_extract_returns_dedicated_achievement_panel_evidence() -> None:
+    context = _make_context()
+    response = extract_structured(
+        np.zeros((720, 1280, 3), dtype=np.uint8),
+        context.roi_config,
+        context.map_names,
+        context.map_aliases,
+        AchievementPanelEngine(),
+        False,
+        "request-achievement-panel-1",
+        "rapidocr",
+        "builtin",
+        context.roi_config.version,
+        achievement_titles=("生命守护生命",),
+    )
+
+    assert response.data.achievement_panel_text == "生命守护生命 ✓"
+    assert response.data.achievement_title == "生命守护生命"
+    assert response.data.achievement_unlocked is True
+    assert response.fields["achievement_panel_text"].source_roi == ["achievement_panel"]
+
+
 def test_health() -> None:
     client = TestClient(app)
     res = client.get("/health")
@@ -168,7 +197,7 @@ def test_extract_ok_with_debug() -> None:
     assert payload["request_id"] == "request-upload-1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v3"
+    assert payload["layout_version"] == "1280x720-v4"
     assert payload["quality"] == {
         "original_size": [1, 1],
         "aspect_ratio": 1.0,
@@ -176,7 +205,7 @@ def test_extract_ok_with_debug() -> None:
         "cropped": True,
         "blur_score": 1.0,
         "normalized_size": [1280, 720],
-        "layout_version": "1280x720-v3",
+        "layout_version": "1280x720-v4",
         "warnings": payload["warnings"],
     }
     assert payload["fields"]["viewer_player"]["status"] == "missing"
@@ -203,7 +232,7 @@ def test_by_object_ok_with_debug() -> None:
     assert payload["schema_version"] == "1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v3"
+    assert payload["layout_version"] == "1280x720-v4"
     assert set(payload["fields"]) == {
         "challenge_completed",
         "heroes_completed",
@@ -212,6 +241,7 @@ def test_by_object_ok_with_debug() -> None:
         "achievement_title",
         "achievement_titles",
         "achievement_unlocked",
+        "achievement_panel_text",
         "deaths",
         "skips",
         "duration_text",
