@@ -44,7 +44,7 @@ and also include traceable contract metadata:
   "request_id": "...",
   "engine": "rapidocr",
   "model_version": "builtin",
-  "layout_version": "1280x720-v4",
+  "layout_version": "1280x720-v5",
   "ok": true,
   "data": {},
   "fields": {
@@ -64,7 +64,7 @@ and also include traceable contract metadata:
     "cropped": false,
     "blur_score": 0.08,
     "normalized_size": [1280, 720],
-    "layout_version": "1280x720-v4",
+    "layout_version": "1280x720-v5",
     "warnings": []
   }
 }

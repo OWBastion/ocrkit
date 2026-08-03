@@ -1,4 +1,4 @@
-layout_version: 1280x720-v4
+layout_version: 1280x720-v5
 
 standard_size:
   width: 1280
@@ -12,10 +12,10 @@ rois:
     y2: 470
 
   achievement_panel:
-    x1: 25
+    x1: 35
     y1: 10
-    x2: 245
-    y2: 300
+    x2: 220
+    y2: 145
 
   center_banner:
     x1: 150

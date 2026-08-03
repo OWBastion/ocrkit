@@ -19,7 +19,7 @@ class RoiConfig:
     width: int
     height: int
     rois: dict[str, RoiBox]
-    version: str = "1280x720-v4"
+    version: str = "1280x720-v5"
 
 
 def load_roi_config(path: Path) -> RoiConfig:
@@ -39,7 +39,7 @@ def load_roi_config(path: Path) -> RoiConfig:
         width=int(size["width"]),
         height=int(size["height"]),
         rois=rois,
-        version=str(data.get("layout_version", "1280x720-v4")),
+        version=str(data.get("layout_version", "1280x720-v5")),
     )
 
 

@@ -28,7 +28,7 @@ class StubEngine:
 
 class AchievementPanelEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (870, 660):
+        if image.shape[:2] == (405, 555):
             return OcrResult(text="生命守护生命 ✓", confidence=0.93, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 
@@ -197,7 +197,7 @@ def test_extract_ok_with_debug() -> None:
     assert payload["request_id"] == "request-upload-1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v4"
+    assert payload["layout_version"] == "1280x720-v5"
     assert payload["quality"] == {
         "original_size": [1, 1],
         "aspect_ratio": 1.0,
@@ -205,7 +205,7 @@ def test_extract_ok_with_debug() -> None:
         "cropped": True,
         "blur_score": 1.0,
         "normalized_size": [1280, 720],
-        "layout_version": "1280x720-v4",
+        "layout_version": "1280x720-v5",
         "warnings": payload["warnings"],
     }
     assert payload["fields"]["viewer_player"]["status"] == "missing"
@@ -232,7 +232,7 @@ def test_by_object_ok_with_debug() -> None:
     assert payload["schema_version"] == "1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v4"
+    assert payload["layout_version"] == "1280x720-v5"
     assert set(payload["fields"]) == {
         "challenge_completed",
         "heroes_completed",
