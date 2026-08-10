@@ -33,6 +33,31 @@ class AchievementPanelEngine:
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
+class RunCodeEngine:
+    def recognize(self, image: np.ndarray) -> OcrResult:
+        if image.shape[:2] == (190, 660):
+            return OcrResult(text="本局代码：4821-7354-1926", confidence=0.96, chunks=[])
+        return OcrResult(text="", confidence=0.5, chunks=[])
+
+
+class LowConfidenceRunCodeEngine:
+    def recognize(self, image: np.ndarray) -> OcrResult:
+        if image.shape[:2] == (190, 660):
+            return OcrResult(text="本局代码：4821-7354-1926", confidence=0.89, chunks=[])
+        return OcrResult(text="", confidence=0.5, chunks=[])
+
+
+class AmbiguousRunCodeEngine:
+    def recognize(self, image: np.ndarray) -> OcrResult:
+        if image.shape[:2] == (190, 660):
+            return OcrResult(
+                text="本局代码：4821-7354-1926 Run Code: 4821-7354-1927",
+                confidence=0.97,
+                chunks=[],
+            )
+        return OcrResult(text="", confidence=0.5, chunks=[])
+
+
 class StubObjectStore:
     def __init__(self, payload: bytes | None = None, err: Exception | None = None) -> None:
         self.payload = payload
@@ -115,6 +140,7 @@ def test_extract_uses_viewer_player_only(monkeypatch) -> None:
     assert response.data.viewer_player == "viewer-player"
     assert response.data.map_variant == "classic"
     assert response.fields["map_variant"].value == "classic"
+    assert response.fields["run_code"].status == "missing"
     assert response.warnings == [
         "left_panel.hero_progress_missing",
         "left_panel.deaths_skips_missing",
@@ -142,6 +168,70 @@ def test_extract_returns_dedicated_achievement_panel_evidence() -> None:
     assert response.data.achievement_title == "生命守护生命"
     assert response.data.achievement_unlocked is True
     assert response.fields["achievement_panel_text"].source_roi == ["achievement_panel"]
+
+
+def test_extract_returns_structured_run_code_evidence() -> None:
+    context = _make_context()
+    response = extract_structured(
+        np.zeros((720, 1280, 3), dtype=np.uint8),
+        context.roi_config,
+        context.map_names,
+        context.map_aliases,
+        RunCodeEngine(),
+        False,
+        "request-run-code-1",
+        "rapidocr",
+        "builtin",
+        context.roi_config.version,
+    )
+
+    assert response.data.run_code == "4821-7354-1926"
+    assert response.fields["run_code"].value == "4821-7354-1926"
+    assert response.fields["run_code"].confidence == 0.96
+    assert response.fields["run_code"].source_roi == ["run_code_panel"]
+    assert response.fields["run_code"].normalization == []
+    assert response.fields["run_code"].status == "ok"
+
+
+def test_extract_rejects_low_confidence_run_code() -> None:
+    context = _make_context()
+    response = extract_structured(
+        np.zeros((720, 1280, 3), dtype=np.uint8),
+        context.roi_config,
+        context.map_names,
+        context.map_aliases,
+        LowConfidenceRunCodeEngine(),
+        False,
+        "request-run-code-low-confidence-1",
+        "rapidocr",
+        "builtin",
+        context.roi_config.version,
+    )
+
+    assert response.data.run_code is None
+    assert response.fields["run_code"].confidence == 0.89
+    assert response.fields["run_code"].status == "low_confidence"
+    assert "run_code.low_confidence" in response.warnings
+
+
+def test_extract_marks_conflicting_run_code_candidates_ambiguous() -> None:
+    context = _make_context()
+    response = extract_structured(
+        np.zeros((720, 1280, 3), dtype=np.uint8),
+        context.roi_config,
+        context.map_names,
+        context.map_aliases,
+        AmbiguousRunCodeEngine(),
+        False,
+        "request-run-code-ambiguous-1",
+        "rapidocr",
+        "builtin",
+        context.roi_config.version,
+    )
+
+    assert response.data.run_code is None
+    assert response.fields["run_code"].status == "ambiguous"
+    assert "run_code.ambiguous" in response.warnings
 
 
 def test_health() -> None:
@@ -197,7 +287,7 @@ def test_extract_ok_with_debug() -> None:
     assert payload["request_id"] == "request-upload-1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v5"
+    assert payload["layout_version"] == "1280x720-v6"
     assert payload["quality"] == {
         "original_size": [1, 1],
         "aspect_ratio": 1.0,
@@ -205,7 +295,7 @@ def test_extract_ok_with_debug() -> None:
         "cropped": True,
         "blur_score": 1.0,
         "normalized_size": [1280, 720],
-        "layout_version": "1280x720-v5",
+        "layout_version": "1280x720-v6",
         "warnings": payload["warnings"],
     }
     assert payload["fields"]["viewer_player"]["status"] == "missing"
@@ -232,7 +322,7 @@ def test_by_object_ok_with_debug() -> None:
     assert payload["schema_version"] == "1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v5"
+    assert payload["layout_version"] == "1280x720-v6"
     assert set(payload["fields"]) == {
         "challenge_completed",
         "heroes_completed",
@@ -250,6 +340,7 @@ def test_by_object_ok_with_debug() -> None:
         "map_variant",
         "difficulty",
         "version",
+        "run_code",
     }
     assert payload["debug"] is not None
     assert object_store.last_bucket == "owbastion-codes-evidence"

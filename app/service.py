@@ -12,6 +12,7 @@ from app.parser.center_summary import parse_center_summary
 from app.parser.left_panel import parse_left_panel
 from app.parser.result_merger import merge_result
 from app.parser.right_panel import parse_right_panel
+from app.parser.run_code import ParsedRunCode, enforce_run_code_confidence, parse_run_code
 from app.schemas.response import ChallengeResponse, DebugPayload, FieldEvidence, QualityPayload
 
 
@@ -32,6 +33,7 @@ _FIELD_ROIS = {
     "map_variant": ("right_panel",),
     "difficulty": ("right_panel",),
     "version": ("right_panel",),
+    "run_code": ("run_code_panel",),
 }
 
 
@@ -47,11 +49,24 @@ def _field_evidence(name: str, value: Any, confidences: dict[str, float]) -> Fie
     )
 
 
-def _build_field_evidence(data, confidences: dict[str, float]) -> dict[str, FieldEvidence]:
-    return {
+def _build_field_evidence(
+    data,
+    confidences: dict[str, float],
+    run_code: ParsedRunCode,
+) -> dict[str, FieldEvidence]:
+    fields = {
         name: _field_evidence(name, getattr(data, name), confidences)
         for name in _FIELD_ROIS
     }
+    run_code_confidence = confidences.get("run_code_panel", 0.0)
+    fields["run_code"] = FieldEvidence(
+        value=data.run_code,
+        confidence=run_code_confidence if run_code.status != "missing" else 0.0,
+        source_roi=list(_FIELD_ROIS["run_code"]),
+        normalization=list(run_code.normalization),
+        status=run_code.status,
+    )
+    return fields
 
 
 def extract_structured(
@@ -84,6 +99,10 @@ def extract_structured(
     achievement_text = raw_text.get("achievement_panel", "")
     title_text = " ".join(part for part in (left_text, achievement_text) if part)
     left = parse_left_panel(title_text, achievement_titles) if achievement_titles else parse_left_panel(title_text)
+    run_code = enforce_run_code_confidence(
+        parse_run_code(raw_text.get("run_code_panel", "")),
+        confidences.get("run_code_panel", 0.0),
+    )
     bottom_left = parse_bottom_left_hero(raw_text.get("bottom_left_hero", ""))
     right = parse_right_panel(raw_text.get("right_panel", ""), map_names, map_aliases)
     data = merge_result(
@@ -92,6 +111,7 @@ def extract_structured(
         bottom_left,
         right,
         achievement_panel_text=achievement_text.strip() or None,
+        run_code=run_code.value,
     )
 
     warnings: list[str] = list(input_quality["warnings"])
@@ -101,6 +121,8 @@ def extract_structured(
         warnings.append("left_panel.deaths_skips_missing")
     if data.version is None:
         warnings.append("right_panel.version_missing")
+    if run_code.warning is not None:
+        warnings.append(run_code.warning)
     debug_payload = None
     if include_debug:
         debug_payload = DebugPayload(
@@ -125,7 +147,7 @@ def extract_structured(
         layout_version=layout_version,
         ok=True,
         data=data,
-        fields=_build_field_evidence(data, confidences),
+        fields=_build_field_evidence(data, confidences, run_code),
         warnings=warnings,
         quality=QualityPayload(
             original_size=input_quality["original_size"],

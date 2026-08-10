@@ -15,6 +15,10 @@ from app.ocr.rapidocr_engine import RapidOcrEngine
 from app.service import extract_structured
 
 
+DEFAULT_RUN_CODE_CASES = Path("tests/fixtures/run_code/cases.json")
+DEFAULT_RUN_CODE_IMAGES_DIR = Path("tests/fixtures/run_code")
+
+
 def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = None) -> dict[str, object]:
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
     context = create_context()
@@ -76,17 +80,27 @@ def main() -> None:
     parser = ArgumentParser(description="Evaluate OCRKit against the checked-in challenge fixtures.")
     parser.add_argument("--cases", type=Path, default=Path("datasets/fixtures/challenge/cases.json"))
     parser.add_argument("--images-dir", type=Path, default=Path("datasets/fixtures/challenge"))
+    parser.add_argument("--run-code-cases", type=Path, default=DEFAULT_RUN_CODE_CASES)
+    parser.add_argument("--run-code-images-dir", type=Path, default=DEFAULT_RUN_CODE_IMAGES_DIR)
     parser.add_argument("--model-config", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--min-field-accuracy", type=float)
+    parser.add_argument("--min-run-code-accuracy", type=float, default=1.0)
     args = parser.parse_args()
     result = evaluate(args.cases, args.images_dir, args.model_config)
+    run_code_result = evaluate(args.run_code_cases, args.run_code_images_dir, args.model_config)
+    result["run_code"] = run_code_result
     if args.report is not None:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if args.min_field_accuracy is not None and result["field_accuracy"] < args.min_field_accuracy:
         raise SystemExit(
             f"fixture field accuracy {result['field_accuracy']:.6f} is below {args.min_field_accuracy:.6f}"
+        )
+    if args.min_run_code_accuracy is not None and run_code_result["field_accuracy"] < args.min_run_code_accuracy:
+        raise SystemExit(
+            "run-code fixture exact-match accuracy "
+            f"{run_code_result['field_accuracy']:.6f} is below {args.min_run_code_accuracy:.6f}"
         )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

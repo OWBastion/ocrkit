@@ -158,6 +158,11 @@ The screenshots in `datasets/fixtures/challenge` are the service regression
 set. They are not automatically training data and must not be replaced by
 production evidence without an approved private-dataset change.
 
+`tests/fixtures/run_code` contains synthetic, non-player settlement-layout
+fixtures for the run-code field. The standard batch evaluation reports these
+separately and requires an exact-match run-code result, including missing,
+malformed, ambiguous, compressed, and scaled cases.
+
 ## Standalone recognition candidate workflow
 
 This is the script equivalent of the Studio candidate step. It currently

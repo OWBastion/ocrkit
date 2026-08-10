@@ -14,6 +14,7 @@ def merge_result(
     bottom_left: BottomLeftHero,
     right: RightPanel,
     achievement_panel_text: str | None = None,
+    run_code: str | None = None,
 ) -> ChallengeData:
     duration_text = left.clear_time if left.clear_time_seconds is not None else center.duration_text
     duration_seconds = left.clear_time_seconds if left.clear_time_seconds is not None else center.duration_seconds
@@ -34,4 +35,5 @@ def merge_result(
         map_variant=right.map_variant,
         difficulty=right.difficulty,
         version=right.version,
+        run_code=run_code,
     )

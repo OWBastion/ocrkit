@@ -86,3 +86,17 @@ def test_main_writes_report_before_rejecting_gate(monkeypatch: pytest.MonkeyPatc
         batch_eval.main()
 
     assert json.loads(report.read_text(encoding="utf-8"))["matched_fields"] == 9
+
+
+def test_main_rejects_run_code_fixture_accuracy_below_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    results = iter(
+        [
+            {"field_accuracy": 1.0, "matched_fields": 10, "total_fields": 10},
+            {"field_accuracy": 0.5, "matched_fields": 1, "total_fields": 2},
+        ]
+    )
+    monkeypatch.setattr(batch_eval, "evaluate", lambda *_args: next(results))
+    monkeypatch.setattr(sys, "argv", ["batch_eval.py", "--min-run-code-accuracy", "1.0"])
+
+    with pytest.raises(SystemExit, match="run-code fixture exact-match accuracy"):
+        batch_eval.main()
