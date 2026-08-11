@@ -48,6 +48,7 @@ class ChallengeData(BaseModel):
     map_variant: str | None
     difficulty: str | None
     version: str | None
+    run_code: str | None = None
 
 
 class ChallengeResponse(BaseModel):

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "clean_1280",
+    "image": "run_code_clean_1280.png",
+    "notes": "Synthetic 1280x720 settlement-panel fixture with surrounding numeric statistics.",
+    "expected": {"run_code": "4821-7354-1926"}
+  },
+  {
+    "id": "high_res_2560",
+    "image": "run_code_high_res_2560.png",
+    "notes": "Synthetic 2560x1440 source normalized into the standard layout.",
+    "expected": {"run_code": "7246-3815-9472"}
+  },
+  {
+    "id": "compressed",
+    "image": "run_code_compressed.jpg",
+    "notes": "Synthetic JPEG with mild compression artifacts.",
+    "expected": {"run_code": "1642-7395-8206"}
+  },
+  {
+    "id": "scaled_1600",
+    "image": "run_code_scaled_1600.png",
+    "notes": "Synthetic 1600x900 source with a slightly different screenshot scale.",
+    "expected": {"run_code": "9134-2687-5410"}
+  },
+  {
+    "id": "missing",
+    "image": "run_code_missing_1280.png",
+    "notes": "Synthetic supported legacy-style panel without a run-code field.",
+    "expected": {"run_code": null}
+  },
+  {
+    "id": "cropped",
+    "image": "run_code_cropped_1200.png",
+    "notes": "Synthetic cropped source without the expected run-code region.",
+    "expected": {"run_code": null}
+  },
+  {
+    "id": "ambiguous",
+    "image": "run_code_ambiguous_1280.png",
+    "notes": "Synthetic conflicting candidates; neither must be accepted.",
+    "expected": {"run_code": null}
+  },
+  {
+    "id": "malformed",
+    "image": "run_code_malformed_1280.png",
+    "notes": "Synthetic labelled value with a short final group; it must not be repaired.",
+    "expected": {"run_code": null}
+  }
+]

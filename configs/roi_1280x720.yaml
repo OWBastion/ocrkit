@@ -1,4 +1,4 @@
-layout_version: 1280x720-v5
+layout_version: 1280x720-v6
 
 standard_size:
   width: 1280
@@ -10,6 +10,12 @@ rois:
     y1: 15
     x2: 220
     y2: 470
+
+  run_code_panel:
+    x1: 30
+    y1: 190
+    x2: 360
+    y2: 285
 
   achievement_panel:
     x1: 35

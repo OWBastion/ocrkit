@@ -44,7 +44,7 @@ and also include traceable contract metadata:
   "request_id": "...",
   "engine": "rapidocr",
   "model_version": "builtin",
-  "layout_version": "1280x720-v5",
+  "layout_version": "1280x720-v6",
   "ok": true,
   "data": {},
   "fields": {
@@ -64,7 +64,7 @@ and also include traceable contract metadata:
     "cropped": false,
     "blur_score": 0.08,
     "normalized_size": [1280, 720],
-    "layout_version": "1280x720-v5",
+    "layout_version": "1280x720-v6",
     "warnings": []
   }
 }
@@ -91,6 +91,13 @@ central completion banner is not an authoritative player source, so its player n
 not included in `ChallengeData` or field evidence.
 `map_variant` is `"classic"` when the right-panel map label contains `经典版` or `经典`,
 and `null` when the variant is not detected.
+`run_code` is additive, optional OCR evidence from the dedicated settlement `run_code_panel` ROI.
+When its visible label and all three numeric groups are reliable, OCRKit returns canonical
+`NNNN-NNNN-NNNN`; it records the ROI confidence, source, normalization, and one of
+`ok`, `missing`, `invalid`, `ambiguous`, or `low_confidence`. Legacy supported layouts
+without that field return `missing` rather than an error. OCRKit never decides whether a
+run code is eligible for mastery, duplicate, or worth XP. The compatible Bastion release
+version is intentionally not recorded until the HUD field is actually released.
 
 ### R2 Object Mode
 

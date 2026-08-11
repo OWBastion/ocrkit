@@ -164,3 +164,15 @@ def test_merge_result_uses_viewer_player_without_center_player() -> None:
 
     out = merge_result(center, left, BottomLeftHero(player="训犬大师"), right)
     assert out.viewer_player == "训犬大师"
+
+
+def test_merge_result_keeps_run_code_as_optional_evidence() -> None:
+    out = merge_result(
+        CenterSummary(True, None, None, None, None),
+        LeftPanel(None, None, None, None, None, None, None),
+        BottomLeftHero(player=None),
+        RightPanel(None, None, None),
+        run_code="4821-7354-1926",
+    )
+
+    assert out.run_code == "4821-7354-1926"
