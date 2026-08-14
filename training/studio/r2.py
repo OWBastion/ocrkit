@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable
 
 from app.core.config import settings
 from app.storage.r2_client import (
@@ -141,15 +143,28 @@ class StudioR2Store:
         }
         return content, media_types.get(suffix, "application/octet-stream")
 
-    def download_images(self, keys: list[str], temporary_dir: Path) -> list[DownloadedRemoteImage]:
+    def download_images(
+        self,
+        keys: list[str],
+        temporary_dir: Path,
+        *,
+        max_workers: int = 10,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ) -> list[DownloadedRemoteImage]:
         if not keys:
             raise ValueError("select at least one R2 image")
         unique_keys = list(dict.fromkeys(keys))
         if len(unique_keys) > self.max_objects:
             raise ValueError(f"select at most {self.max_objects} R2 images at a time")
-        downloaded: list[DownloadedRemoteImage] = []
-        for index, raw_key in enumerate(unique_keys, 1):
-            key = self._validate_key(raw_key)
+
+        total = len(unique_keys)
+        validated_keys = [self._validate_key(raw_key) for raw_key in unique_keys]
+        results: list[DownloadedRemoteImage | None] = [None] * total
+        completed_count = 0
+        lock = threading.Lock()
+
+        def _download_one(index: int, key: str) -> DownloadedRemoteImage:
+            nonlocal completed_count
             content = self.object_store.get_object_bytes(
                 self.bucket,
                 key,
@@ -159,18 +174,37 @@ class StudioR2Store:
             suffix = self._content_suffix(content)
             path = temporary_dir / f"{index:04d}{suffix}"
             path.write_bytes(content)
-            downloaded.append(
-                DownloadedRemoteImage(
-                    path=path,
-                    provenance={
-                        "source": "r2",
-                        "bucket": self.bucket,
-                        "object_key": key,
-                        "sha256": digest,
-                    },
-                )
+            downloaded = DownloadedRemoteImage(
+                path=path,
+                provenance={
+                    "source": "r2",
+                    "bucket": self.bucket,
+                    "object_key": key,
+                    "sha256": digest,
+                },
             )
-        return downloaded
+            with lock:
+                completed_count += 1
+                current_completed = completed_count
+            if progress_callback:
+                progress_callback(current_completed, total, key)
+            return downloaded
+
+        worker_count = min(max_workers, max(1, total))
+        if worker_count <= 1:
+            for index, key in enumerate(validated_keys, 1):
+                results[index - 1] = _download_one(index, key)
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                future_to_index = {
+                    executor.submit(_download_one, index, key): index - 1
+                    for index, key in enumerate(validated_keys, 1)
+                }
+                for future in as_completed(future_to_index):
+                    idx = future_to_index[future]
+                    results[idx] = future.result()
+
+        return [item for item in results if item is not None]
 
 
 def r2_error_detail(exc: Exception) -> str:

@@ -18,6 +18,13 @@
   type RemoteSortField = 'date' | 'size' | 'name'
   type RemoteSortOrder = 'desc' | 'asc'
   type RemoteViewMode = 'list' | 'grid'
+  type DownloadProgress = {
+    stage: 'downloading' | 'creating' | 'completed'
+    completed: number
+    total: number
+    currentKey?: string
+    message?: string
+  }
 
   let batches: Batch[] = []
   let batch: Batch | null = null
@@ -57,6 +64,7 @@
   let hoverPreviewObject: RemoteObject | null = null
   let hoverPreviewTimeout: ReturnType<typeof setTimeout> | null = null
   let previewModalObject: RemoteObject | null = null
+  let downloadProgress: DownloadProgress | null = null
   let cropZoom: CropZoom = 'auto'
   let cropNatural = { w: 0, h: 0 }
   let trainingPollTimer: ReturnType<typeof setInterval> | null = null
@@ -338,22 +346,84 @@
     }
   }
 
+  async function streamImport(endpoint: string, payload: object, onChunk: (data: any) => void) {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({})) as { detail?: string }
+      throw new Error(errorBody.detail || `请求失败 (${response.status})`)
+    }
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('无法读取响应流')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (line.trim()) {
+          const parsed = JSON.parse(line)
+          onChunk(parsed)
+        }
+      }
+    }
+    if (buffer.trim()) {
+      const parsed = JSON.parse(buffer)
+      onChunk(parsed)
+    }
+  }
+
   async function importRemoteImages() {
     if (!remoteSelected.size) return message('先选择至少一张 R2 截图。', true)
     const addingToExistingBatch = Boolean(batch)
+    const totalKeys = remoteSelected.size
     busy = true
+    downloadProgress = {
+      stage: 'downloading',
+      completed: 0,
+      total: totalKeys,
+      message: `准备并行下载 ${totalKeys} 张截图...`,
+    }
+
     try {
-      const endpoint = batch ? `/api/batches/${batch.batch_id}/remote-sources` : '/api/batches/r2'
-      const result = await request<{ added?: number; batch: Batch }>(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ keys: [...remoteSelected], holdout_ratio: holdoutRatio }),
+      const endpoint = batch ? `/api/batches/${batch.batch_id}/remote-sources/stream` : '/api/batches/r2/stream'
+      let finalResult: any = null
+
+      await streamImport(endpoint, { keys: [...remoteSelected], holdout_ratio: holdoutRatio }, (chunk) => {
+        if (chunk.type === 'progress') {
+          downloadProgress = {
+            stage: chunk.stage,
+            completed: chunk.completed,
+            total: chunk.total,
+            currentKey: chunk.current_key,
+            message: chunk.message,
+          }
+        } else if (chunk.type === 'error') {
+          throw new Error(chunk.detail || '导入失败')
+        } else if (chunk.type === 'done') {
+          finalResult = chunk
+        }
       })
-      await refreshBatches(result.batch.batch_id)
+
+      if (!finalResult) throw new Error('未收到批次处理结果')
+
+      const batchId = finalResult.batch?.batch_id || batch?.batch_id
+      if (batchId) await refreshBatches(batchId)
       remoteSelected = new Set()
-      message(addingToExistingBatch ? `已从 R2 加入 ${result.added || 0} 张截图。` : `已用 R2 截图创建批次（${result.batch.sources} 张）。`)
+      message(addingToExistingBatch ? `已从 R2 加入 ${finalResult.added || totalKeys} 张截图。` : `已用 R2 截图创建批次（${finalResult.batch?.sources || totalKeys} 张）。`)
       active = 'candidates'
-    } catch (cause) { message(cause instanceof Error ? cause.message : '导入 R2 图片失败', true) } finally { busy = false }
+    } catch (cause) {
+      message(cause instanceof Error ? cause.message : '导入 R2 图片失败', true)
+    } finally {
+      busy = false
+      downloadProgress = null
+    }
   }
 
   async function refreshReview(options?: { keepSelection?: boolean; preferCrops?: string[] }) {
@@ -1603,6 +1673,45 @@
           </div>
           <span class="modal-keyboard-hint">快捷键：← / → 切换 · 空格 选择 · Esc 关闭</span>
         </footer>
+      </div>
+    </div>
+  {/if}
+
+  {#if downloadProgress}
+    {@const percent = downloadProgress.total > 0 ? Math.min(100, Math.round((downloadProgress.completed / downloadProgress.total) * 100)) : 0}
+    <div class="progress-backdrop" role="alertdialog" aria-modal="true" aria-label="下载与导入进度">
+      <div class="progress-card">
+        <div class="progress-header">
+          <div class="progress-spinner" aria-hidden="true"></div>
+          <div class="progress-title-wrap">
+            <h4>{downloadProgress.stage === 'downloading' ? '正在并行下载 R2 截图…' : '正在处理批次数据…'}</h4>
+            <p class="progress-subtitle">
+              {downloadProgress.stage === 'downloading'
+                ? `已完成 ${downloadProgress.completed} / ${downloadProgress.total} 张 (${percent}%)`
+                : (downloadProgress.message || '正在解析切片与创建批次…')}
+            </p>
+          </div>
+        </div>
+
+        <div class="progress-track-wrapper">
+          <div class="progress-track" role="progressbar" aria-valuenow={percent} aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar" style={`width: ${percent}%;`}></div>
+          </div>
+          <span class="progress-percent-label">{percent}%</span>
+        </div>
+
+        {#if downloadProgress.currentKey}
+          <div class="progress-current-file">
+            <span class="progress-file-label">最新完成:</span>
+            <code class="progress-file-name" title={downloadProgress.currentKey}>
+              {downloadProgress.currentKey.split('/').pop()}
+            </code>
+          </div>
+        {/if}
+
+        <div class="progress-foot">
+          <span class="progress-hint">⚡ 多线程并行加速下载中，请稍候</span>
+        </div>
       </div>
     </div>
   {/if}

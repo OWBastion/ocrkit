@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import shutil
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -300,6 +301,90 @@ def create_app(
         finally:
             shutil.rmtree(temporary_dir, ignore_errors=True)
 
+    @app.post("/api/batches/r2/stream")
+    async def import_remote_batch_stream(selection: RemoteSourceSelection) -> StreamingResponse:
+        store = remote_store or StudioR2Store.from_settings()
+        if store is None:
+            raise HTTPException(status_code=503, detail="Studio R2 未配置")
+
+        async def stream_generator():
+            work_root.mkdir(parents=True, exist_ok=True)
+            temporary_dir = Path(tempfile.mkdtemp(prefix="studio-r2-import-", dir=work_root))
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
+
+            def progress_callback(completed: int, total: int, key: str) -> None:
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    {
+                        "type": "progress",
+                        "stage": "downloading",
+                        "completed": completed,
+                        "total": total,
+                        "current_key": key,
+                    },
+                )
+
+            async def worker() -> None:
+                try:
+                    downloaded = await run_in_threadpool(
+                        store.download_images,
+                        selection.keys,
+                        temporary_dir,
+                        progress_callback=progress_callback,
+                    )
+                    paths = [item.path for item in downloaded]
+                    provenance = {str(item.provenance["sha256"]): item.provenance for item in downloaded}
+
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait,
+                        {
+                            "type": "progress",
+                            "stage": "creating",
+                            "completed": len(paths),
+                            "total": len(paths),
+                            "message": "正在解析切片与创建批次...",
+                        },
+                    )
+
+                    batch_dir, summary = await run_in_threadpool(
+                        create_batch,
+                        paths,
+                        work_root=work_root,
+                        holdout_ratio=selection.holdout_ratio,
+                        provenance_by_digest=provenance,
+                    )
+
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait,
+                        {
+                            "type": "done",
+                            "batch": summary,
+                            "previews": roi_preview_paths(batch_dir),
+                        },
+                    )
+                except Exception as exc:
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait,
+                        {
+                            "type": "error",
+                            "detail": r2_error_detail(exc) if not isinstance(exc, ValueError) else str(exc),
+                        },
+                    )
+                finally:
+                    shutil.rmtree(temporary_dir, ignore_errors=True)
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+            task = asyncio.create_task(worker())
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield json.dumps(item, ensure_ascii=False) + "\n"
+            await task
+
+        return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
+
     @app.post("/api/batches")
     async def import_images(files: list[UploadFile] = File(...), holdout_ratio: float = Form(0.2)) -> dict[str, object]:
         work_root.mkdir(parents=True, exist_ok=True)
@@ -334,6 +419,88 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
             shutil.rmtree(temporary_dir, ignore_errors=True)
+
+    @app.post("/api/batches/{batch_id}/remote-sources/stream")
+    async def add_remote_sources_stream(batch_id: str, selection: RemoteSourceSelection) -> StreamingResponse:
+        batch_dir = _batch_dir(work_root, batch_id)
+        store = remote_store or StudioR2Store.from_settings()
+        if store is None:
+            raise HTTPException(status_code=503, detail="Studio R2 未配置")
+
+        async def stream_generator():
+            temporary_dir = Path(tempfile.mkdtemp(prefix="studio-r2-append-", dir=work_root))
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
+
+            def progress_callback(completed: int, total: int, key: str) -> None:
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    {
+                        "type": "progress",
+                        "stage": "downloading",
+                        "completed": completed,
+                        "total": total,
+                        "current_key": key,
+                    },
+                )
+
+            async def worker() -> None:
+                try:
+                    downloaded = await run_in_threadpool(
+                        store.download_images,
+                        selection.keys,
+                        temporary_dir,
+                        progress_callback=progress_callback,
+                    )
+                    paths = [item.path for item in downloaded]
+                    provenance = {str(item.provenance["sha256"]): item.provenance for item in downloaded}
+
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait,
+                        {
+                            "type": "progress",
+                            "stage": "creating",
+                            "completed": len(paths),
+                            "total": len(paths),
+                            "message": "正在解析切片并加入当前批次...",
+                        },
+                    )
+
+                    result = await run_in_threadpool(
+                        append_sources,
+                        batch_dir,
+                        paths,
+                        provenance_by_digest=provenance,
+                    )
+
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait,
+                        {
+                            "type": "done",
+                            **result,
+                        },
+                    )
+                except Exception as exc:
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait,
+                        {
+                            "type": "error",
+                            "detail": r2_error_detail(exc) if not isinstance(exc, ValueError) else str(exc),
+                        },
+                    )
+                finally:
+                    shutil.rmtree(temporary_dir, ignore_errors=True)
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+            task = asyncio.create_task(worker())
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield json.dumps(item, ensure_ascii=False) + "\n"
+            await task
+
+        return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
 
     @app.post("/api/batches/{batch_id}/candidates")
     async def candidates(batch_id: str) -> dict[str, object]:

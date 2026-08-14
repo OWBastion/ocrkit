@@ -89,6 +89,42 @@ def test_studio_api_lists_and_imports_r2_images_into_a_new_batch(tmp_path: Path)
     }
 
 
+def test_studio_api_streams_r2_import_progress(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    client = TestClient(create_app(tmp_path / "work", frontend, _remote_store()))
+
+    response = client.post("/api/batches/r2/stream", json={"keys": ["uploads/one.png"], "holdout_ratio": 0.2})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/x-ndjson"
+    lines = [json.loads(line) for line in response.text.strip().split("\n") if line.strip()]
+    stages = [item.get("stage") for item in lines if item.get("type") == "progress"]
+    assert "downloading" in stages
+    assert "creating" in stages
+    done = next(item for item in lines if item.get("type") == "done")
+    assert done["batch"]["sources"] == 1
+
+
+def test_studio_api_streams_r2_append_progress(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    local = cv2.imencode(".png", np.full((40, 60, 3), 100, dtype=np.uint8))[1].tobytes()
+    client = TestClient(create_app(tmp_path / "work", frontend, _remote_store()))
+    created = client.post("/api/batches", data={"holdout_ratio": "0.2"}, files=[("files", ("local.png", local, "image/png"))])
+    batch_id = created.json()["batch"]["batch_id"]
+
+    response = client.post(f"/api/batches/{batch_id}/remote-sources/stream", json={"keys": ["uploads/one.png"]})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/x-ndjson"
+    lines = [json.loads(line) for line in response.text.strip().split("\n") if line.strip()]
+    done = next(item for item in lines if item.get("type") == "done")
+    assert done["added"] == 1
+
+
 def test_studio_api_serves_r2_image_preview(tmp_path: Path) -> None:
     frontend = tmp_path / "frontend"
     frontend.mkdir()
