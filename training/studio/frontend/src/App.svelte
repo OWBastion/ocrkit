@@ -749,9 +749,17 @@
     return row.candidate_confidence ?? row.confidence
   }
 
+  function isHumanReviewed(row: Row) {
+    return row.review_method === 'human' || (!row.review_method && row.review_status === 'accepted' && !row.auto_accept_reason)
+  }
+
+  function reviewConfidenceLabel(row: Row) {
+    return isHumanReviewed(row) ? `已确认 · 机器候选 ${confidenceLabel(candidateConfidence(row))}` : confidenceLabel(candidateConfidence(row))
+  }
+
   function reviewConfidenceTitle(row: Row) {
     const value = confidenceLabel(candidateConfidence(row))
-    if (row.review_method === 'human' || (!row.review_method && row.review_status === 'accepted' && !row.auto_accept_reason)) {
+    if (isHumanReviewed(row)) {
       return `人工已确认；原始机器候选置信度 ${value}`
     }
     return `机器候选置信度 ${value}`
@@ -1629,7 +1637,7 @@
                         class:candidate-conf-mid={(candidateConfidence(row) ?? 0) >= 0.9 && (candidateConfidence(row) ?? 0) < 0.98}
                         title={reviewConfidenceTitle(row)}
                       >
-                        {row.review_method === 'human' || (!row.review_method && row.review_status === 'accepted' && !row.auto_accept_reason) ? '已确认' : confidenceLabel(candidateConfidence(row))}
+                        {reviewConfidenceLabel(row)}
                       </span>
                     </div>
                   </div>
@@ -1745,6 +1753,9 @@
                   <p class="auto-review-hint">这条切片由自动规则接受，仍可修改转写或点击「拒绝」进行人工覆盖。</p>
                 {:else if selected.teacher_auto_accept_eligible}
                   <p class="auto-review-hint">上一版模型与其他已返回引擎高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>
+                {/if}
+                {#if isHumanReviewed(selected)}
+                  <p class="auto-review-hint">人工已确认。原始机器候选置信度：{confidenceLabel(candidateConfidence(selected))}；该数值不代表人工标注置信度。</p>
                 {/if}
                 <div class="engine-picks" role="group" aria-label="多引擎识别结果">
                   <button
