@@ -25,6 +25,84 @@
     currentKey?: string
     message?: string
   }
+  type RoiMeta = {
+    name: string
+    shortName: string
+    code: string
+    position: string
+    icon: string
+    dotColor: string
+    rect: { x: number; y: number; w: number; h: number }
+  }
+
+  const ROI_METAS: Record<string, RoiMeta> = {
+    left_panel: {
+      name: '左侧统计与进度',
+      shortName: '左侧统计',
+      code: 'left_panel',
+      position: '屏幕左侧',
+      icon: '📊',
+      dotColor: '#0ea5e9',
+      rect: { x: 2.7, y: 2.1, w: 14.5, h: 63.2 },
+    },
+    achievement_panel: {
+      name: '左上成就与称号',
+      shortName: '左上成就',
+      code: 'achievement_panel',
+      position: '屏幕左上角',
+      icon: '⭐',
+      dotColor: '#f59e0b',
+      rect: { x: 2.7, y: 1.4, w: 14.5, h: 18.8 },
+    },
+    run_code_panel: {
+      name: '房间运行代码',
+      shortName: '运行代码',
+      code: 'run_code_panel',
+      position: '屏幕左中部',
+      icon: '🔢',
+      dotColor: '#a855f7',
+      rect: { x: 2.3, y: 26.4, w: 25.8, h: 13.2 },
+    },
+    center_banner: {
+      name: '中央通关横幅',
+      shortName: '中央横幅',
+      code: 'center_banner',
+      position: '屏幕正中央',
+      icon: '🏆',
+      dotColor: '#10b981',
+      rect: { x: 11.7, y: 17.4, w: 78.9, h: 12.5 },
+    },
+    right_panel: {
+      name: '右上地图与难度',
+      shortName: '右上地图',
+      code: 'right_panel',
+      position: '屏幕右上角',
+      icon: '🗺️',
+      dotColor: '#f43f5e',
+      rect: { x: 81.3, y: 0, w: 18.4, h: 14.6 },
+    },
+    bottom_left_hero: {
+      name: '左下英雄状态',
+      shortName: '左下英雄',
+      code: 'bottom_left_hero',
+      position: '屏幕左下角',
+      icon: '👤',
+      dotColor: '#6366f1',
+      rect: { x: 2.3, y: 79.9, w: 23.4, h: 13.2 },
+    },
+  }
+
+  function getRoiInfo(code: string): RoiMeta {
+    return ROI_METAS[code] || {
+      name: code,
+      shortName: code,
+      code,
+      position: '切片区域',
+      icon: '🔍',
+      dotColor: '#6b7280',
+      rect: { x: 30, y: 30, w: 40, h: 40 },
+    }
+  }
 
   let batches: Batch[] = []
   let batch: Batch | null = null
@@ -32,6 +110,7 @@
   let rows: Row[] = []
   let split = 'train'
   let status = 'pending'
+  let roiFilter = 'all'
   let files: File[] = []
   let holdoutRatio = 0.2
   let notice = ''
@@ -75,6 +154,8 @@
   const TRAINING_POLL_MS = 2000
   const TOAST_MS = 4200
   const supportedClipboardTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
+  $: displayedRows = roiFilter === 'all' ? rows : rows.filter((row) => row.roi === roiFilter)
 
   const nav = [
     ['import', '1', '导入'],
@@ -584,22 +665,32 @@
   }
 
   function selectPrevCandidate() {
-    if (!selected || !rows.length) return
-    const currentIndex = rows.findIndex((row) => row.crop === selected?.crop)
+    if (!selected || !displayedRows.length) return
+    const currentIndex = displayedRows.findIndex((row) => row.crop === selected?.crop)
     if (currentIndex > 0) {
-      selectCandidate(rows[currentIndex - 1])
+      selectCandidate(displayedRows[currentIndex - 1])
     } else {
-      selectCandidate(rows[rows.length - 1])
+      selectCandidate(displayedRows[displayedRows.length - 1])
     }
   }
 
   function selectNextCandidate() {
-    if (!selected || !rows.length) return
-    const currentIndex = rows.findIndex((row) => row.crop === selected?.crop)
-    if (currentIndex >= 0 && currentIndex < rows.length - 1) {
-      selectCandidate(rows[currentIndex + 1])
+    if (!selected || !displayedRows.length) return
+    const currentIndex = displayedRows.findIndex((row) => row.crop === selected?.crop)
+    if (currentIndex >= 0 && currentIndex < displayedRows.length - 1) {
+      selectCandidate(displayedRows[currentIndex + 1])
     } else {
-      selectCandidate(rows[0])
+      selectCandidate(displayedRows[0])
+    }
+  }
+
+  function onRoiFilterChange() {
+    if (selected && roiFilter !== 'all' && selected.roi !== roiFilter) {
+      const match = displayedRows[0]
+      if (match) selectCandidate(match)
+      else selected = null
+    } else if (!selected && displayedRows.length > 0) {
+      selectCandidate(displayedRows[0])
     }
   }
 
@@ -652,10 +743,10 @@
     if (!batch || !selected) return
     busy = true
     try {
-      const currentIndex = rows.findIndex((row) => row.crop === selected?.crop)
+      const currentIndex = displayedRows.findIndex((row) => row.crop === selected?.crop)
       // Prefer the items after the current one so review advances forward.
       const followingCrops = currentIndex >= 0
-        ? rows.slice(currentIndex + 1).map((row) => row.crop)
+        ? displayedRows.slice(currentIndex + 1).map((row) => row.crop)
         : []
       const result = await request<{ row: Row; counts: ReviewCounts }>(`/api/batches/${batch.batch_id}/review`, {
         method: 'PUT',
@@ -1319,16 +1410,26 @@
               <option value="auto_accepted">自动接受</option>
               <option value="teacher_eligible">上一版模型建议</option>
               <option value="rejected">已拒绝</option>
-              <option value="all">全部</option>
+              <option value="all">全部状态</option>
             </select>
-            <button class="button-secondary button-compact" on:click={() => refreshReview()}>刷新</button>
+            <select class="control col-span-2" bind:value={roiFilter} on:change={onRoiFilterChange}>
+              <option value="all">全部区域 ({rows.length})</option>
+              {#each Object.entries(ROI_METAS) as [key, meta]}
+                {@const count = rows.filter((r) => r.roi === key).length}
+                <option value={key}>{meta.icon} {meta.shortName} ({count})</option>
+              {/each}
+            </select>
+            <button class="button-secondary button-compact col-span-2" on:click={() => refreshReview()}>刷新</button>
             {#if split === 'train' && (batch?.review?.teacher_eligible ?? 0) > 0}
-              <button class="button-primary button-compact" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>
+              <button class="button-primary button-compact col-span-2" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>
                 接受上一版模型 + RapidOCR 一致项 ({batch?.review?.teacher_eligible})
               </button>
             {/if}
           </div>
           <div class="countline">
+            <b>{displayedRows.length}</b>
+            <span>条{roiFilter !== 'all' ? ` · ${getRoiInfo(roiFilter).shortName}` : ''}</span>
+            <i>/</i>
             <b>{batch?.review?.pending || 0}</b>
             <span>待复核</span>
             <i>/</i>
@@ -1336,17 +1437,32 @@
             <span>总计</span>
           </div>
           <div class="candidate-scroll">
-            {#if rows.length}
-              {#each rows as row}
+            {#if displayedRows.length}
+              {#each displayedRows as row}
+                {@const roiInfo = getRoiInfo(row.roi)}
                 <button
                   type="button"
                   class:selected-row={selected?.crop === row.crop}
                   class="candidate"
                   on:click={(event) => selectCandidate(row, event)}
                 >
-                  <span>{row.roi}</span>
-                  <strong>{row.candidate_text || '无候选文本'}</strong>
-                  <small>{row.auto_reject_reason ? '自动排除 · 位置不匹配' : row.auto_accept_reason ? '自动接受 · 可抽查' : row.teacher_auto_accept_eligible ? '上一版模型建议 · 可接受' : confidenceLabel(row.confidence)}</small>
+                  <div class="candidate-head">
+                    <span class="candidate-roi-pill">
+                      <span class="candidate-roi-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
+                      <span>{roiInfo.shortName}</span>
+                    </span>
+                    <span
+                      class="candidate-conf-tag"
+                      class:candidate-conf-high={(row.confidence ?? 0) >= 0.98}
+                      class:candidate-conf-mid={(row.confidence ?? 0) >= 0.9 && (row.confidence ?? 0) < 0.98}
+                    >
+                      {confidenceLabel(row.confidence)}
+                    </span>
+                  </div>
+                  <strong class="candidate-text">{row.candidate_text || '无候选文本'}</strong>
+                  <small class="candidate-note">
+                    {row.auto_reject_reason ? '自动排除 · 格式不匹配' : row.auto_accept_reason ? '自动接受 · 可抽查' : row.teacher_auto_accept_eligible ? '上一版模型建议' : (row.rapidocr_text && row.vision_text && row.rapidocr_text === row.vision_text ? '双引擎一致' : (row.rapidocr_text && row.vision_text ? '双引擎不一致' : '待人工核对'))}
+                  </small>
                 </button>
               {/each}
             {:else}
@@ -1356,23 +1472,64 @@
         </aside>
         <article class="review-detail">
           {#if selected && batch}
-            {@const currentIndex = rows.findIndex((r) => r.crop === selected?.crop)}
+            {@const roiInfo = getRoiInfo(selected.roi)}
+            {@const currentIndex = displayedRows.findIndex((r) => r.crop === selected?.crop)}
             <div class="review-detail-scroll">
               <header class="detail-header">
-                <div>
-                  <p class="eyebrow">{selected.roi} · {selected.auto_reject_reason ? '自动排除 · 位置不匹配' : selected.auto_accept_reason ? '自动接受 · 可人工覆盖' : selected.review_status}</p>
-                  <h2>复核</h2>
+                <div class="detail-header-left">
+                  <div class="roi-banner-pill">
+                    <span class="roi-pill-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
+                    <span class="roi-pill-icon">{roiInfo.icon}</span>
+                    <strong class="roi-pill-name">{roiInfo.name}</strong>
+                    <span class="roi-pill-code">{roiInfo.code}</span>
+                    <span class="roi-pill-pos">{roiInfo.position}</span>
+                  </div>
+                  <div class="detail-subhead">
+                    <h2>复核切片</h2>
+                    <span
+                      class="status-chip"
+                      class:status-chip-pending={selected.review_status === 'pending'}
+                      class:status-chip-accepted={selected.review_status === 'accepted' || selected.review_status === 'auto_accepted'}
+                      class:status-chip-rejected={selected.review_status === 'rejected'}
+                    >
+                      {selected.auto_reject_reason ? '自动排除 · 格式不匹配' : selected.auto_accept_reason ? '自动接受 · 可人工覆盖' : selected.teacher_auto_accept_eligible ? '上一版模型建议 · 可接受' : selected.review_status === 'pending' ? '待复核' : selected.review_status === 'accepted' ? '已接受' : '已拒绝'}
+                    </span>
+                    <code class="crop-id-code" title={selected.crop}>{selected.crop.split('/').pop() || selected.crop}</code>
+                  </div>
                 </div>
-                {#if cropNatural.w}
-                  <p class="crop-meta" aria-live="polite">
-                    {cropNatural.w}×{cropNatural.h}px · {cropZoom === 'auto' ? `自适应 ${cropDisplayScale().toFixed(1)}×` : `${cropZoom}×`}
-                  </p>
-                {/if}
+
+                <div class="detail-header-right">
+                  <div class="hud-minimap" title={`游戏画面方位：${roiInfo.position} (${roiInfo.name})`}>
+                    <div class="hud-screen-frame">
+                      <span class="hud-label">HUD 方位</span>
+                      {#each Object.entries(ROI_METAS) as [key, meta]}
+                        <div
+                          class="hud-box"
+                          class:hud-box-active={selected.roi === key}
+                          style={`left: ${meta.rect.x}%; top: ${meta.rect.y}%; width: ${meta.rect.w}%; height: ${meta.rect.h}%; ${selected.roi === key ? `background-color: ${meta.dotColor}; border-color: ${meta.dotColor};` : ''}`}
+                          title={`${meta.name} (${meta.position})`}
+                        ></div>
+                      {/each}
+                    </div>
+                  </div>
+
+                  {#if cropNatural.w}
+                    <p class="crop-meta" aria-live="polite">
+                      {cropNatural.w}×{cropNatural.h}px · {cropZoom === 'auto' ? `自适应 ${cropDisplayScale().toFixed(1)}×` : `${cropZoom}×`}
+                    </p>
+                  {/if}
+                </div>
               </header>
 
               <section class="crop-panel" aria-label="切片预览">
                 <div class="crop-toolbar">
-                  <span class="crop-toolbar-label">切片</span>
+                  <div class="crop-toolbar-left">
+                    <span class="crop-toolbar-label">切片预览</span>
+                    <span class="crop-roi-tag">
+                      <span class="crop-roi-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
+                      {roiInfo.shortName}
+                    </span>
+                  </div>
                   <div class="segmented" role="group" aria-label="切片缩放">
                     {#each cropZoomSteps as step}
                       <button
