@@ -60,6 +60,24 @@ def test_parse_left_panel_matches_catalog_title_with_checkmark() -> None:
     assert out.achievement_unlocked is True
 
 
+def test_parse_left_panel_matches_catalog_title_with_ocr_checkmark_variant() -> None:
+    out = parse_left_panel("生命守护生命 L", ("生命守护生命",))
+    assert out.achievement_title == "生命守护生命"
+    assert out.achievement_titles == ("生命守护生命",)
+    assert out.achievement_unlocked is True
+
+
+def test_parse_left_panel_parses_unlabeled_deaths_skips_before_boost_stats() -> None:
+    out = parse_left_panel("106.0 增益/减益/总计 33/31/82")
+    assert out.total_deaths == 106
+    assert out.total_skips == 0
+
+
+def test_parse_left_panel_parses_variant_time_label() -> None:
+    out = parse_left_panel("通关总训耗时 1小时42分15秒")
+    assert out.clear_time_seconds == 6135.0
+
+
 def test_parse_left_panel_matches_multiple_catalog_titles_in_order() -> None:
     out = parse_left_panel("钢门 ✓\n幸运星 ✓\n开了 ✓\nV我50 ✓\n牢大 ✓", ("钢门", "幸运星", "开了", "V我50", "牢大"))
     assert out.achievement_titles == ("钢门", "幸运星", "开了", "V我50", "牢大")

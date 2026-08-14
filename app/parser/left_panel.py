@@ -29,7 +29,13 @@ def parse_left_panel(text: str, achievement_titles: tuple[str, ...] = ()) -> Lef
 
     deaths, skips = _parse_total_deaths_skips(compact)
 
-    time_match = re.search(r"(?:通关)?总计(?:时|耗时)\s*([0-9OoIlSB小时分秒:\s\.]+)", compact)
+    time_match = re.search(
+        r"(?:通关)?总(?:计)?(?:时|耗时|扬时|训耗时)\s*"
+        r"((?:[0-9OoIlSB]+\s*小时)?\s*"
+        r"(?:[0-9OoIlSB]+\s*分)?\s*"
+        r"(?:[0-9OoIlSB]+(?:\.[0-9]+)?\s*秒?)?)",
+        compact,
+    )
     clear_time = time_match.group(1).strip() if time_match else None
     detected_titles = _parse_achievement_titles(compact, achievement_titles)
 
@@ -54,7 +60,7 @@ def _parse_achievement_titles(text: str, achievement_titles: tuple[str, ...]) ->
             continue
         for match in re.finditer(re.escape(title), text):
             suffix = text[match.end() :]
-            if re.match(r"\s*[✓✔√☑☒]", suffix):
+            if re.match(r"\s*[✓✔√☑☒VvLl]", suffix):
                 matches.append((match.start(), title))
     matches.sort(key=lambda item: item[0])
     return tuple(dict.fromkeys(title for _, title in matches))[:5]
@@ -65,13 +71,16 @@ def _parse_total_deaths_skips(compact: str) -> tuple[int | None, int | None]:
 
     anchor = re.search(r"总计(?:死亡|阵亡|车二)(?:/跳过|跳过|过)?", normalized)
     if not anchor:
-        return None, None
+        unlabeled = re.search(r"(?<![0-9])([0-9]+)\s*[/\.]\s*([0-9]+)\s*(?=增益|减益)", normalized)
+        if not unlabeled:
+            return None, None
+        return parse_int(unlabeled.group(1)), parse_int(unlabeled.group(2))
 
     nearby = normalized[anchor.end() : anchor.end() + 28].split("增益", 1)[0]
     nearby = nearby.replace("次", "")
     nearby = nearby.replace("O", "0").replace("o", "0").replace("I", "1").replace("l", "1")
 
-    m = re.search(r"([0-9]+)\s*/\s*([0-9]+)", nearby)
+    m = re.search(r"([0-9]+)\s*[/\.]\s*([0-9]+)", nearby)
     if not m:
         return None, None
 

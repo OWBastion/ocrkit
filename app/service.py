@@ -5,7 +5,7 @@ from typing import Any
 from app.core.roi_config import RoiConfig
 from app.image.preprocess import preprocess_by_roi
 from app.image.quality import assess_input_quality
-from app.image.roi import crop_all_rois
+from app.image.roi import crop_all_rois, select_roi_config
 from app.ocr.engine import OcrEngine
 from app.parser.bottom_left_hero import parse_bottom_left_hero
 from app.parser.center_summary import parse_center_summary
@@ -81,9 +81,11 @@ def extract_structured(
     model_version: str,
     layout_version: str,
     achievement_titles: tuple[str, ...] = (),
+    roi_variants: tuple[RoiConfig, ...] = (),
 ) -> ChallengeResponse:
-    input_quality = assess_input_quality(image, roi_config.width, roi_config.height)
-    normalized, roi_images = crop_all_rois(image, roi_config)
+    active_roi_config = select_roi_config(image, (roi_config, *roi_variants))
+    input_quality = assess_input_quality(image, active_roi_config.width, active_roi_config.height)
+    normalized, roi_images = crop_all_rois(image, active_roi_config)
 
     raw_text: dict[str, str] = {}
     confidences: dict[str, float] = {}
@@ -134,7 +136,7 @@ def extract_structured(
                     "x2": box.x2,
                     "y2": box.y2,
                 }
-                for name, box in roi_config.rois.items()
+                for name, box in active_roi_config.rois.items()
             },
             raw_text=raw_text,
             confidence=confidences,
@@ -144,7 +146,7 @@ def extract_structured(
         request_id=request_id,
         engine=engine_name,
         model_version=model_version,
-        layout_version=layout_version,
+        layout_version=active_roi_config.version,
         ok=True,
         data=data,
         fields=_build_field_evidence(data, confidences, run_code),
@@ -156,7 +158,7 @@ def extract_structured(
             cropped=input_quality["cropped"],
             blur_score=input_quality["blur_score"],
             normalized_size=(normalized.shape[1], normalized.shape[0]),
-            layout_version=layout_version,
+            layout_version=active_roi_config.version,
             warnings=warnings,
         ),
         debug=debug_payload,

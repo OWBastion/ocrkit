@@ -55,6 +55,11 @@ def test_parse_right_panel_clothes_version_variant() -> None:
     assert out.version == "26.0518.1"
 
 
+def test_parse_right_panel_wood_version_ocr_variant() -> None:
+    out = parse_right_panel("66号公路：地狱 版木26.08111", ["66号公路"])
+    assert out.version == "26.0811.1"
+
+
 def test_parse_right_panel_restores_version_separators() -> None:
     out = parse_right_panel("尼泊尔：地狱 版本26.06102", ["尼泊尔"])
     assert out.version == "26.0610.2"

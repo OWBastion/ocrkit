@@ -1,0 +1,42 @@
+layout_version: 1280x800-v1
+
+standard_size:
+  width: 1280
+  height: 800
+
+rois:
+  left_panel:
+    x1: 35
+    y1: 15
+    x2: 360
+    y2: 600
+
+  run_code_panel:
+    x1: 30
+    y1: 145
+    x2: 360
+    y2: 240
+
+  achievement_panel:
+    x1: 35
+    y1: 265
+    x2: 300
+    y2: 315
+
+  center_banner:
+    x1: 300
+    y1: 10
+    x2: 1050
+    y2: 100
+
+  right_panel:
+    x1: 1040
+    y1: 0
+    x2: 1275
+    y2: 120
+
+  bottom_left_hero:
+    x1: 30
+    y1: 620
+    x2: 330
+    y2: 790

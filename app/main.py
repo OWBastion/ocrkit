@@ -53,6 +53,7 @@ def _load_model(manifest_key: str) -> tuple[str, object]:
 
 def create_context() -> AppContext:
     roi_config = load_roi_config(settings.roi_config_path)
+    roi_variants = (load_roi_config(settings.roi_config_path.with_name("roi_1280x800.yaml")),)
     object_store = None
     if settings.r2_endpoint_url and settings.r2_access_key_id and settings.r2_secret_access_key:
         object_store = R2ObjectStore.from_settings(
@@ -85,6 +86,7 @@ def create_context() -> AppContext:
         model_version=model_version,
         engine_name=settings.ocr_engine,
         layout_version=roi_config.version,
+        roi_variants=roi_variants,
     )
 
 

@@ -75,6 +75,10 @@ decimal places; `cropped` and the related warnings indicate a ratio mismatch aga
 configured layout and do not make an approval decision. `blur_score` is a normalized blur
 risk from 0 to 1, where higher means blurrier.
 
+The service selects the versioned `1280x720-v6` or `1280x800-v1` ROI layout from the source
+aspect ratio. The 16:10 layout is used for screenshots such as 2560x1600 without marking the
+input as cropped.
+
 Send `X-Request-ID` to correlate a request; otherwise OCRKit generates one. Each field
 reports its parsed value, confidence, source ROI, normalization metadata, and status.
 `achievement_panel_text` contains raw OCR evidence from the dedicated left-side achievement
