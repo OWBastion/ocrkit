@@ -15,6 +15,9 @@
   type ResumeCheckpoint = { path: string; name: string }
   type RemoteConfig = { configured: boolean; bucket: string; allowed_prefixes: string[]; max_objects?: number; max_object_bytes?: number }
   type RemoteObject = { key: string; size: number; etag?: string | null; last_modified?: string | null }
+  type RemoteSortField = 'date' | 'size' | 'name'
+  type RemoteSortOrder = 'desc' | 'asc'
+  type RemoteViewMode = 'list' | 'grid'
 
   let batches: Batch[] = []
   let batch: Batch | null = null
@@ -47,6 +50,13 @@
   let remoteCursor: string | null = null
   let remoteSelected = new Set<string>()
   let remoteLoading = false
+  let remoteFilterText = ''
+  let remoteSortField: RemoteSortField = 'date'
+  let remoteSortOrder: RemoteSortOrder = 'desc'
+  let remoteViewMode: RemoteViewMode = 'list'
+  let hoverPreviewObject: RemoteObject | null = null
+  let hoverPreviewTimeout: ReturnType<typeof setTimeout> | null = null
+  let previewModalObject: RemoteObject | null = null
   let cropZoom: CropZoom = 'auto'
   let cropNatural = { w: 0, h: 0 }
   let trainingPollTimer: ReturnType<typeof setInterval> | null = null
@@ -153,6 +163,63 @@
     return `${(value / 1024 / 1024).toFixed(1)} MiB`
   }
 
+  function formatDate(isoString?: string | null): string {
+    if (!isoString) return '—'
+    const date = new Date(isoString)
+    if (Number.isNaN(date.getTime())) return isoString
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const year = date.getFullYear()
+    const month = pad(date.getMonth() + 1)
+    const day = pad(date.getDate())
+    const hours = pad(date.getHours())
+    const minutes = pad(date.getMinutes())
+    const seconds = pad(date.getSeconds())
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+  }
+
+  function splitKey(key: string): { dir: string; name: string; ext: string } {
+    const lastSlash = key.lastIndexOf('/')
+    const dir = lastSlash >= 0 ? key.slice(0, lastSlash + 1) : ''
+    const name = lastSlash >= 0 ? key.slice(lastSlash + 1) : key
+    const lastDot = name.lastIndexOf('.')
+    const ext = lastDot >= 0 ? name.slice(lastDot + 1).toUpperCase() : ''
+    return { dir, name, ext }
+  }
+
+  $: filteredRemoteObjects = (() => {
+    let list = [...remoteObjects]
+    const query = remoteFilterText.trim().toLowerCase()
+    if (query) {
+      list = list.filter((item) => {
+        const key = item.key.toLowerCase()
+        const dateStr = formatDate(item.last_modified).toLowerCase()
+        const sizeStr = formatBytes(item.size).toLowerCase()
+        return key.includes(query) || dateStr.includes(query) || sizeStr.includes(query)
+      })
+    }
+    list.sort((a, b) => {
+      let result = 0
+      if (remoteSortField === 'date') {
+        const timeA = a.last_modified ? new Date(a.last_modified).getTime() : 0
+        const timeB = b.last_modified ? new Date(b.last_modified).getTime() : 0
+        result = timeA - timeB
+      } else if (remoteSortField === 'size') {
+        result = a.size - b.size
+      } else if (remoteSortField === 'name') {
+        result = a.key.localeCompare(b.key)
+      }
+      return remoteSortOrder === 'desc' ? -result : result
+    })
+    return list
+  })()
+
+  $: isAllSelected = filteredRemoteObjects.length > 0 && filteredRemoteObjects.every((item) => remoteSelected.has(item.key))
+  $: isPartiallySelected = !isAllSelected && filteredRemoteObjects.some((item) => remoteSelected.has(item.key))
+  $: selectedTotalBytes = [...remoteSelected].reduce((sum, key) => {
+    const obj = remoteObjects.find((o) => o.key === key)
+    return sum + (obj?.size || 0)
+  }, 0)
+
   async function loadRemoteStatus() {
     remoteConfig = await request<RemoteConfig>('/api/r2/status')
     if (remoteConfig.configured && !remotePrefix) remotePrefix = remoteConfig.allowed_prefixes[0] || ''
@@ -179,6 +246,96 @@
     if (next.has(key)) next.delete(key)
     else next.add(key)
     remoteSelected = next
+  }
+
+  function toggleSelectAll() {
+    const next = new Set(remoteSelected)
+    if (isAllSelected) {
+      for (const item of filteredRemoteObjects) {
+        next.delete(item.key)
+      }
+    } else {
+      for (const item of filteredRemoteObjects) {
+        next.add(item.key)
+      }
+    }
+    remoteSelected = next
+  }
+
+  function invertSelection() {
+    const next = new Set(remoteSelected)
+    for (const item of filteredRemoteObjects) {
+      if (next.has(item.key)) {
+        next.delete(item.key)
+      } else {
+        next.add(item.key)
+      }
+    }
+    remoteSelected = next
+  }
+
+  function clearSelection() {
+    remoteSelected = new Set()
+  }
+
+  function showHoverPreview(object: RemoteObject) {
+    if (hoverPreviewTimeout) clearTimeout(hoverPreviewTimeout)
+    hoverPreviewTimeout = setTimeout(() => {
+      hoverPreviewObject = object
+    }, 150)
+  }
+
+  function hideHoverPreview() {
+    if (hoverPreviewTimeout) clearTimeout(hoverPreviewTimeout)
+    hoverPreviewTimeout = setTimeout(() => {
+      hoverPreviewObject = null
+    }, 80)
+  }
+
+  function openPreviewModal(object: RemoteObject) {
+    hoverPreviewObject = null
+    previewModalObject = object
+  }
+
+  function closePreviewModal() {
+    previewModalObject = null
+  }
+
+  function prevPreview() {
+    if (!previewModalObject) return
+    const index = filteredRemoteObjects.findIndex((item) => item.key === previewModalObject?.key)
+    if (index > 0) {
+      previewModalObject = filteredRemoteObjects[index - 1]
+    } else if (filteredRemoteObjects.length > 0) {
+      previewModalObject = filteredRemoteObjects[filteredRemoteObjects.length - 1]
+    }
+  }
+
+  function nextPreview() {
+    if (!previewModalObject) return
+    const index = filteredRemoteObjects.findIndex((item) => item.key === previewModalObject?.key)
+    if (index >= 0 && index < filteredRemoteObjects.length - 1) {
+      previewModalObject = filteredRemoteObjects[index + 1]
+    } else if (filteredRemoteObjects.length > 0) {
+      previewModalObject = filteredRemoteObjects[0]
+    }
+  }
+
+  function onKeyDown(event: KeyboardEvent) {
+    if (previewModalObject) {
+      if (event.key === 'Escape') {
+        closePreviewModal()
+      } else if (event.key === 'ArrowLeft') {
+        prevPreview()
+      } else if (event.key === 'ArrowRight') {
+        nextPreview()
+      } else if (event.key === ' ' || event.key === 'Enter') {
+        if ((event.target as HTMLElement)?.tagName !== 'BUTTON' && (event.target as HTMLElement)?.tagName !== 'INPUT') {
+          event.preventDefault()
+          toggleRemoteSelection(previewModalObject.key)
+        }
+      }
+    }
   }
 
   async function importRemoteImages() {
@@ -590,7 +747,7 @@
   })
 </script>
 
-<svelte:window on:paste={pasteImages} />
+<svelte:window on:paste={pasteImages} on:keydown={onKeyDown} />
 
 <svelte:head><meta name="description" content="OCRKit Studio" /></svelte:head>
 
@@ -703,26 +860,260 @@
                   {remoteLoading ? '读取中…' : '加载对象'}
                 </button>
               </div>
+
               {#if remoteObjects.length}
-                <div class="remote-list">
-                  {#each remoteObjects as object}
-                    <label class="remote-object">
-                      <input type="checkbox" checked={remoteSelected.has(object.key)} on:change={() => toggleRemoteSelection(object.key)} />
-                      <span class="remote-object-copy">
-                        <strong title={object.key}>{object.key}</strong>
-                        <small>{formatBytes(object.size)}</small>
-                      </span>
-                    </label>
-                  {/each}
+                <div class="remote-filter-bar">
+                  <div class="remote-search-box">
+                    <svg class="search-icon" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                      <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd" />
+                    </svg>
+                    <input
+                      type="text"
+                      class="remote-search-input"
+                      placeholder="搜索文件名、路径或上传日期..."
+                      bind:value={remoteFilterText}
+                    />
+                    {#if remoteFilterText}
+                      <button type="button" class="clear-search-btn" on:click={() => (remoteFilterText = '')} aria-label="清除搜索">✕</button>
+                    {/if}
+                  </div>
+
+                  <div class="remote-toolbar-group">
+                    <div class="remote-select-group">
+                      <button
+                        type="button"
+                        class="button-secondary button-compact"
+                        on:click={toggleSelectAll}
+                        title={isAllSelected ? '取消全选当前筛选列表' : '全选当前筛选列表'}
+                      >
+                        {isAllSelected ? '取消全选' : '全选'}
+                      </button>
+                      <button
+                        type="button"
+                        class="button-secondary button-compact"
+                        on:click={invertSelection}
+                        title="反选当前筛选列表"
+                      >
+                        反选
+                      </button>
+                      {#if remoteSelected.size > 0}
+                        <button
+                          type="button"
+                          class="button-secondary button-compact"
+                          on:click={clearSelection}
+                          title="清空所有已选"
+                        >
+                          清空
+                        </button>
+                      {/if}
+                    </div>
+
+                    <div class="remote-sort-group">
+                      <label class="remote-sort-label">
+                        <span>排序</span>
+                        <select bind:value={remoteSortField} class="remote-sort-select">
+                          <option value="date">上传日期</option>
+                          <option value="size">文件大小</option>
+                          <option value="name">文件名</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        class="button-secondary button-compact"
+                        on:click={() => (remoteSortOrder = remoteSortOrder === 'desc' ? 'asc' : 'desc')}
+                        title={remoteSortOrder === 'desc' ? '当前降序 (点击切换升序)' : '当前升序 (点击切换降序)'}
+                      >
+                        {remoteSortOrder === 'desc' ? '↓ 降序' : '↑ 升序'}
+                      </button>
+                    </div>
+
+                    <div class="segmented" role="group" aria-label="视图切换">
+                      <button
+                        type="button"
+                        class="segmented-btn"
+                        class:segmented-active={remoteViewMode === 'list'}
+                        on:click={() => (remoteViewMode = 'list')}
+                        title="列表视图"
+                      >
+                        列表
+                      </button>
+                      <button
+                        type="button"
+                        class="segmented-btn"
+                        class:segmented-active={remoteViewMode === 'grid'}
+                        on:click={() => (remoteViewMode = 'grid')}
+                        title="网格视图"
+                      >
+                        网格
+                      </button>
+                    </div>
+                  </div>
                 </div>
+
+                <div class="remote-list-header">
+                  <label class="remote-master-select">
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      indeterminate={isPartiallySelected}
+                      on:change={toggleSelectAll}
+                    />
+                    <span>
+                      已选 <strong>{remoteSelected.size}</strong> 项
+                      {#if remoteSelected.size > 0}
+                        <small class="remote-selected-bytes">({formatBytes(selectedTotalBytes)})</small>
+                      {/if}
+                    </span>
+                  </label>
+                  <span class="remote-count-meta">
+                    显示 {filteredRemoteObjects.length} / 共 {remoteObjects.length} 张截图
+                  </span>
+                </div>
+
+                {#if filteredRemoteObjects.length === 0}
+                  <div class="remote-no-match">
+                    <p>没有匹配 "{remoteFilterText}" 的候选截图</p>
+                    <button type="button" class="button-secondary button-compact" on:click={() => (remoteFilterText = '')}>清除筛选条件</button>
+                  </div>
+                {:else if remoteViewMode === 'list'}
+                  <div class="remote-list" role="list">
+                    {#each filteredRemoteObjects as object (object.key)}
+                      {@const keyInfo = splitKey(object.key)}
+                      <div
+                        class="remote-row"
+                        class:remote-row-selected={remoteSelected.has(object.key)}
+                        role="listitem"
+                      >
+                        <label class="remote-row-check">
+                          <input
+                            type="checkbox"
+                            checked={remoteSelected.has(object.key)}
+                            on:change={() => toggleRemoteSelection(object.key)}
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          class="remote-thumb-wrapper"
+                          on:mouseenter={() => showHoverPreview(object)}
+                          on:mouseleave={hideHoverPreview}
+                          on:click={() => openPreviewModal(object)}
+                          aria-label={`查看 ${keyInfo.name} 大图预览`}
+                        >
+                          <img
+                            src={`/api/r2/image?key=${encodeURIComponent(object.key)}`}
+                            alt={keyInfo.name}
+                            loading="lazy"
+                            class="remote-thumb-img"
+                          />
+                          {#if keyInfo.ext}
+                            <span class="remote-thumb-badge">{keyInfo.ext}</span>
+                          {/if}
+                        </button>
+
+                        <div class="remote-row-info">
+                          <div class="remote-row-primary">
+                            <strong class="remote-filename" title={object.key}>{keyInfo.name}</strong>
+                            {#if keyInfo.dir}
+                              <span class="remote-path" title={keyInfo.dir}>{keyInfo.dir}</span>
+                            {/if}
+                          </div>
+                          <div class="remote-row-meta">
+                            <span class="meta-item meta-date" title="上传时间">
+                              <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13">
+                                <path fill-rule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clip-rule="evenodd" />
+                              </svg>
+                              {formatDate(object.last_modified)}
+                            </span>
+                            <span class="meta-item meta-size">
+                              {formatBytes(object.size)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div class="remote-row-actions">
+                          <button
+                            type="button"
+                            class="button-preview-trigger"
+                            on:click={() => openPreviewModal(object)}
+                            title="放大预览"
+                          >
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                              <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                              <path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+                            </svg>
+                            <span>预览</span>
+                          </button>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="remote-grid" role="list">
+                    {#each filteredRemoteObjects as object (object.key)}
+                      {@const keyInfo = splitKey(object.key)}
+                      <div
+                        class="remote-card"
+                        class:remote-card-selected={remoteSelected.has(object.key)}
+                        role="listitem"
+                      >
+                        <div class="remote-card-media">
+                          <img
+                            src={`/api/r2/image?key=${encodeURIComponent(object.key)}`}
+                            alt={keyInfo.name}
+                            loading="lazy"
+                            class="remote-card-img"
+                            on:mouseenter={() => showHoverPreview(object)}
+                            on:mouseleave={hideHoverPreview}
+                          />
+                          <div class="remote-card-overlay">
+                            <label class="remote-card-check">
+                              <input
+                                type="checkbox"
+                                checked={remoteSelected.has(object.key)}
+                                on:change={() => toggleRemoteSelection(object.key)}
+                              />
+                            </label>
+                            <span class="remote-card-size">{formatBytes(object.size)}</span>
+                          </div>
+                          <button
+                            type="button"
+                            class="remote-card-expand"
+                            on:click={() => openPreviewModal(object)}
+                            title="放大预览"
+                          >
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                              <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                              <path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+                            </svg>
+                          </button>
+                        </div>
+                        <div class="remote-card-content">
+                          <strong class="remote-card-title" title={object.key}>{keyInfo.name}</strong>
+                          <span class="remote-card-date">{formatDate(object.last_modified)}</span>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+
                 <div class="remote-actions">
-                  <span class="status-meta">已选 {remoteSelected.size} / {remoteObjects.length}</span>
-                  {#if remoteCursor}
-                    <button class="button-secondary button-compact" disabled={remoteLoading || busy} on:click={() => void loadRemoteImages(true)}>加载下一页</button>
-                  {/if}
-                  <button class="button-primary" disabled={busy || !remoteSelected.size} on:click={() => void importRemoteImages()}>
-                    {batch ? '加入当前批次' : '用所选截图创建批次'}
-                  </button>
+                  <div class="remote-selection-summary">
+                    <span>已选 <strong>{remoteSelected.size}</strong> / {remoteObjects.length} 张截图</span>
+                    {#if remoteSelected.size > 0}
+                      <span class="remote-size-pill">{formatBytes(selectedTotalBytes)}</span>
+                    {/if}
+                  </div>
+                  <div class="remote-action-buttons">
+                    {#if remoteCursor}
+                      <button class="button-secondary button-compact" disabled={remoteLoading || busy} on:click={() => void loadRemoteImages(true)}>
+                        {remoteLoading ? '加载中…' : '加载下一页'}
+                      </button>
+                    {/if}
+                    <button class="button-primary" disabled={busy || !remoteSelected.size} on:click={() => void importRemoteImages()}>
+                      {batch ? `加入当前批次 (${remoteSelected.size} 张)` : `用所选截图创建批次 (${remoteSelected.size} 张)`}
+                    </button>
+                  </div>
                 </div>
               {:else}
                 <p class="remote-empty">输入允许的 prefix 后点击「加载对象」。只显示支持的图片格式和大小范围内的对象。</p>
@@ -1133,4 +1524,86 @@
     {/if}
     </div>
   </div>
+
+  {#if hoverPreviewObject}
+    {@const keyInfo = splitKey(hoverPreviewObject.key)}
+    <div class="remote-hover-card" role="tooltip">
+      <div class="hover-card-media">
+        <img src={`/api/r2/image?key=${encodeURIComponent(hoverPreviewObject.key)}`} alt={keyInfo.name} />
+      </div>
+      <div class="hover-card-body">
+        <strong class="hover-card-title">{keyInfo.name}</strong>
+        <div class="hover-card-meta">
+          <span>📅 {formatDate(hoverPreviewObject.last_modified)}</span>
+          <span>📦 {formatBytes(hoverPreviewObject.size)}</span>
+          {#if hoverPreviewObject.etag}
+            <span class="hover-card-etag">🏷️ {hoverPreviewObject.etag.replace(/"/g, '').slice(0, 8)}</span>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if previewModalObject}
+    {@const keyInfo = splitKey(previewModalObject.key)}
+    {@const isSelected = remoteSelected.has(previewModalObject.key)}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="截图详情预览">
+      <button type="button" class="modal-backdrop-dismiss" on:click={closePreviewModal} aria-label="关闭预览"></button>
+      <div class="modal-dialog">
+        <header class="modal-header">
+          <div class="modal-title-wrap">
+            <strong class="modal-filename" title={previewModalObject.key}>{keyInfo.name}</strong>
+            <span class="modal-path">{previewModalObject.key}</span>
+          </div>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="button-secondary button-compact"
+              class:modal-selected={isSelected}
+              on:click={() => toggleRemoteSelection(previewModalObject.key)}
+            >
+              {isSelected ? '✓ 已选中' : '+ 选中此截图'}
+            </button>
+            <button type="button" class="modal-close-btn" on:click={closePreviewModal} title="关闭 (Esc)">✕</button>
+          </div>
+        </header>
+
+        <div class="modal-body">
+          <button type="button" class="modal-nav-btn modal-nav-prev" on:click={prevPreview} title="上一张 (←)">
+            ‹
+          </button>
+          <div class="modal-image-wrap">
+            <img
+              src={`/api/r2/image?key=${encodeURIComponent(previewModalObject.key)}`}
+              alt={keyInfo.name}
+              class="modal-image"
+            />
+          </div>
+          <button type="button" class="modal-nav-btn modal-nav-next" on:click={nextPreview} title="下一张 (→)">
+            ›
+          </button>
+        </div>
+
+        <footer class="modal-footer">
+          <div class="modal-meta-grid">
+            <div class="meta-cell">
+              <span class="meta-label">上传时间</span>
+              <strong class="meta-value">{formatDate(previewModalObject.last_modified)}</strong>
+            </div>
+            <div class="meta-cell">
+              <span class="meta-label">文件大小</span>
+              <strong class="meta-value">{formatBytes(previewModalObject.size)}</strong>
+            </div>
+            {#if previewModalObject.etag}
+              <div class="meta-cell">
+                <span class="meta-label">ETag</span>
+                <span class="meta-value font-mono">{previewModalObject.etag.replace(/"/g, '')}</span>
+              </div>
+            {/if}
+          </div>
+          <span class="modal-keyboard-hint">快捷键：← / → 切换 · 空格 选择 · Esc 关闭</span>
+        </footer>
+      </div>
+    </div>
+  {/if}
 </main>

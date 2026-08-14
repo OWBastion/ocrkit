@@ -9,7 +9,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -255,6 +255,17 @@ def create_app(
         selected_prefix = prefix or store.allowed_prefixes[0]
         try:
             return store.list_images(selected_prefix, cursor)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=r2_error_detail(exc)) from exc
+
+    @app.get("/api/r2/image")
+    def r2_image(key: str) -> Response:
+        store = remote_store or StudioR2Store.from_settings()
+        if store is None:
+            raise HTTPException(status_code=503, detail="Studio R2 未配置")
+        try:
+            content, media_type = store.get_image(key)
+            return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=3600"})
         except Exception as exc:
             raise HTTPException(status_code=503, detail=r2_error_detail(exc)) from exc
 

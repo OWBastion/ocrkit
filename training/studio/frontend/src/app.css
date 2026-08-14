@@ -299,30 +299,301 @@
   .remote-controls .field {
     @apply min-w-[min(100%,20rem)] flex-1;
   }
+
+  .remote-filter-bar {
+    @apply flex flex-wrap items-center justify-between gap-2.5 rounded-[var(--radius-control)] border border-ink/8 bg-white/70 p-2 shadow-2xs;
+  }
+  .remote-search-box {
+    @apply relative flex min-w-[min(100%,14rem)] flex-1 items-center;
+  }
+  .remote-search-box .search-icon {
+    @apply pointer-events-none absolute left-2.5 text-ink/35;
+  }
+  .remote-search-input {
+    @apply w-full rounded-lg border border-ink/10 bg-white/90 py-1.5 pl-8 pr-7 text-xs text-ink placeholder:text-ink/35 focus:border-clay/50;
+  }
+  .clear-search-btn {
+    @apply absolute right-2 text-xs text-ink/40 hover:text-ink;
+  }
+  .remote-toolbar-group {
+    @apply flex flex-wrap items-center gap-2;
+  }
+  .remote-select-group {
+    @apply flex items-center gap-1;
+  }
+  .remote-sort-group {
+    @apply flex items-center gap-1.5;
+  }
+  .remote-sort-label {
+    @apply flex items-center gap-1 text-xs font-medium text-ink/55;
+  }
+  .remote-sort-select {
+    @apply rounded-lg border border-ink/10 bg-white/90 px-2 py-1 text-xs font-medium text-ink;
+  }
+
+  .remote-list-header {
+    @apply flex items-center justify-between px-1 text-xs text-ink/55;
+  }
+  .remote-master-select {
+    @apply flex cursor-pointer items-center gap-2 font-medium text-ink;
+  }
+  .remote-master-select input {
+    @apply accent-clay cursor-pointer;
+  }
+  .remote-selected-bytes {
+    @apply text-ink/45;
+  }
+  .remote-count-meta {
+    @apply text-xs tabular-nums text-ink/50;
+  }
+
+  .remote-no-match {
+    @apply flex flex-col items-center justify-center gap-2 rounded-[var(--radius-control)] border border-ink/8 bg-white/70 py-8 text-center text-sm text-ink/50;
+  }
+
   .remote-list {
-    @apply grid max-h-64 gap-1 overflow-y-auto rounded-[var(--radius-control)] border border-ink/8 bg-white/70 p-1;
+    @apply grid max-h-80 gap-1 overflow-y-auto rounded-[var(--radius-control)] border border-ink/8 bg-white/70 p-1.5;
   }
-  .remote-object {
-    @apply flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-sm;
-    transition: background-color 120ms var(--ease-press);
+  .remote-row {
+    @apply flex min-w-0 items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-sm transition-colors;
   }
-  .remote-object:hover { @apply bg-clay/8; }
-  .remote-object input { @apply shrink-0 accent-clay; }
-  .remote-object-copy {
-    @apply grid min-w-0 gap-0.5;
+  .remote-row:hover {
+    @apply bg-clay/8 border-clay/15;
   }
-  .remote-object-copy strong {
-    @apply truncate font-medium text-ink;
+  .remote-row-selected {
+    @apply bg-clay/12 border-clay/30;
   }
-  .remote-object-copy small { @apply text-xs text-ink/45; }
+  .remote-row-check {
+    @apply shrink-0 cursor-pointer;
+  }
+  .remote-row-check input {
+    @apply accent-clay cursor-pointer;
+  }
+
+  .remote-thumb-wrapper {
+    @apply relative h-12 w-20 shrink-0 cursor-pointer overflow-hidden rounded-md border border-ink/10 bg-ink/5;
+  }
+  .remote-thumb-img {
+    @apply h-full w-full object-cover transition-transform duration-200;
+  }
+  .remote-thumb-wrapper:hover .remote-thumb-img {
+    @apply scale-105;
+  }
+  .remote-thumb-badge {
+    @apply absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-[1px] text-[9px] font-bold text-white tracking-wider;
+  }
+
+  .remote-row-info {
+    @apply grid min-w-0 flex-1 cursor-pointer gap-0.5;
+  }
+  .remote-row-primary {
+    @apply flex min-w-0 flex-wrap items-baseline gap-2;
+  }
+  .remote-filename {
+    @apply truncate text-xs font-semibold text-ink sm:text-sm;
+  }
+  .remote-path {
+    @apply truncate font-mono text-[11px] text-ink/40;
+  }
+  .remote-row-meta {
+    @apply flex flex-wrap items-center gap-3 text-xs text-ink/50;
+  }
+  .meta-item {
+    @apply flex items-center gap-1;
+  }
+  .meta-date {
+    @apply tabular-nums font-mono text-[11px];
+  }
+  .meta-size {
+    @apply rounded bg-ink/5 px-1.5 py-[1px] text-[10px] font-medium text-ink/65;
+  }
+
+  .remote-row-actions {
+    @apply flex shrink-0 items-center gap-1;
+  }
+  .button-preview-trigger {
+    @apply flex items-center gap-1 rounded-md border border-ink/10 bg-white/80 px-2.5 py-1 text-xs font-medium text-ink/70 shadow-2xs;
+    transition: all 120ms var(--ease-press);
+  }
+  .button-preview-trigger:hover {
+    @apply border-ink/25 bg-white text-ink shadow-xs;
+  }
+  .button-preview-trigger:active {
+    transform: scale(0.96);
+  }
+
+  /* Grid gallery view */
+  .remote-grid {
+    @apply grid max-h-96 grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2.5 overflow-y-auto rounded-[var(--radius-control)] border border-ink/8 bg-white/70 p-2.5;
+  }
+  .remote-card {
+    @apply relative flex flex-col overflow-hidden rounded-xl border border-ink/10 bg-white shadow-2xs transition-all;
+  }
+  .remote-card:hover {
+    @apply border-clay/40 shadow-sm;
+  }
+  .remote-card-selected {
+    @apply border-clay bg-clay/6 ring-2 ring-clay/40;
+  }
+  .remote-card-media {
+    @apply relative aspect-video w-full overflow-hidden bg-ink/5;
+  }
+  .remote-card-img {
+    @apply h-full w-full object-cover transition-transform duration-200;
+  }
+  .remote-card:hover .remote-card-img {
+    @apply scale-105;
+  }
+  .remote-card-overlay {
+    @apply absolute inset-x-0 top-0 flex items-center justify-between p-1.5 bg-gradient-to-b from-black/50 via-black/20 to-transparent;
+  }
+  .remote-card-check {
+    @apply cursor-pointer;
+  }
+  .remote-card-check input {
+    @apply accent-clay cursor-pointer;
+  }
+  .remote-card-size {
+    @apply rounded bg-black/60 px-1.5 py-[1px] text-[10px] font-semibold text-white backdrop-blur-xs;
+  }
+  .remote-card-expand {
+    @apply absolute bottom-1.5 right-1.5 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white opacity-75 backdrop-blur-xs transition-opacity hover:opacity-100;
+  }
+  .remote-card-content {
+    @apply grid cursor-pointer gap-0.5 p-2 text-xs;
+  }
+  .remote-card-title {
+    @apply truncate font-semibold text-ink;
+  }
+  .remote-card-date {
+    @apply truncate font-mono text-[10px] tabular-nums text-ink/45;
+  }
+
   .remote-actions {
-    @apply flex flex-wrap items-center justify-end gap-2.5;
+    @apply flex flex-wrap items-center justify-between gap-2.5 pt-1;
   }
+  .remote-selection-summary {
+    @apply flex items-center gap-2 text-xs text-ink/65;
+  }
+  .remote-size-pill {
+    @apply rounded-full bg-clay/15 px-2 py-0.5 text-[11px] font-semibold text-ink/80;
+  }
+  .remote-action-buttons {
+    @apply flex items-center gap-2;
+  }
+
   .remote-empty {
     @apply text-sm leading-6 text-ink/50;
   }
   .remote-empty code {
     @apply rounded bg-ink/5 px-1 py-0.5 font-mono text-[11px] text-ink/70;
+  }
+
+  /* Hover floating preview card */
+  .remote-hover-card {
+    @apply pointer-events-none fixed bottom-8 right-8 z-50 flex w-80 flex-col overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-2xl;
+    animation: fade-in-up 120ms ease-out;
+  }
+  .hover-card-media {
+    @apply relative aspect-video w-full overflow-hidden bg-black/5;
+  }
+  .hover-card-media img {
+    @apply h-full w-full object-cover;
+  }
+  .hover-card-body {
+    @apply grid gap-1 p-3 text-xs bg-white/95;
+  }
+  .hover-card-title {
+    @apply truncate font-semibold text-ink;
+  }
+  .hover-card-meta {
+    @apply flex flex-wrap gap-2 text-[11px] text-ink/60;
+  }
+  .hover-card-etag {
+    @apply font-mono;
+  }
+
+  /* Modal Lightbox */
+  .modal-backdrop {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm;
+    animation: fade-in 140ms ease-out;
+  }
+  .modal-backdrop-dismiss {
+    @apply absolute inset-0 h-full w-full cursor-default border-0 bg-transparent;
+  }
+  .modal-dialog {
+    @apply relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-paper shadow-2xl;
+    animation: modal-pop 140ms var(--ease-press);
+  }
+  .modal-header {
+    @apply flex items-center justify-between gap-3 border-b border-ink/8 bg-white/80 px-4 py-3;
+  }
+  .modal-title-wrap {
+    @apply grid min-w-0 gap-0.5;
+  }
+  .modal-filename {
+    @apply truncate text-sm font-semibold text-ink;
+  }
+  .modal-path {
+    @apply truncate font-mono text-[11px] text-ink/45;
+  }
+  .modal-actions {
+    @apply flex shrink-0 items-center gap-2;
+  }
+  .modal-selected {
+    @apply !border-clay !bg-clay !text-white;
+  }
+  .modal-close-btn {
+    @apply grid h-8 w-8 place-items-center rounded-full border border-ink/10 bg-white/80 text-sm font-bold text-ink/60 transition-colors hover:bg-ink/10 hover:text-ink;
+  }
+  .modal-body {
+    @apply relative flex min-h-[320px] max-h-[65vh] flex-1 items-center justify-center bg-black/90 p-4;
+  }
+  .modal-image-wrap {
+    @apply flex h-full w-full items-center justify-center overflow-hidden;
+  }
+  .modal-image {
+    @apply max-h-[60vh] max-w-full rounded-lg object-contain shadow-2xl;
+  }
+  .modal-nav-btn {
+    @apply absolute top-1/2 -translate-y-1/2 grid h-10 w-10 place-items-center rounded-full bg-white/25 text-2xl font-bold text-white backdrop-blur-sm transition-all hover:bg-white/45 hover:scale-105;
+  }
+  .modal-nav-prev {
+    @apply left-4;
+  }
+  .modal-nav-next {
+    @apply right-4;
+  }
+  .modal-footer {
+    @apply flex flex-wrap items-center justify-between gap-3 border-t border-ink/8 bg-white/80 px-4 py-2.5 text-xs;
+  }
+  .modal-meta-grid {
+    @apply flex flex-wrap gap-5;
+  }
+  .meta-cell {
+    @apply flex items-baseline gap-1.5;
+  }
+  .meta-label {
+    @apply text-[11px] text-ink/45 font-medium;
+  }
+  .meta-value {
+    @apply text-xs font-semibold text-ink;
+  }
+  .modal-keyboard-hint {
+    @apply text-[11px] text-ink/40;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes modal-pop {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
   }
 
   .segmented {

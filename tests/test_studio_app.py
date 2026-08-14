@@ -89,6 +89,32 @@ def test_studio_api_lists_and_imports_r2_images_into_a_new_batch(tmp_path: Path)
     }
 
 
+def test_studio_api_serves_r2_image_preview(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    client = TestClient(create_app(tmp_path / "work", frontend, _remote_store()))
+
+    response = client.get("/api/r2/image", params={"key": "uploads/one.png"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["cache-control"] == "public, max-age=3600"
+    assert len(response.content) > 0
+
+
+def test_studio_api_rejects_r2_image_outside_allowlist(tmp_path: Path) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    client = TestClient(create_app(tmp_path / "work", frontend, _remote_store()))
+
+    response = client.get("/api/r2/image", params={"key": "../private.png"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "R2 bucket 或 prefix 不在 Studio 白名单内"
+
+
 def test_studio_api_rejects_r2_key_outside_allowlist(tmp_path: Path) -> None:
     frontend = tmp_path / "frontend"
     frontend.mkdir()

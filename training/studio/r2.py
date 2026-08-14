@@ -126,6 +126,21 @@ class StudioR2Store:
             "next_cursor": response.get("NextContinuationToken") if response.get("IsTruncated") else None,
         }
 
+    def get_image(self, key: str) -> tuple[bytes, str]:
+        validated_key = self._validate_key(key)
+        content = self.object_store.get_object_bytes(
+            self.bucket,
+            validated_key,
+            max_bytes=self.max_object_bytes,
+        )
+        suffix = self._content_suffix(content)
+        media_types = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".webp": "image/webp",
+        }
+        return content, media_types.get(suffix, "application/octet-stream")
+
     def download_images(self, keys: list[str], temporary_dir: Path) -> list[DownloadedRemoteImage]:
         if not keys:
             raise ValueError("select at least one R2 image")
