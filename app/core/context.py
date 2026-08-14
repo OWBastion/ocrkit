@@ -6,6 +6,7 @@ from fastapi import Request
 
 from app.core.roi_config import RoiConfig
 from app.ocr.engine import OcrEngine
+from app.parser.terminology import TerminologyCatalog
 from app.storage.r2_client import R2ObjectStore
 
 
@@ -20,6 +21,7 @@ class AppContext:
     engine_name: str = "rapidocr"
     layout_version: str = "1280x720-v6"
     roi_variants: tuple[RoiConfig, ...] = ()
+    terminology: TerminologyCatalog | None = None
 
 
 def get_context(request: Request) -> AppContext:

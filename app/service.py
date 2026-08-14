@@ -13,7 +13,15 @@ from app.parser.left_panel import parse_achievement_titles, parse_left_panel
 from app.parser.result_merger import merge_result
 from app.parser.right_panel import parse_right_panel
 from app.parser.run_code import ParsedRunCode, enforce_run_code_confidence, parse_run_code
-from app.schemas.response import ChallengeResponse, DebugPayload, FieldEvidence, QualityPayload
+from app.parser.terminology import TerminologyCatalog, TerminologyResult, normalize_roi_text
+from app.schemas.response import (
+    ChallengeResponse,
+    DebugPayload,
+    FieldEvidence,
+    QualityPayload,
+    TerminologyNormalization,
+    TerminologyTokenMatch,
+)
 
 
 _FIELD_ROIS = {
@@ -38,14 +46,28 @@ _FIELD_ROIS = {
 _RUN_CODE_ROIS = ("run_code_panel", "run_code_right_panel")
 
 
-def _field_evidence(name: str, value: Any, confidences: dict[str, float]) -> FieldEvidence:
+def _field_evidence(
+    name: str,
+    value: Any,
+    confidences: dict[str, float],
+    terminology_results: dict[str, TerminologyResult],
+) -> FieldEvidence:
     source_rois = list(_FIELD_ROIS[name])
     available_rois = [roi for roi in source_rois if confidences.get(roi, 0.0) > 0]
     confidence = max((confidences.get(roi, 0.0) for roi in source_rois), default=0.0)
+    normalization_tags: list[str] = []
+    for roi in source_rois:
+        result = terminology_results.get(roi)
+        if result is None:
+            continue
+        for token in result.tokens:
+            if token.status == "adopted":
+                normalization_tags.append(f"terminology:{token.normalized}")
     return FieldEvidence(
         value=value,
         confidence=confidence if value is not None else 0.0,
         source_roi=available_rois if value is not None else source_rois,
+        normalization=normalization_tags,
         status="ok" if value is not None else "missing",
     )
 
@@ -55,9 +77,10 @@ def _build_field_evidence(
     confidences: dict[str, float],
     run_code: ParsedRunCode,
     run_code_rois: tuple[str, ...],
+    terminology_results: dict[str, TerminologyResult],
 ) -> dict[str, FieldEvidence]:
     fields = {
-        name: _field_evidence(name, getattr(data, name), confidences)
+        name: _field_evidence(name, getattr(data, name), confidences, terminology_results)
         for name in _FIELD_ROIS
     }
     run_code_confidence = max((confidences.get(roi, 0.0) for roi in run_code_rois), default=0.0)
@@ -83,6 +106,7 @@ def extract_structured(
     model_version: str,
     layout_version: str,
     roi_variants: tuple[RoiConfig, ...] = (),
+    terminology: TerminologyCatalog | None = None,
 ) -> ChallengeResponse:
     active_roi_config = select_roi_config(image, (roi_config, *roi_variants))
     input_quality = assess_input_quality(image, active_roi_config.width, active_roi_config.height)
@@ -90,6 +114,7 @@ def extract_structured(
 
     raw_text: dict[str, str] = {}
     confidences: dict[str, float] = {}
+    terminology_results: dict[str, TerminologyResult] = {}
 
     for roi_name, roi_image in roi_images.items():
         processed = preprocess_by_roi(roi_name, roi_image)
@@ -97,9 +122,16 @@ def extract_structured(
         raw_text[roi_name] = result.text
         confidences[roi_name] = result.confidence
 
-    center = parse_center_summary(raw_text.get("center_banner", ""))
-    left_text = raw_text.get("left_panel", "")
-    achievement_text = raw_text.get("achievement_panel", "")
+    normalized_text = dict(raw_text)
+    if terminology is not None:
+        for roi_name in roi_images:
+            result = normalize_roi_text(raw_text[roi_name], active_roi_config.version, roi_name, terminology)
+            terminology_results[roi_name] = result
+            normalized_text[roi_name] = result.normalized_text
+
+    center = parse_center_summary(normalized_text.get("center_banner", ""))
+    left_text = normalized_text.get("left_panel", "")
+    achievement_text = normalized_text.get("achievement_panel", "")
     left = parse_left_panel(left_text)
     achievement_titles = parse_achievement_titles(achievement_text)
     if achievement_titles:
@@ -107,15 +139,15 @@ def extract_structured(
         left.achievement_titles = achievement_titles
         left.achievement_unlocked = True
     run_code_rois = tuple(
-        name for name in _RUN_CODE_ROIS if name in roi_images and raw_text.get(name, "").strip()
+        name for name in _RUN_CODE_ROIS if name in roi_images and normalized_text.get(name, "").strip()
     )
     evidence_run_code_rois = run_code_rois or tuple(name for name in _RUN_CODE_ROIS if name in roi_images)[:1]
     run_code = enforce_run_code_confidence(
-        parse_run_code("\n".join(raw_text.get(name, "") for name in run_code_rois)),
+        parse_run_code("\n".join(normalized_text.get(name, "") for name in run_code_rois)),
         max((confidences.get(name, 0.0) for name in run_code_rois), default=0.0),
     )
-    bottom_left = parse_bottom_left_hero(raw_text.get("bottom_left_hero", ""))
-    right = parse_right_panel(raw_text.get("right_panel", ""), map_names, map_aliases)
+    bottom_left = parse_bottom_left_hero(normalized_text.get("bottom_left_hero", ""))
+    right = parse_right_panel(normalized_text.get("right_panel", ""), map_names, map_aliases)
     data = merge_result(
         center,
         left,
@@ -134,6 +166,9 @@ def extract_structured(
         warnings.append("right_panel.version_missing")
     if run_code.warning is not None:
         warnings.append(run_code.warning)
+    for roi_name, result in terminology_results.items():
+        if result.decision == "ambiguous":
+            warnings.append(f"terminology.{roi_name}.ambiguous")
     debug_payload = None
     if include_debug:
         debug_payload = DebugPayload(
@@ -149,6 +184,27 @@ def extract_structured(
             },
             raw_text=raw_text,
             confidence=confidences,
+            terminology_normalization={
+                roi_name: TerminologyNormalization(
+                    scope_id=result.scope_id,
+                    rules_version=result.rules_version,
+                    decision=result.decision,
+                    raw_text=result.raw_text,
+                    normalized_text=result.normalized_text,
+                    tokens=[
+                        TerminologyTokenMatch(
+                            raw=token.raw,
+                            normalized=token.normalized,
+                            status=token.status,
+                            match_type=token.match_type,
+                            rule_id=token.rule_id,
+                            confidence=token.confidence,
+                        )
+                        for token in result.tokens
+                    ],
+                )
+                for roi_name, result in terminology_results.items()
+            },
         )
 
     return ChallengeResponse(
@@ -158,7 +214,7 @@ def extract_structured(
         layout_version=active_roi_config.version,
         ok=True,
         data=data,
-        fields=_build_field_evidence(data, confidences, run_code, evidence_run_code_rois),
+        fields=_build_field_evidence(data, confidences, run_code, evidence_run_code_rois, terminology_results),
         warnings=warnings,
         quality=QualityPayload(
             original_size=input_quality["original_size"],

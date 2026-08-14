@@ -10,6 +10,7 @@ from app.ocr.engine import OcrEngine
 from app.ocr.paddleocr_engine import PaddleOcrEngine
 from app.ocr.rapidocr_engine import RapidOcrEngine
 from app.model_artifacts import ModelArtifactStore, load_release_channel
+from app.parser.terminology import load_terminology_rules
 from app.storage.r2_client import R2ObjectStore
 
 
@@ -82,6 +83,7 @@ def create_context() -> AppContext:
         engine_name=settings.ocr_engine,
         layout_version=roi_config.version,
         roi_variants=roi_variants,
+        terminology=load_terminology_rules(settings.terminology_config_path),
     )
 
 

@@ -117,6 +117,7 @@ async def recognize_challenge(
         model_version=ctx.model_version,
         layout_version=ctx.layout_version,
         roi_variants=ctx.roi_variants,
+        terminology=ctx.terminology,
     )
 
 
@@ -189,4 +190,5 @@ async def recognize_challenge_by_object(
         model_version=ctx.model_version,
         layout_version=ctx.layout_version,
         roi_variants=ctx.roi_variants,
+        terminology=ctx.terminology,
     )

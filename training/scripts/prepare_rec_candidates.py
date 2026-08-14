@@ -28,6 +28,7 @@ from app.image.loader import decode_image
 from app.image.preprocess import preprocess_by_roi
 from app.image.roi import crop_all_rois
 from app.parser.run_code import looks_like_run_code_value, parse_run_code
+from app.parser.terminology import TerminologyCatalog, default_terminology_catalog, normalize_roi_text
 from training.vision import VisionLine, VisionOcr
 
 
@@ -491,6 +492,7 @@ def prepare_candidates(
     teacher_model_version: str | None = None,
     teacher_ocr_factory: Callable[[], Any] | None = None,
     negative_examples_path: Path | None = None,
+    terminology_catalog: TerminologyCatalog | None = None,
 ) -> dict[str, Any]:
     """Create editable recognition-label candidates without changing fixture files."""
     cases = load_cases(cases_path)
@@ -614,6 +616,28 @@ def prepare_candidates(
                         if teacher_auto_accepted
                         else None
                     )
+                    terminology_evidence = None
+                    if terminology_catalog is not None and candidate_text:
+                        terminology_result = normalize_roi_text(
+                            candidate_text, roi_config.version, roi_name, terminology_catalog
+                        )
+                        terminology_evidence = {
+                            "decision": terminology_result.decision,
+                            "rules_version": terminology_result.rules_version,
+                            "scope_id": terminology_result.scope_id,
+                            "normalized_text": terminology_result.normalized_text,
+                            "matches": [
+                                {
+                                    "raw": token.raw,
+                                    "normalized": token.normalized,
+                                    "status": token.status,
+                                    "match_type": token.match_type,
+                                    "rule_id": token.rule_id,
+                                    "confidence": token.confidence,
+                                }
+                                for token in terminology_result.tokens
+                            ],
+                        }
                     rows[split].append(
                         {
                             "crop": relative_crop.as_posix(),
@@ -644,6 +668,7 @@ def prepare_candidates(
                             "transcription": canonicalize(rapid_line.text) if not auto_reject_reason and (auto_accepted or teacher_auto_accepted) else None,
                             "auto_accept_reason": None if auto_reject_reason else auto_accept_reason,
                             "auto_reject_reason": auto_reject_reason,
+                            "terminology": terminology_evidence,
                         }
                     )
 
@@ -703,6 +728,7 @@ def main() -> None:
                 teacher_model_dir=teacher_artifact,
                 teacher_model_version=teacher_version,
                 negative_examples_path=args.negative_examples,
+                terminology_catalog=default_terminology_catalog(),
             ),
             ensure_ascii=False,
         )

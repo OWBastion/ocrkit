@@ -12,6 +12,32 @@ class DebugPayload(BaseModel):
     confidence: dict[str, float]
 
 
+class TerminologyTokenMatch(BaseModel):
+    raw: str
+    normalized: str
+    status: str
+    match_type: str | None = None
+    rule_id: str | None = None
+    confidence: float = 0.0
+
+
+class TerminologyNormalization(BaseModel):
+    scope_id: str | None = None
+    rules_version: str
+    decision: str
+    raw_text: str
+    normalized_text: str
+    tokens: list[TerminologyTokenMatch] = Field(default_factory=list)
+
+
+class DebugPayload(BaseModel):
+    normalized_size: tuple[int, int]
+    roi_coordinates: dict[str, dict[str, int]]
+    raw_text: dict[str, str]
+    confidence: dict[str, float]
+    terminology_normalization: dict[str, TerminologyNormalization] = Field(default_factory=dict)
+
+
 class FieldEvidence(BaseModel):
     value: Any = None
     confidence: float = 0.0

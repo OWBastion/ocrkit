@@ -315,3 +315,66 @@ def test_prepare_candidates_can_consume_rust_crop_manifest(tmp_path: Path, monke
     assert row["crop_backend"] == "rust"
     assert row["raw_roi_sha256"] == "raw-roi-hash"
     assert (tmp_path / "labeled/crop_manifest.json").is_file()
+
+
+def test_prepare_candidates_records_terminology_normalization_when_catalog_provided(tmp_path: Path) -> None:
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    source = np.full((40, 60, 3), 200, dtype=np.uint8)
+    (fixtures / "sample.png").write_bytes(cv2.imencode(".png", source)[1].tobytes())
+    (fixtures / "cases.json").write_text(
+        json.dumps([{"id": "sample_01", "image": "sample.png"}]), encoding="utf-8"
+    )
+    config = RoiConfig(width=60, height=40, rois={"left_panel": RoiBox(0, 0, 30, 20)})
+
+    class ConfusedRapidOCR:
+        def __call__(self, image: np.ndarray, use_cls: bool) -> FakeResult:
+            return type("Result", (), {"boxes": FakeResult.boxes, "txts": ("编益",), "scores": FakeResult.scores})()
+
+    class ConfusedVisionOcr:
+        def recognize(self, image: np.ndarray) -> list[VisionLine]:
+            return [VisionLine("编益", 0.97, FakeResult.boxes[0])]
+
+    from pathlib import Path as PathType
+    from app.parser.terminology import load_terminology_rules
+
+    prepare_candidates(
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=ConfusedRapidOCR,
+        vision_factory=ConfusedVisionOcr,
+        terminology_catalog=load_terminology_rules(PathType("configs/terminology.yaml")),
+    )
+
+    row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
+    terminology = row["terminology"]
+    assert terminology["decision"] == "normalized"
+    assert terminology["rules_version"] == "1"
+    assert terminology["scope_id"] == "left_panel.challenge_stats"
+    assert terminology["normalized_text"] == "增益"
+    assert terminology["matches"][0]["rule_id"] == "left_panel.challenge_stats:alias:编益"
+
+
+def test_prepare_candidates_omits_terminology_without_catalog(tmp_path: Path) -> None:
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    source = np.full((40, 60, 3), 200, dtype=np.uint8)
+    (fixtures / "sample.png").write_bytes(cv2.imencode(".png", source)[1].tobytes())
+    (fixtures / "cases.json").write_text(
+        json.dumps([{"id": "sample_01", "image": "sample.png"}]), encoding="utf-8"
+    )
+    config = RoiConfig(width=60, height=40, rois={"left_panel": RoiBox(0, 0, 30, 20)})
+
+    prepare_candidates(
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=FakeRapidOCR,
+        vision_factory=FakeVisionOcr,
+    )
+
+    row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
+    assert row["terminology"] is None
