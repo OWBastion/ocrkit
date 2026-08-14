@@ -435,6 +435,7 @@ def batch_summary(batch_dir: Path) -> dict[str, Any]:
         "quality_warnings": warnings,
         "layout_version": manifest["layout_version"],
         "roi_configs": manifest.get("roi_configs", [manifest.get("roi_config", "")]),
+        "active_dataset_revision": manifest.get("active_dataset_revision"),
     }
 
 
@@ -521,6 +522,182 @@ def _prepare_candidate_groups(
                 elif key not in result:
                     result[key] = value
         return result
+    finally:
+        shutil.rmtree(temporary_dir, ignore_errors=True)
+
+
+def _review_row_match_score(previous: dict[str, Any], current: dict[str, Any]) -> float:
+    if previous.get("source_id") != current.get("source_id") or previous.get("roi") != current.get("roi"):
+        return 0.0
+
+    previous_crop = previous.get("crop_sha256")
+    current_crop = current.get("crop_sha256")
+    if isinstance(previous_crop, str) and previous_crop and previous_crop == current_crop:
+        return 2.0
+
+    previous_texts = {
+        canonicalize(str(previous.get(name)))
+        for name in ("candidate_text", "rapidocr_text", "vision_text", "teacher_text", "transcription")
+        if isinstance(previous.get(name), str) and str(previous.get(name)).strip()
+    }
+    current_texts = {
+        canonicalize(str(current.get(name)))
+        for name in ("candidate_text", "rapidocr_text", "vision_text", "teacher_text")
+        if isinstance(current.get(name), str) and str(current.get(name)).strip()
+    }
+    if not previous_texts & current_texts:
+        return 0.0
+
+    previous_box = previous.get("global_box")
+    current_box = current.get("global_box")
+    if not isinstance(previous_box, list) or not isinstance(current_box, list):
+        return 0.0
+    if len(previous_box) != 4 or len(current_box) != 4:
+        return 0.0
+    try:
+        first = tuple(float(value) for value in previous_box)
+        second = tuple(float(value) for value in current_box)
+    except (TypeError, ValueError):
+        return 0.0
+    x1 = max(first[0], second[0])
+    y1 = max(first[1], second[1])
+    x2 = min(first[2], second[2])
+    y2 = min(first[3], second[3])
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    smaller_area = min(first_area, second_area)
+    overlap = intersection / smaller_area if smaller_area else 0.0
+    return 1.0 + overlap if overlap >= 0.75 else 0.0
+
+
+def _inherit_manual_review(
+    previous_rows: list[dict[str, Any]],
+    current_rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Carry only explicit human decisions to a newly generated candidate set."""
+    manual_rows = [
+        row
+        for row in previous_rows
+        if row.get("review_status") in {"accepted", "rejected"}
+        and not row.get("auto_accept_reason")
+        and not row.get("auto_reject_reason")
+    ]
+    used: set[int] = set()
+    inherited = {"accepted": 0, "rejected": 0, "unmatched": 0}
+    for row in current_rows:
+        matches = sorted(
+            (
+                (score, index, previous)
+                for index, previous in enumerate(manual_rows)
+                if index not in used
+                and (score := _review_row_match_score(previous, row)) > 0
+            ),
+            key=lambda item: (item[0], -item[1]),
+            reverse=True,
+        )
+        if not matches or (len(matches) > 1 and matches[0][0] == matches[1][0]):
+            continue
+        _, index, previous = matches[0]
+        used.add(index)
+        row["review_status"] = str(previous["review_status"])
+        row["transcription"] = previous.get("transcription") if row["review_status"] == "accepted" else None
+        row["auto_accept_reason"] = None
+        row["auto_reject_reason"] = None
+        inherited[row["review_status"]] += 1
+
+    inherited["unmatched"] = len(manual_rows) - len(used)
+    return inherited
+
+
+def recreate_candidates(
+    batch_dir: Path,
+    *,
+    crop_backend: str = "rust",
+) -> dict[str, Any]:
+    """Rebuild candidates with current ROI rules while preserving safe human decisions."""
+    dataset_dir = batch_dir / "dataset"
+    previous_rows = {
+        split: review_rows(batch_dir, split)
+        for split in ("train", "holdout")
+    }
+    if dataset_dir.exists() and not all(
+        (dataset_dir / "review" / f"{split}.jsonl").is_file() for split in ("train", "holdout")
+    ):
+        raise RuntimeError("current candidate output is incomplete; finish or remove the incomplete output before rebuilding")
+
+    manifest = load_manifest(batch_dir)
+    teacher_artifact = _candidate_artifact()
+    negative_path = rebuild_negative_registry(batch_dir)
+    revision_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+    temporary_dir = batch_dir / f".recreate-{revision_id}"
+    temporary_output = temporary_dir / "dataset"
+    temporary_dir.mkdir()
+    inherited = {"accepted": 0, "rejected": 0, "unmatched": 0}
+    try:
+        generated = _prepare_candidate_groups(
+            batch_dir,
+            manifest.get("sources", []),
+            temporary_output,
+            roi_config_path=DEFAULT_ROI_CONFIG,
+            crop_backend=crop_backend,
+            teacher_artifact=teacher_artifact,
+            negative_path=negative_path,
+        )
+        for split in ("train", "holdout"):
+            current_rows = review_rows(temporary_dir, split)
+            counts = _inherit_manual_review(previous_rows[split], current_rows)
+            for key, value in counts.items():
+                inherited[key] += value
+            _atomic_jsonl(temporary_output / "review" / f"{split}.jsonl", current_rows)
+
+        _atomic_json(
+            temporary_output / "revision.json",
+            {
+                "schema_version": 1,
+                "revision_id": revision_id,
+                "created_at": datetime.now(UTC).isoformat(),
+                "mode": "recreate",
+                "inherited_manual_decisions": inherited,
+            },
+        )
+
+        archived_dataset: str | None = None
+        archive_dir = batch_dir / "dataset-revisions" / revision_id / "dataset"
+        moved_previous = False
+        try:
+            if dataset_dir.exists():
+                archive_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(dataset_dir), str(archive_dir))
+                moved_previous = True
+                archived_dataset = str(archive_dir.relative_to(batch_dir))
+            shutil.move(str(temporary_output), str(dataset_dir))
+        except Exception:
+            if moved_previous and not dataset_dir.exists():
+                shutil.move(str(archive_dir), str(dataset_dir))
+            raise
+
+        manifest["active_dataset_revision"] = revision_id
+        revisions = list(manifest.get("dataset_revisions", []))
+        revisions.append(
+            {
+                "revision_id": revision_id,
+                "created_at": datetime.now(UTC).isoformat(),
+                "archived_previous_dataset": archived_dataset,
+                "inherited_manual_decisions": inherited,
+            }
+        )
+        manifest["dataset_revisions"] = revisions
+        _atomic_json(batch_dir / "batch.json", manifest)
+        return {
+            **generated,
+            "recreated_candidates": True,
+            "revision_id": revision_id,
+            "inherited_manual_accepted": inherited["accepted"],
+            "inherited_manual_rejected": inherited["rejected"],
+            "unmatched_manual_decisions": inherited["unmatched"],
+            "reused_existing_candidates": False,
+        }
     finally:
         shutil.rmtree(temporary_dir, ignore_errors=True)
 

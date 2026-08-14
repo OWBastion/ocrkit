@@ -29,6 +29,7 @@ from training.studio.core import (
     refresh_teacher_candidates,
     review_counts,
     review_rows,
+    recreate_candidates,
     roi_preview_paths,
     update_review_row,
 )
@@ -508,6 +509,17 @@ def create_app(
     async def candidates(batch_id: str) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
         summary = await run_in_threadpool(generate_candidates, batch_dir)
+        return {"summary": summary, "review": review_counts(batch_dir)}
+
+    @app.post("/api/batches/{batch_id}/candidates/recreate")
+    async def recreate(batch_id: str) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        try:
+            summary = await run_in_threadpool(recreate_candidates, batch_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         return {"summary": summary, "review": review_counts(batch_dir)}
 
     @app.post("/api/batches/{batch_id}/candidates/refresh-vision")

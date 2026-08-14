@@ -2,7 +2,7 @@
   import { onDestroy, onMount, tick } from 'svelte'
 
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number; teacher_eligible?: number }
-  type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; review?: ReviewCounts }
+  type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; active_dataset_revision?: string | null; review?: ReviewCounts }
   type Row = { crop: string; roi: string; review_status: string; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
@@ -622,6 +622,33 @@
       await refreshReview()
       if (rows[0]) selectCandidate(rows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '候选生成失败', true) } finally { busy = false }
+  }
+
+  async function recreateCandidates() {
+    if (!batch) return message('先选择或创建批次。', true)
+    if (!window.confirm('将按当前 ROI 重新切片并生成候选。明确的人工接受/拒绝会尝试继承，无法安全匹配的候选会重新待复核；旧候选会保留为历史版本。继续吗？')) return
+    busy = true
+    try {
+      const result = await request<{
+        review: ReviewCounts
+        summary: {
+          revision_id?: string
+          inherited_manual_accepted?: number
+          inherited_manual_rejected?: number
+          unmatched_manual_decisions?: number
+          train_candidates?: number
+          holdout_candidates?: number
+        }
+      }>(`/api/batches/${batch.batch_id}/candidates/recreate`, { method: 'POST' })
+      batch = { ...batch, review: result.review }
+      const accepted = result.summary.inherited_manual_accepted || 0
+      const rejected = result.summary.inherited_manual_rejected || 0
+      const unmatched = result.summary.unmatched_manual_decisions || 0
+      message(`候选已重建（${result.summary.revision_id || '新版本'}）。已继承人工接受 ${accepted} 条、拒绝 ${rejected} 条；${unmatched} 条无法安全匹配，已重新待复核。`)
+      active = 'review'
+      await refreshReview()
+      if (rows[0]) selectCandidate(rows[0])
+    } catch (cause) { message(cause instanceof Error ? cause.message : '候选重建失败', true) } finally { busy = false }
   }
 
   async function acceptTeacherSuggestions() {
@@ -1385,6 +1412,9 @@
           </button>
           <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={() => void refreshTeacher()}>
             {busy ? '补回中…' : '补回上一版模型（保留标注）'}
+          </button>
+          <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={() => void recreateCandidates()}>
+            {busy ? '重建中…' : '按最新 ROI 重建候选（保留人工决定）'}
           </button>
         </div>
       </section>

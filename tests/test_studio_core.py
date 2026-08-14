@@ -323,6 +323,43 @@ def test_generate_candidates_uses_rust_crops_for_new_batch(tmp_path: Path, monke
     assert captured["crop_backend"] == "rust"
 
 
+def test_recreate_candidates_preserves_manual_decisions_and_archives_previous_dataset(tmp_path: Path, monkeypatch) -> None:
+    batch = tmp_path / "batch"
+    review = batch / "dataset/review"
+    review.mkdir(parents=True)
+    (batch / "batch.json").write_text(json.dumps({"batch_id": "batch-1", "sources": [], "dataset_revisions": []}), encoding="utf-8")
+    previous_rows = [
+        {"source_id": "source-a", "roi": "left_panel", "candidate_text": "人工接受文本", "global_box": [10, 20, 80, 40], "crop_sha256": "old-crop", "review_status": "accepted", "transcription": "人工接受文本", "auto_accept_reason": None, "auto_reject_reason": None},
+        {"source_id": "source-b", "roi": "left_panel", "candidate_text": "旧的错误候选", "global_box": [100, 120, 180, 140], "review_status": "rejected", "transcription": None, "auto_accept_reason": None, "auto_reject_reason": None},
+    ]
+    (review / "train.jsonl").write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in previous_rows) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    def fake_prepare(_batch_dir, _sources, output_dir, **_kwargs):
+        output_review = output_dir / "review"
+        output_review.mkdir(parents=True)
+        current_rows = [
+            {"source_id": "source-a", "roi": "left_panel", "candidate_text": "人工接受文本", "global_box": [10, 20, 80, 40], "crop_sha256": "new-crop", "review_status": "pending", "transcription": None, "auto_accept_reason": None, "auto_reject_reason": None},
+            {"source_id": "source-c", "roi": "left_panel", "candidate_text": "新候选", "global_box": [300, 320, 380, 340], "review_status": "pending", "transcription": None, "auto_accept_reason": None, "auto_reject_reason": None},
+        ]
+        (output_review / "train.jsonl").write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in current_rows) + "\n", encoding="utf-8")
+        (output_review / "holdout.jsonl").write_text("", encoding="utf-8")
+        (output_dir / "labels").mkdir()
+        return {"cases": 1, "train_cases": 1, "holdout_cases": 0, "train_candidates": 2, "holdout_candidates": 0}
+
+    monkeypatch.setattr(studio_core, "_prepare_candidate_groups", fake_prepare)
+    result = studio_core.recreate_candidates(batch, crop_backend="python")
+
+    assert result["inherited_manual_accepted"] == 1
+    assert result["inherited_manual_rejected"] == 0
+    assert result["unmatched_manual_decisions"] == 1
+    saved = review_rows(batch, "train")
+    assert saved[0]["review_status"] == "accepted"
+    assert saved[0]["transcription"] == "人工接受文本"
+    assert saved[1]["review_status"] == "pending"
+    assert list((batch / "dataset-revisions").glob("*/dataset/review/train.jsonl"))
+
+
 def test_refresh_vision_preserves_manual_review_and_updates_pending_rows(tmp_path: Path) -> None:
     batch = tmp_path / "batch"
     dataset = batch / "dataset"

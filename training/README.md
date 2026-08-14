@@ -116,6 +116,15 @@ the dedicated `achievement_panel` or run-code ROI is kept and the duplicate
 both 16:9 and 16:10 screenshots; Studio records and crops each source with the
 matching layout instead of applying one layout to the whole batch.
 
+When ROI coordinates or candidate rules change, use the Studio action
+`按最新 ROI 重建候选（保留人工决定）`. It creates a new candidate revision,
+matches only unambiguous human decisions by source/ROI/text/position, and sends
+unmatched decisions back to review. The previous active dataset is retained under
+`dataset-revisions/<revision>/dataset`; training always reads the new active
+`dataset` only after review is finalized. The existing Vision and previous-model
+refresh actions are reload operations: they update recognition evidence on the
+current crops without replacing human decisions.
+
 ### Import screenshots from R2
 
 R2 access is used only by the local Studio backend. The browser receives no R2
