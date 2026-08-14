@@ -30,7 +30,6 @@
     shortName: string
     code: string
     position: string
-    icon: string
     dotColor: string
     rect: { x: number; y: number; w: number; h: number }
   }
@@ -41,8 +40,7 @@
       shortName: '左侧统计',
       code: 'left_panel',
       position: '屏幕左侧',
-      icon: '📊',
-      dotColor: '#0ea5e9',
+      dotColor: '#0284c7',
       rect: { x: 2.7, y: 2.1, w: 14.5, h: 63.2 },
     },
     achievement_panel: {
@@ -50,8 +48,7 @@
       shortName: '左上成就',
       code: 'achievement_panel',
       position: '屏幕左上角',
-      icon: '⭐',
-      dotColor: '#f59e0b',
+      dotColor: '#b45309',
       rect: { x: 2.7, y: 1.4, w: 14.5, h: 18.8 },
     },
     run_code_panel: {
@@ -59,8 +56,7 @@
       shortName: '运行代码',
       code: 'run_code_panel',
       position: '屏幕左中部',
-      icon: '🔢',
-      dotColor: '#a855f7',
+      dotColor: '#6d28d9',
       rect: { x: 2.3, y: 26.4, w: 25.8, h: 13.2 },
     },
     center_banner: {
@@ -68,8 +64,7 @@
       shortName: '中央横幅',
       code: 'center_banner',
       position: '屏幕正中央',
-      icon: '🏆',
-      dotColor: '#10b981',
+      dotColor: '#15803d',
       rect: { x: 11.7, y: 17.4, w: 78.9, h: 12.5 },
     },
     right_panel: {
@@ -77,8 +72,7 @@
       shortName: '右上地图',
       code: 'right_panel',
       position: '屏幕右上角',
-      icon: '🗺️',
-      dotColor: '#f43f5e',
+      dotColor: '#b91c1c',
       rect: { x: 81.3, y: 0, w: 18.4, h: 14.6 },
     },
     bottom_left_hero: {
@@ -86,8 +80,7 @@
       shortName: '左下英雄',
       code: 'bottom_left_hero',
       position: '屏幕左下角',
-      icon: '👤',
-      dotColor: '#6366f1',
+      dotColor: '#4338ca',
       rect: { x: 2.3, y: 79.9, w: 23.4, h: 13.2 },
     },
   }
@@ -98,8 +91,7 @@
       shortName: code,
       code,
       position: '切片区域',
-      icon: '🔍',
-      dotColor: '#6b7280',
+      dotColor: '#52525b',
       rect: { x: 30, y: 30, w: 40, h: 40 },
     }
   }
@@ -1416,7 +1408,7 @@
               <option value="all">全部区域 ({rows.length})</option>
               {#each Object.entries(ROI_METAS) as [key, meta]}
                 {@const count = rows.filter((r) => r.roi === key).length}
-                <option value={key}>{meta.icon} {meta.shortName} ({count})</option>
+                <option value={key}>{meta.shortName} ({count})</option>
               {/each}
             </select>
             <button class="button-secondary button-compact col-span-2" on:click={() => refreshReview()}>刷新</button>
@@ -1479,7 +1471,6 @@
                 <div class="detail-header-left">
                   <div class="roi-banner-pill">
                     <span class="roi-pill-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
-                    <span class="roi-pill-icon">{roiInfo.icon}</span>
                     <strong class="roi-pill-name">{roiInfo.name}</strong>
                     <span class="roi-pill-code">{roiInfo.code}</span>
                     <span class="roi-pill-pos">{roiInfo.position}</span>
@@ -1918,10 +1909,12 @@
       <div class="hover-card-body">
         <strong class="hover-card-title">{keyInfo.name}</strong>
         <div class="hover-card-meta">
-          <span>📅 {formatDate(hoverPreviewObject.last_modified)}</span>
-          <span>📦 {formatBytes(hoverPreviewObject.size)}</span>
+          <span>{formatDate(hoverPreviewObject.last_modified)}</span>
+          <span class="hover-card-sep">·</span>
+          <span>{formatBytes(hoverPreviewObject.size)}</span>
           {#if hoverPreviewObject.etag}
-            <span class="hover-card-etag">🏷️ {hoverPreviewObject.etag.replace(/"/g, '').slice(0, 8)}</span>
+            <span class="hover-card-sep">·</span>
+            <span class="hover-card-etag">{hoverPreviewObject.etag.replace(/"/g, '').slice(0, 8)}</span>
           {/if}
         </div>
       </div>
@@ -2024,7 +2017,7 @@
         {/if}
 
         <div class="progress-foot">
-          <span class="progress-hint">⚡ 多线程并行加速下载中，请稍候</span>
+          <span class="progress-hint">并发下载与切片解析中，请稍候</span>
         </div>
       </div>
     </div>

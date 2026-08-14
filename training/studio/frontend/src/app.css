@@ -294,10 +294,10 @@
     @apply cursor-not-allowed opacity-35;
   }
   .button-danger-hover:hover:not(:disabled) {
-    @apply border-red-200 bg-red-50 text-red-700;
+    @apply border-ink/30 bg-ink/8 text-ink;
   }
   .button-danger-hover:active:not(:disabled) {
-    @apply bg-red-100 text-red-800;
+    @apply bg-ink/15 text-ink;
   }
 
   .remote-import {
@@ -510,7 +510,7 @@
 
   /* Hover floating preview card */
   .remote-hover-card {
-    @apply pointer-events-none fixed bottom-8 right-8 z-50 flex w-80 flex-col overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-2xl;
+    @apply pointer-events-none fixed bottom-8 right-8 z-50 flex w-80 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-ink/15 bg-white shadow-[0_12px_28px_-8px_rgba(20,14,4,0.14),0_1px_3px_rgba(20,14,4,0.06)];
     animation: fade-in-up 120ms ease-out;
   }
   .hover-card-media {
@@ -526,7 +526,10 @@
     @apply truncate font-semibold text-ink;
   }
   .hover-card-meta {
-    @apply flex flex-wrap gap-2 text-[11px] text-ink/60;
+    @apply flex flex-wrap items-center gap-1.5 text-[11px] text-ink/60;
+  }
+  .hover-card-sep {
+    @apply text-ink/30;
   }
   .hover-card-etag {
     @apply font-mono;
@@ -541,7 +544,7 @@
     @apply absolute inset-0 h-full w-full cursor-default border-0 bg-transparent;
   }
   .modal-dialog {
-    @apply relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-paper shadow-2xl;
+    @apply relative z-10 flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-[var(--radius-panel)] border border-ink/15 bg-paper shadow-[0_24px_48px_-12px_rgba(20,14,4,0.22)];
     animation: modal-pop 140ms var(--ease-press);
   }
   .modal-header {
@@ -572,10 +575,10 @@
     @apply flex h-full w-full items-center justify-center overflow-hidden;
   }
   .modal-image {
-    @apply max-h-[60vh] max-w-full rounded-lg object-contain shadow-2xl;
+    @apply max-h-full max-w-full rounded object-contain;
   }
   .modal-nav-btn {
-    @apply absolute top-1/2 -translate-y-1/2 grid h-10 w-10 place-items-center rounded-full bg-white/25 text-2xl font-bold text-white backdrop-blur-sm transition-all hover:bg-white/45 hover:scale-105;
+    @apply absolute top-1/2 -translate-y-1/2 grid h-10 w-10 place-items-center rounded-full bg-white/20 text-xl font-bold text-white backdrop-blur-md transition-all hover:bg-white/35 hover:scale-105 active:scale-95;
   }
   .modal-nav-prev {
     @apply left-4;
@@ -584,22 +587,22 @@
     @apply right-4;
   }
   .modal-footer {
-    @apply flex flex-wrap items-center justify-between gap-3 border-t border-ink/8 bg-white/80 px-4 py-2.5 text-xs;
+    @apply flex flex-wrap items-center justify-between gap-3 border-t border-ink/8 bg-white/80 px-4 py-3 text-xs text-ink/65;
   }
   .modal-meta-grid {
-    @apply flex flex-wrap gap-5;
+    @apply flex flex-wrap items-center gap-4;
   }
-  .meta-cell {
-    @apply flex items-baseline gap-1.5;
+  .modal-meta-item {
+    @apply flex items-center gap-1.5;
   }
   .meta-label {
-    @apply text-[11px] text-ink/45 font-medium;
+    @apply text-[11px] text-ink/45;
   }
   .meta-value {
-    @apply text-xs font-semibold text-ink;
+    @apply font-medium text-ink;
   }
-  .modal-keyboard-hint {
-    @apply text-[11px] text-ink/40;
+  .modal-hints {
+    @apply text-[11px] text-ink/45;
   }
 
   /* Download & Processing Progress Dialog */
@@ -609,7 +612,7 @@
     animation: fade-in 140ms ease-out;
   }
   .progress-card {
-    @apply relative flex w-full max-w-md flex-col gap-4 rounded-2xl border border-white/40 bg-paper p-5 shadow-2xl;
+    @apply relative flex w-full max-w-md flex-col gap-4 rounded-[var(--radius-panel)] border border-ink/15 bg-paper p-5 shadow-[0_20px_40px_-10px_rgba(20,14,4,0.2)];
     animation: modal-pop 140ms var(--ease-press);
   }
   .progress-header {
@@ -725,10 +728,10 @@
     @apply rounded-full bg-ink/5 px-1.5 py-[1px] font-mono text-[10px] font-medium tabular-nums text-ink/50;
   }
   .candidate-conf-high {
-    @apply bg-emerald-500/15 text-emerald-700 font-semibold;
+    @apply bg-leaf/15 text-leaf font-semibold;
   }
   .candidate-conf-mid {
-    @apply bg-amber-500/15 text-amber-700 font-semibold;
+    @apply bg-clay/15 text-clay font-semibold;
   }
   .candidate-text {
     @apply line-clamp-2 text-sm font-semibold leading-snug text-ink break-all;
@@ -797,9 +800,6 @@
   .roi-pill-dot {
     @apply h-2 w-2 shrink-0 rounded-full shadow-2xs;
   }
-  .roi-pill-icon {
-    @apply text-xs leading-none;
-  }
   .roi-pill-name {
     @apply text-xs font-bold tracking-tight text-ink;
   }
@@ -820,13 +820,13 @@
     @apply rounded-full px-2 py-0.5 text-[11px] font-semibold;
   }
   .status-chip-pending {
-    @apply bg-amber-500/15 text-amber-800 border border-amber-500/30;
+    @apply bg-clay/12 text-clay border border-clay/25;
   }
   .status-chip-accepted {
-    @apply bg-emerald-500/15 text-emerald-800 border border-emerald-500/30;
+    @apply bg-leaf/12 text-leaf border border-leaf/25;
   }
   .status-chip-rejected {
-    @apply bg-rose-500/15 text-rose-800 border border-rose-500/30;
+    @apply bg-ink/10 text-ink/75 border border-ink/18;
   }
   .crop-id-code {
     @apply rounded bg-ink/5 px-2 py-0.5 font-mono text-[11px] text-ink/50;
