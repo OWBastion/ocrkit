@@ -343,6 +343,24 @@
           toggleRemoteSelection(previewModalObject.key)
         }
       }
+      return
+    }
+
+    if (active === 'review' && selected && batch && !busy) {
+      const isCmdOrCtrl = event.metaKey || event.ctrlKey
+      if (isCmdOrCtrl && event.key === 'Enter') {
+        event.preventDefault()
+        void save('accepted')
+      } else if (event.altKey && (event.key === 'Backspace' || event.key === 'Delete')) {
+        event.preventDefault()
+        void save('rejected')
+      } else if (event.altKey && event.key === 'ArrowUp') {
+        event.preventDefault()
+        selectPrevCandidate()
+      } else if (event.altKey && event.key === 'ArrowDown') {
+        event.preventDefault()
+        selectNextCandidate()
+      }
     }
   }
 
@@ -562,6 +580,26 @@
     const target = event?.currentTarget
     if (target instanceof HTMLElement) {
       target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
+  }
+
+  function selectPrevCandidate() {
+    if (!selected || !rows.length) return
+    const currentIndex = rows.findIndex((row) => row.crop === selected?.crop)
+    if (currentIndex > 0) {
+      selectCandidate(rows[currentIndex - 1])
+    } else {
+      selectCandidate(rows[rows.length - 1])
+    }
+  }
+
+  function selectNextCandidate() {
+    if (!selected || !rows.length) return
+    const currentIndex = rows.findIndex((row) => row.crop === selected?.crop)
+    if (currentIndex >= 0 && currentIndex < rows.length - 1) {
+      selectCandidate(rows[currentIndex + 1])
+    } else {
+      selectCandidate(rows[0])
     }
   }
 
@@ -1318,128 +1356,177 @@
         </aside>
         <article class="review-detail">
           {#if selected && batch}
-            <header class="detail-header">
-              <div>
-                <p class="eyebrow">{selected.roi} · {selected.auto_reject_reason ? '自动排除 · 位置不匹配' : selected.auto_accept_reason ? '自动接受 · 可人工覆盖' : selected.review_status}</p>
-                <h2>复核</h2>
-              </div>
-              {#if cropNatural.w}
-                <p class="crop-meta" aria-live="polite">
-                  {cropNatural.w}×{cropNatural.h}px · {cropZoom === 'auto' ? `自适应 ${cropDisplayScale().toFixed(1)}×` : `${cropZoom}×`}
-                </p>
-              {/if}
-            </header>
-
-            <section class="crop-panel" aria-label="切片预览">
-              <div class="crop-toolbar">
-                <span class="crop-toolbar-label">切片</span>
-                <div class="segmented" role="group" aria-label="切片缩放">
-                  {#each cropZoomSteps as step}
-                    <button
-                      type="button"
-                      class="segmented-btn"
-                      class:segmented-active={cropZoom === step}
-                      aria-pressed={cropZoom === step}
-                      on:click={() => cropZoom = step}
-                    >{cropZoomLabel(step)}</button>
-                  {/each}
+            {@const currentIndex = rows.findIndex((r) => r.crop === selected?.crop)}
+            <div class="review-detail-scroll">
+              <header class="detail-header">
+                <div>
+                  <p class="eyebrow">{selected.roi} · {selected.auto_reject_reason ? '自动排除 · 位置不匹配' : selected.auto_accept_reason ? '自动接受 · 可人工覆盖' : selected.review_status}</p>
+                  <h2>复核</h2>
                 </div>
-              </div>
-              <div class="crop-viewport" class:crop-viewport-scroll={cropZoom !== 'auto'}>
-                <img
-                  src={`/api/batches/${batch.batch_id}/crop?split=${split}&crop=${encodeURIComponent(selected.crop)}`}
-                  alt="当前 OCR 切片"
-                  class="crop-image"
-                  class:crop-image-crisp={cropDisplayScale() > 1.25}
-                  class:crop-image-wide={cropIsWideStrip()}
-                  style={cropImageStyle()}
-                  on:load={onCropLoad}
-                />
-              </div>
-            </section>
+                {#if cropNatural.w}
+                  <p class="crop-meta" aria-live="polite">
+                    {cropNatural.w}×{cropNatural.h}px · {cropZoom === 'auto' ? `自适应 ${cropDisplayScale().toFixed(1)}×` : `${cropZoom}×`}
+                  </p>
+                {/if}
+              </header>
 
-            <div class="detail-copy">
-              <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
-              {#if selected.auto_reject_reason}
-                <p class="auto-review-hint">这条切片未通过该 ROI 的内容格式检查，已自动排除，不会进入训练标签。若确认位置和内容都正确，可手动接受并填写转写。</p>
-              {:else if selected.auto_accept_reason}
-                <p class="auto-review-hint">这条切片由自动规则接受，仍可修改转写或点击「拒绝」进行人工覆盖。</p>
-              {:else if selected.teacher_auto_accept_eligible}
-                <p class="auto-review-hint">上一版模型与 RapidOCR 高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>
-              {/if}
-              <div class="engine-picks" role="group" aria-label="双引擎识别结果">
-                <button
-                  type="button"
-                  class="engine-pick"
-                  class:engine-pick-active={engineSelected(selected.rapidocr_text)}
-                  class:engine-pick-empty={!selected.rapidocr_text}
-                  disabled={!selected.rapidocr_text}
-                  on:click={() => applyEngineText(selected?.rapidocr_text)}
-                >
-                  <span class="engine-pick-head">
-                    <span class="engine-name">RapidOCR</span>
-                    <span
-                      class="engine-conf"
-                      class:engine-conf-high={(selected.rapidocr_confidence ?? 0) >= 0.98}
-                      class:engine-conf-mid={(selected.rapidocr_confidence ?? 0) >= 0.9 && (selected.rapidocr_confidence ?? 0) < 0.98}
-                    >{confidenceLabel(selected.rapidocr_confidence)}</span>
-                  </span>
-                  <strong class="engine-text">{selected.rapidocr_text || '无识别结果'}</strong>
-                  {#if engineSelected(selected.rapidocr_text)}<span class="engine-chosen">已选用</span>{/if}
-                </button>
-                <button
-                  type="button"
-                  class="engine-pick"
-                  class:engine-pick-active={engineSelected(selected.vision_text)}
-                  class:engine-pick-empty={!selected.vision_text}
-                  disabled={!selected.vision_text}
-                  on:click={() => applyEngineText(selected?.vision_text)}
-                >
-                  <span class="engine-pick-head">
-                    <span class="engine-name">Vision</span>
-                    <span
-                      class="engine-conf"
-                      class:engine-conf-high={(selected.vision_confidence ?? 0) >= 0.98}
-                      class:engine-conf-mid={(selected.vision_confidence ?? 0) >= 0.9 && (selected.vision_confidence ?? 0) < 0.98}
-                    >{confidenceLabel(selected.vision_confidence)}</span>
-                  </span>
-                  <strong class="engine-text">{selected.vision_text || '无识别结果'}</strong>
-                  {#if engineSelected(selected.vision_text)}<span class="engine-chosen">已选用</span>{/if}
-                </button>
-                <button
-                  type="button"
-                  class="engine-pick"
-                  class:engine-pick-active={engineSelected(selected.teacher_text)}
-                  class:engine-pick-empty={!selected.teacher_text}
-                  disabled={!selected.teacher_text}
-                  on:click={() => applyEngineText(selected?.teacher_text)}
-                >
-                  <span class="engine-pick-head">
-                    <span class="engine-name">上一版模型{selected.teacher_model_version ? ` · ${selected.teacher_model_version}` : ''}</span>
-                    <span
-                      class="engine-conf"
-                      class:engine-conf-high={(selected.teacher_confidence ?? 0) >= 0.98}
-                      class:engine-conf-mid={(selected.teacher_confidence ?? 0) >= 0.9 && (selected.teacher_confidence ?? 0) < 0.98}
-                    >{confidenceLabel(selected.teacher_confidence)}</span>
-                  </span>
-                  <strong class="engine-text">{selected.teacher_text || '无识别结果'}</strong>
-                  {#if engineSelected(selected.teacher_text)}<span class="engine-chosen">已选用</span>{/if}
-                </button>
-              </div>
-              {#if selected.rapidocr_text && selected.vision_text && selected.rapidocr_text !== selected.vision_text}
-                <p class="engine-disagree">两引擎不一致，请对照切片选择或手改。</p>
-              {:else if selected.rapidocr_text && selected.vision_text && selected.rapidocr_text === selected.vision_text}
-                <p class="engine-agree">两引擎一致。</p>
-              {/if}
-              <label class="transcription-field">
-                <span>转写</span>
-                <textarea bind:value={selected.transcription} aria-label="转写" rows="3"></textarea>
-              </label>
-              <div class="actions">
-                <button class="button-secondary" disabled={busy} on:click={() => save('rejected')}>拒绝</button>
-                <button class="button-primary" disabled={busy} on:click={() => save('accepted')}>接受</button>
+              <section class="crop-panel" aria-label="切片预览">
+                <div class="crop-toolbar">
+                  <span class="crop-toolbar-label">切片</span>
+                  <div class="segmented" role="group" aria-label="切片缩放">
+                    {#each cropZoomSteps as step}
+                      <button
+                        type="button"
+                        class="segmented-btn"
+                        class:segmented-active={cropZoom === step}
+                        aria-pressed={cropZoom === step}
+                        on:click={() => cropZoom = step}
+                      >{cropZoomLabel(step)}</button>
+                    {/each}
+                  </div>
+                </div>
+                <div class="crop-viewport" class:crop-viewport-scroll={cropZoom !== 'auto'}>
+                  <img
+                    src={`/api/batches/${batch.batch_id}/crop?split=${split}&crop=${encodeURIComponent(selected.crop)}`}
+                    alt="当前 OCR 切片"
+                    class="crop-image"
+                    class:crop-image-crisp={cropDisplayScale() > 1.25}
+                    class:crop-image-wide={cropIsWideStrip()}
+                    style={cropImageStyle()}
+                    on:load={onCropLoad}
+                  />
+                </div>
+              </section>
+
+              <div class="detail-copy">
+                <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
+                {#if selected.auto_reject_reason}
+                  <p class="auto-review-hint">这条切片未通过该 ROI 的内容格式检查，已自动排除，不会进入训练标签。若确认位置和内容都正确，可手动接受并填写转写。</p>
+                {:else if selected.auto_accept_reason}
+                  <p class="auto-review-hint">这条切片由自动规则接受，仍可修改转写或点击「拒绝」进行人工覆盖。</p>
+                {:else if selected.teacher_auto_accept_eligible}
+                  <p class="auto-review-hint">上一版模型与 RapidOCR 高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>
+                {/if}
+                <div class="engine-picks" role="group" aria-label="双引擎识别结果">
+                  <button
+                    type="button"
+                    class="engine-pick"
+                    class:engine-pick-active={engineSelected(selected.rapidocr_text)}
+                    class:engine-pick-empty={!selected.rapidocr_text}
+                    disabled={!selected.rapidocr_text}
+                    on:click={() => applyEngineText(selected?.rapidocr_text)}
+                  >
+                    <span class="engine-pick-head">
+                      <span class="engine-name">RapidOCR</span>
+                      <span
+                        class="engine-conf"
+                        class:engine-conf-high={(selected.rapidocr_confidence ?? 0) >= 0.98}
+                        class:engine-conf-mid={(selected.rapidocr_confidence ?? 0) >= 0.9 && (selected.rapidocr_confidence ?? 0) < 0.98}
+                      >{confidenceLabel(selected.rapidocr_confidence)}</span>
+                    </span>
+                    <strong class="engine-text">{selected.rapidocr_text || '无识别结果'}</strong>
+                    {#if engineSelected(selected.rapidocr_text)}<span class="engine-chosen">已选用</span>{/if}
+                  </button>
+                  <button
+                    type="button"
+                    class="engine-pick"
+                    class:engine-pick-active={engineSelected(selected.vision_text)}
+                    class:engine-pick-empty={!selected.vision_text}
+                    disabled={!selected.vision_text}
+                    on:click={() => applyEngineText(selected?.vision_text)}
+                  >
+                    <span class="engine-pick-head">
+                      <span class="engine-name">Vision</span>
+                      <span
+                        class="engine-conf"
+                        class:engine-conf-high={(selected.vision_confidence ?? 0) >= 0.98}
+                        class:engine-conf-mid={(selected.vision_confidence ?? 0) >= 0.9 && (selected.vision_confidence ?? 0) < 0.98}
+                      >{confidenceLabel(selected.vision_confidence)}</span>
+                    </span>
+                    <strong class="engine-text">{selected.vision_text || '无识别结果'}</strong>
+                    {#if engineSelected(selected.vision_text)}<span class="engine-chosen">已选用</span>{/if}
+                  </button>
+                  <button
+                    type="button"
+                    class="engine-pick"
+                    class:engine-pick-active={engineSelected(selected.teacher_text)}
+                    class:engine-pick-empty={!selected.teacher_text}
+                    disabled={!selected.teacher_text}
+                    on:click={() => applyEngineText(selected?.teacher_text)}
+                  >
+                    <span class="engine-pick-head">
+                      <span class="engine-name">上一版模型{selected.teacher_model_version ? ` · ${selected.teacher_model_version}` : ''}</span>
+                      <span
+                        class="engine-conf"
+                        class:engine-conf-high={(selected.teacher_confidence ?? 0) >= 0.98}
+                        class:engine-conf-mid={(selected.teacher_confidence ?? 0) >= 0.9 && (selected.teacher_confidence ?? 0) < 0.98}
+                      >{confidenceLabel(selected.teacher_confidence)}</span>
+                    </span>
+                    <strong class="engine-text">{selected.teacher_text || '无识别结果'}</strong>
+                    {#if engineSelected(selected.teacher_text)}<span class="engine-chosen">已选用</span>{/if}
+                  </button>
+                </div>
+                {#if selected.rapidocr_text && selected.vision_text && selected.rapidocr_text !== selected.vision_text}
+                  <p class="engine-disagree">两引擎不一致，请对照切片选择或手改。</p>
+                {:else if selected.rapidocr_text && selected.vision_text && selected.rapidocr_text === selected.vision_text}
+                  <p class="engine-agree">两引擎一致。</p>
+                {/if}
+                <label class="transcription-field">
+                  <span>转写</span>
+                  <textarea bind:value={selected.transcription} aria-label="转写" rows="3"></textarea>
+                </label>
               </div>
             </div>
+
+            <footer class="review-actions-bar">
+              <div class="review-actions-meta">
+                {#if currentIndex >= 0}
+                  <span class="review-index-badge">第 {currentIndex + 1} / {rows.length} 条</span>
+                {/if}
+                <div class="review-nav-group">
+                  <button
+                    type="button"
+                    class="button-ghost button-compact"
+                    disabled={!rows.length || busy}
+                    on:click={selectPrevCandidate}
+                    title="上一条 (Alt + ↑)"
+                  >
+                    ‹ 上一条
+                  </button>
+                  <button
+                    type="button"
+                    class="button-ghost button-compact"
+                    disabled={!rows.length || busy}
+                    on:click={selectNextCandidate}
+                    title="下一条 (Alt + ↓)"
+                  >
+                    下一条 ›
+                  </button>
+                </div>
+              </div>
+
+              <div class="review-actions-main">
+                <span class="review-shortcut-hint">⌘/Ctrl+Enter 接受 · Alt+⌫ 拒绝</span>
+                <button
+                  type="button"
+                  class="button-secondary button-danger-hover"
+                  disabled={busy}
+                  on:click={() => save('rejected')}
+                  title="拒绝此切片 (Alt + Backspace)"
+                >
+                  拒绝
+                </button>
+                <button
+                  type="button"
+                  class="button-primary"
+                  disabled={busy}
+                  on:click={() => save('accepted')}
+                  title="接受此转写并切换到下一条 (Cmd/Ctrl + Enter)"
+                >
+                  接受并下一条
+                </button>
+              </div>
+            </footer>
           {:else}
             <div class="empty-detail">
               <p class="eyebrow">步骤 3</p>

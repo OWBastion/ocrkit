@@ -280,6 +280,25 @@
   .button-compact {
     @apply min-h-9 px-3.5 text-xs;
   }
+  .button-ghost {
+    @apply inline-flex min-h-8 items-center justify-center rounded-full border border-transparent px-2.5 text-xs font-medium text-ink/65;
+    transition: all 120ms var(--ease-press);
+  }
+  .button-ghost:hover:not(:disabled) {
+    @apply border-ink/10 bg-ink/5 text-ink;
+  }
+  .button-ghost:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .button-ghost:disabled {
+    @apply cursor-not-allowed opacity-35;
+  }
+  .button-danger-hover:hover:not(:disabled) {
+    @apply border-red-200 bg-red-50 text-red-700;
+  }
+  .button-danger-hover:active:not(:disabled) {
+    @apply bg-red-100 text-red-800;
+  }
 
   .remote-import {
     @apply mt-6 grid gap-3 rounded-[var(--radius-panel)] border border-ink/8 bg-paper/55 p-4;
@@ -702,8 +721,29 @@
   }
 
   .review-detail {
-    @apply grid min-h-0 content-start gap-5 overflow-y-auto overscroll-contain p-4 sm:gap-5 sm:p-6;
+    @apply relative flex min-h-0 flex-col overflow-hidden bg-paper/30;
+  }
+  .review-detail-scroll {
+    @apply flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain p-4 sm:gap-5 sm:p-6;
     scrollbar-gutter: stable;
+  }
+  .review-actions-bar {
+    @apply sticky bottom-0 z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-ink/10 bg-white/95 px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.04)] backdrop-blur-md sm:px-6 sm:py-3.5;
+  }
+  .review-actions-meta {
+    @apply flex items-center gap-2.5;
+  }
+  .review-index-badge {
+    @apply rounded-full bg-ink/6 px-2.5 py-1 text-xs font-semibold tabular-nums text-ink/65;
+  }
+  .review-nav-group {
+    @apply flex items-center gap-1;
+  }
+  .review-actions-main {
+    @apply flex flex-wrap items-center justify-end gap-2.5;
+  }
+  .review-shortcut-hint {
+    @apply hidden text-[11px] font-medium text-ink/40 xl:inline-block mr-1;
   }
 
   @media (max-width: 1023px) {
@@ -711,14 +751,15 @@
       height: auto;
       max-height: none;
       min-height: 0;
-      grid-template-rows: minmax(14rem, 38dvh) minmax(22rem, auto);
+      grid-template-rows: minmax(14rem, 36dvh) minmax(26rem, auto);
     }
     .review-list {
-      max-height: 38dvh;
+      max-height: 36dvh;
     }
     .review-detail {
-      max-height: none;
-      overflow: visible;
+      height: calc(100dvh - 36dvh - 9rem);
+      min-height: 26rem;
+      max-height: calc(100dvh - 12rem);
     }
   }
   .detail-header {
