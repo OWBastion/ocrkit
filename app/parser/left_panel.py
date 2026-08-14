@@ -20,7 +20,7 @@ class LeftPanel:
     achievement_unlocked: bool | None = None
 
 
-def parse_left_panel(text: str, achievement_titles: tuple[str, ...] = ()) -> LeftPanel:
+def parse_left_panel(text: str) -> LeftPanel:
     compact = text.replace("\n", " ")
 
     hero_match = re.search(r"英雄\s*[:：]\s*(\S+)\s*/\s*(\S+)", compact)
@@ -37,8 +37,6 @@ def parse_left_panel(text: str, achievement_titles: tuple[str, ...] = ()) -> Lef
         compact,
     )
     clear_time = time_match.group(1).strip() if time_match else None
-    detected_titles = _parse_achievement_titles(compact, achievement_titles)
-
     return LeftPanel(
         heroes_completed=heroes_completed,
         heroes_total=heroes_total,
@@ -47,23 +45,23 @@ def parse_left_panel(text: str, achievement_titles: tuple[str, ...] = ()) -> Lef
         total_skips=skips,
         clear_time=clear_time,
         clear_time_seconds=parse_time_to_seconds(clear_time or "") if clear_time else None,
-        achievement_title=detected_titles[0] if detected_titles else None,
-        achievement_titles=detected_titles,
-        achievement_unlocked=True if detected_titles else None,
     )
 
 
-def _parse_achievement_titles(text: str, achievement_titles: tuple[str, ...]) -> tuple[str, ...]:
-    matches: list[tuple[int, str]] = []
-    for title in sorted((item.strip() for item in achievement_titles), key=len, reverse=True):
-        if not title:
-            continue
-        for match in re.finditer(re.escape(title), text):
-            suffix = text[match.end() :]
-            if re.match(r"\s*[✓✔√☑☒VvLl]", suffix):
-                matches.append((match.start(), title))
-    matches.sort(key=lambda item: item[0])
-    return tuple(dict.fromkeys(title for _, title in matches))[:5]
+_ACHIEVEMENT_CHECK = re.compile(
+    r"(?P<title>[^✓✔√☑☒\n]+?)\s*"
+    r"(?:[✓✔√☑☒]|[VvLl](?=\s|$))(?=\s|$)"
+)
+
+
+def parse_achievement_titles(text: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            match.group("title").strip()
+            for match in _ACHIEVEMENT_CHECK.finditer(text)
+            if match.group("title").strip()
+        )
+    )
 
 
 def _parse_total_deaths_skips(compact: str) -> tuple[int | None, int | None]:

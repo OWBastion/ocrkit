@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from app.api.routes_ocr import router as ocr_router
 from app.core.config import settings
 from app.core.context import AppContext
-from app.catalog import load_agent_title_labels
 from app.core.roi_config import load_map_aliases, load_map_names, load_roi_config
 from app.ocr.engine import OcrEngine
 from app.ocr.paddleocr_engine import PaddleOcrEngine
@@ -79,10 +78,6 @@ def create_context() -> AppContext:
         map_aliases=load_map_aliases(settings.maps_config_path),
         ocr_engine=_create_ocr_engine(model_config_path),
         object_store=object_store,
-        achievement_titles=load_agent_title_labels(
-            settings.agents_api_base_url,
-            settings.agents_api_timeout_seconds,
-        ),
         model_version=model_version,
         engine_name=settings.ocr_engine,
         layout_version=roi_config.version,

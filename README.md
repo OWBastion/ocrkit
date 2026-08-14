@@ -84,12 +84,13 @@ reports its parsed value, confidence, source ROI, normalization metadata, and st
 `achievement_panel_text` contains raw OCR evidence from the dedicated left-side achievement
 panel ROI. It may contain the panel's progress and statistics in addition to the challenge
 text; the platform should match it against its current challenge/title catalog and decide
-whether the evidence is adopted or grants anything. `achievement_titles` contains matching
-titles from the platform Agents catalog detected in the left-panel ROIs, in top-to-bottom
-order. `achievement_title` is the first title for compatibility, and
-`achievement_unlocked` is `true` when at least one matching title is followed by a visible
-completion checkmark. The player name in the lower-left hero panel is not used for this
-signal. If the ROI or catalog cannot be read, the title fields are empty/`null`.
+whether the evidence is adopted or grants anything. `achievement_titles` contains every
+text candidate detected in the fixed achievement ROI when OCR sees it followed by a visible
+completion checkmark, in top-to-bottom order. They are raw candidates rather than catalog
+matches; the platform owns catalog matching and business decisions. `achievement_title` is
+the first candidate for compatibility, and `achievement_unlocked` is `true` when at least one
+candidate is detected. The player name in the lower-left hero panel is not used for this
+signal. If no checked text is visible in the ROI, the title fields are empty/`null`.
 `viewer_player` is the only player identity field suitable for account matching. The
 central completion banner is not an authoritative player source, so its player name is
 not included in `ChallengeData` or field evidence.

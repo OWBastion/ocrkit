@@ -33,6 +33,13 @@ class AchievementPanelEngine:
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
+class MultipleAchievementPanelEngine:
+    def recognize(self, image: np.ndarray) -> OcrResult:
+        if image.shape[:2] == (405, 555):
+            return OcrResult(text="新称号甲 ✓ 新称号乙 ✔", confidence=0.93, chunks=[])
+        return OcrResult(text="", confidence=0.5, chunks=[])
+
+
 class RunCodeEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
         if image.shape[:2] == (190, 660):
@@ -161,13 +168,32 @@ def test_extract_returns_dedicated_achievement_panel_evidence() -> None:
         "rapidocr",
         "builtin",
         context.roi_config.version,
-        achievement_titles=("生命守护生命",),
     )
 
     assert response.data.achievement_panel_text == "生命守护生命 ✓"
     assert response.data.achievement_title == "生命守护生命"
     assert response.data.achievement_unlocked is True
     assert response.fields["achievement_panel_text"].source_roi == ["achievement_panel"]
+
+
+def test_extract_returns_all_checked_titles_without_catalog_input() -> None:
+    context = _make_context()
+    response = extract_structured(
+        np.zeros((720, 1280, 3), dtype=np.uint8),
+        context.roi_config,
+        context.map_names,
+        context.map_aliases,
+        MultipleAchievementPanelEngine(),
+        False,
+        "request-achievement-panel-multiple-1",
+        "rapidocr",
+        "builtin",
+        context.roi_config.version,
+    )
+
+    assert response.data.achievement_titles == ["新称号甲", "新称号乙"]
+    assert response.data.achievement_title == "新称号甲"
+    assert response.data.achievement_unlocked is True
 
 
 def test_extract_returns_structured_run_code_evidence() -> None:

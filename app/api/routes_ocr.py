@@ -116,7 +116,6 @@ async def recognize_challenge(
         engine_name=ctx.engine_name,
         model_version=ctx.model_version,
         layout_version=ctx.layout_version,
-        achievement_titles=ctx.achievement_titles,
         roi_variants=ctx.roi_variants,
     )
 
@@ -189,6 +188,5 @@ async def recognize_challenge_by_object(
         engine_name=ctx.engine_name,
         model_version=ctx.model_version,
         layout_version=ctx.layout_version,
-        achievement_titles=ctx.achievement_titles,
         roi_variants=ctx.roi_variants,
     )

@@ -1,4 +1,4 @@
-from app.parser.left_panel import parse_left_panel
+from app.parser.left_panel import parse_achievement_titles, parse_left_panel
 
 
 def test_parse_left_panel() -> None:
@@ -53,18 +53,12 @@ def test_parse_left_panel_deaths_skips_label_ocr_variant() -> None:
     assert out.total_skips == 0
 
 
-def test_parse_left_panel_matches_catalog_title_with_checkmark() -> None:
-    out = parse_left_panel("英雄：51/51 挑战完成 钢门 ✓", ("钢门", "训犬大师"))
-    assert out.achievement_title == "钢门"
-    assert out.achievement_titles == ("钢门",)
-    assert out.achievement_unlocked is True
+def test_parse_achievement_titles_with_checkmark() -> None:
+    assert parse_achievement_titles("钢门 ✓") == ("钢门",)
 
 
-def test_parse_left_panel_matches_catalog_title_with_ocr_checkmark_variant() -> None:
-    out = parse_left_panel("生命守护生命 L", ("生命守护生命",))
-    assert out.achievement_title == "生命守护生命"
-    assert out.achievement_titles == ("生命守护生命",)
-    assert out.achievement_unlocked is True
+def test_parse_achievement_titles_with_ocr_checkmark_variant() -> None:
+    assert parse_achievement_titles("生命守护生命 L") == ("生命守护生命",)
 
 
 def test_parse_left_panel_parses_unlabeled_deaths_skips_before_boost_stats() -> None:
@@ -78,13 +72,21 @@ def test_parse_left_panel_parses_variant_time_label() -> None:
     assert out.clear_time_seconds == 6135.0
 
 
-def test_parse_left_panel_matches_multiple_catalog_titles_in_order() -> None:
-    out = parse_left_panel("钢门 ✓\n幸运星 ✓\n开了 ✓\nV我50 ✓\n牢大 ✓", ("钢门", "幸运星", "开了", "V我50", "牢大"))
-    assert out.achievement_titles == ("钢门", "幸运星", "开了", "V我50", "牢大")
-    assert out.achievement_unlocked is True
+def test_parse_achievement_titles_matches_multiple_titles_in_order() -> None:
+    assert parse_achievement_titles("钢门 ✓\n幸运星 ✓\n开了 ✓\nV我50 ✓\n牢大 ✓") == (
+        "钢门",
+        "幸运星",
+        "开了",
+        "V我50",
+        "牢大",
+    )
 
 
 def test_parse_left_panel_does_not_treat_player_name_as_achievement() -> None:
-    out = parse_left_panel("英雄：51/51 挑战完成", ("钢门", "训犬大师"))
+    out = parse_left_panel("英雄：51/51 挑战完成")
     assert out.achievement_title is None
     assert out.achievement_unlocked is None
+
+
+def test_parse_achievement_titles_accepts_unseen_titles_and_multiple_checks() -> None:
+    assert parse_achievement_titles("新称号甲 ✓ 新称号乙 ✔") == ("新称号甲", "新称号乙")

@@ -9,7 +9,7 @@ from app.image.roi import crop_all_rois, select_roi_config
 from app.ocr.engine import OcrEngine
 from app.parser.bottom_left_hero import parse_bottom_left_hero
 from app.parser.center_summary import parse_center_summary
-from app.parser.left_panel import parse_left_panel
+from app.parser.left_panel import parse_achievement_titles, parse_left_panel
 from app.parser.result_merger import merge_result
 from app.parser.right_panel import parse_right_panel
 from app.parser.run_code import ParsedRunCode, enforce_run_code_confidence, parse_run_code
@@ -21,9 +21,9 @@ _FIELD_ROIS = {
     "heroes_completed": ("left_panel",),
     "heroes_total": ("left_panel",),
     "viewer_player": ("bottom_left_hero",),
-    "achievement_title": ("left_panel", "achievement_panel"),
-    "achievement_titles": ("left_panel", "achievement_panel"),
-    "achievement_unlocked": ("left_panel", "achievement_panel"),
+    "achievement_title": ("achievement_panel",),
+    "achievement_titles": ("achievement_panel",),
+    "achievement_unlocked": ("achievement_panel",),
     "achievement_panel_text": ("achievement_panel",),
     "deaths": ("left_panel", "center_banner"),
     "skips": ("left_panel", "center_banner"),
@@ -80,7 +80,6 @@ def extract_structured(
     engine_name: str,
     model_version: str,
     layout_version: str,
-    achievement_titles: tuple[str, ...] = (),
     roi_variants: tuple[RoiConfig, ...] = (),
 ) -> ChallengeResponse:
     active_roi_config = select_roi_config(image, (roi_config, *roi_variants))
@@ -99,8 +98,12 @@ def extract_structured(
     center = parse_center_summary(raw_text.get("center_banner", ""))
     left_text = raw_text.get("left_panel", "")
     achievement_text = raw_text.get("achievement_panel", "")
-    title_text = " ".join(part for part in (left_text, achievement_text) if part)
-    left = parse_left_panel(title_text, achievement_titles) if achievement_titles else parse_left_panel(title_text)
+    left = parse_left_panel(left_text)
+    achievement_titles = parse_achievement_titles(achievement_text)
+    if achievement_titles:
+        left.achievement_title = achievement_titles[0]
+        left.achievement_titles = achievement_titles
+        left.achievement_unlocked = True
     run_code = enforce_run_code_confidence(
         parse_run_code(raw_text.get("run_code_panel", "")),
         confidences.get("run_code_panel", 0.0),

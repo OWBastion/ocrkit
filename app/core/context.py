@@ -19,7 +19,6 @@ class AppContext:
     model_version: str = "builtin"
     engine_name: str = "rapidocr"
     layout_version: str = "1280x720-v6"
-    achievement_titles: tuple[str, ...] = ()
     roi_variants: tuple[RoiConfig, ...] = ()
 
 
