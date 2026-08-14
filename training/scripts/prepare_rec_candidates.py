@@ -159,19 +159,11 @@ def negative_candidate_rejection_reason(
     if strict_reason:
         return strict_reason
 
-    canonical_texts = {canonicalize(text) for text in text_values}
     for negative in negative_candidates:
         if negative.get("roi") != roi_name:
             continue
         if crop_sha256 and crop_sha256 == negative.get("crop_sha256"):
             return "negative_review.crop_match"
-        negative_texts = {
-            canonicalize(str(text))
-            for text in negative.get("texts", [])
-            if isinstance(text, str) and text.strip()
-        }
-        if canonical_texts & negative_texts:
-            return "negative_review.text_match"
     return None
 
 
@@ -575,6 +567,7 @@ def prepare_candidates(
                             "source_id": case_id,
                             "split": split,
                             "roi": roi_name,
+                            "layout_version": roi_config.version,
                             "box": np.asarray(box, dtype=float).round(2).tolist(),
                             "global_box": global_box,
                             "candidate_text": candidate_text,

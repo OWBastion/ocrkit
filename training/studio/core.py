@@ -141,6 +141,22 @@ def _layout_summary(sources: list[dict[str, Any]]) -> tuple[str, str]:
     return "mixed", ""
 
 
+def _materialize_source_layouts(batch_dir: Path, manifest: dict[str, Any]) -> None:
+    options = _roi_config_options(DEFAULT_ROI_CONFIG)
+    for source in manifest.get("sources", []):
+        file = source.get("file")
+        image_path = batch_dir / file if isinstance(file, str) and file else None
+        if image_path is not None and image_path.is_file():
+            image = decode_image(image_path.read_bytes())
+            path, config = _select_source_roi_config(image, options)
+        else:
+            path, config = _source_roi_config(batch_dir, source, options)
+        source["layout_version"] = config.version
+        source["roi_config"] = _relative_roi_config_path(path)
+    manifest["layout_version"], manifest["roi_config"] = _layout_summary(manifest.get("sources", []))
+    manifest["roi_configs"] = sorted({str(source["roi_config"]) for source in manifest.get("sources", [])})
+
+
 def _negative_registry_path(batch_dir: Path) -> Path:
     return batch_dir.parent.parent / "negative-candidates.jsonl"
 
@@ -152,37 +168,56 @@ def rebuild_negative_registry(batch_dir: Path) -> Path:
     owners = [path for path in batches_dir.iterdir() if (path / "batch.json").is_file()] if batches_dir.is_dir() else []
     if batch_dir not in owners:
         owners.append(batch_dir)
-    negatives: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    negatives: dict[tuple[str, ...], dict[str, Any]] = {}
     for owner in owners:
-        for split in ("train", "holdout"):
-            review_path = owner / "dataset/review" / f"{split}.jsonl"
-            if not review_path.is_file():
-                continue
-            for row in review_rows(owner, split):
-                if row.get("review_status") != "rejected" or row.get("auto_reject_reason"):
+        review_roots = [owner / "dataset/review"]
+        review_roots.extend(path / "dataset/review" for path in (owner / "dataset-revisions").glob("*") if path.is_dir())
+        for review_root in review_roots:
+            for split in ("train", "holdout"):
+                review_path = review_root / f"{split}.jsonl"
+                if not review_path.is_file():
                     continue
-                roi = row.get("roi")
-                if not isinstance(roi, str) or not roi:
-                    continue
-                texts = sorted(
-                    {
-                        canonicalize(str(row.get(name)))
-                        for name in ("candidate_text", "rapidocr_text", "vision_text", "teacher_text")
-                        if isinstance(row.get(name), str) and str(row.get(name)).strip()
+                rows = [json.loads(line) for line in review_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+                for row in rows:
+                    if row.get("review_status") != "rejected" or row.get("auto_reject_reason"):
+                        continue
+                    roi = row.get("roi")
+                    if not isinstance(roi, str) or not roi:
+                        continue
+                    texts = sorted(
+                        {
+                            canonicalize(str(row.get(name)))
+                            for name in ("candidate_text", "rapidocr_text", "vision_text", "teacher_text")
+                            if isinstance(row.get(name), str) and str(row.get(name)).strip()
+                        }
+                    )
+                    crop_sha256 = row.get("crop_sha256")
+                    raw_roi_sha256 = row.get("raw_roi_sha256")
+                    global_box = row.get("global_box")
+                    layout_version = row.get("layout_version")
+                    if (
+                        not texts
+                        and not isinstance(crop_sha256, str)
+                        and not isinstance(raw_roi_sha256, str)
+                    ):
+                        continue
+                    key = (
+                        roi,
+                        "\u001f".join(texts),
+                        str(crop_sha256 or ""),
+                        str(raw_roi_sha256 or ""),
+                        json.dumps(global_box, ensure_ascii=False, separators=(",", ":")),
+                        str(layout_version or ""),
+                    )
+                    negatives[key] = {
+                        "schema_version": 2,
+                        "roi": roi,
+                        "texts": texts,
+                        "crop_sha256": crop_sha256,
+                        "raw_roi_sha256": raw_roi_sha256,
+                        "global_box": global_box,
+                        "layout_version": layout_version,
                     }
-                )
-                crop_sha256 = row.get("crop_sha256")
-                raw_roi_sha256 = row.get("raw_roi_sha256")
-                if not texts and not isinstance(crop_sha256, str) and not isinstance(raw_roi_sha256, str):
-                    continue
-                key = (roi, "\u001f".join(texts), str(crop_sha256 or ""), str(raw_roi_sha256 or ""))
-                negatives[key] = {
-                    "schema_version": 1,
-                    "roi": roi,
-                    "texts": texts,
-                    "crop_sha256": crop_sha256,
-                    "raw_roi_sha256": raw_roi_sha256,
-                }
     registry = _negative_registry_path(batch_dir)
     registry.parent.mkdir(parents=True, exist_ok=True)
     _atomic_jsonl(registry, (negatives[key] for key in sorted(negatives)))
@@ -224,6 +259,7 @@ def apply_negative_matches(batch_dir: Path, negative_path: Path) -> int:
 
 def deduplicate_review_rows(batch_dir: Path) -> int:
     manifest = load_manifest(batch_dir)
+    _materialize_source_layouts(batch_dir, manifest)
     options = _roi_config_options(ROOT / str(manifest.get("roi_config") or DEFAULT_ROI_CONFIG.relative_to(ROOT)))
     source_configs = {
         str(source["id"]): _source_roi_config(batch_dir, source, options)
@@ -627,6 +663,7 @@ def recreate_candidates(
         raise RuntimeError("current candidate output is incomplete; finish or remove the incomplete output before rebuilding")
 
     manifest = load_manifest(batch_dir)
+    _materialize_source_layouts(batch_dir, manifest)
     teacher_artifact = _candidate_artifact()
     negative_path = rebuild_negative_registry(batch_dir)
     revision_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]

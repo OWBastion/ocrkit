@@ -111,7 +111,7 @@ def test_prepare_candidates_auto_rejects_text_that_does_not_match_run_code_roi(t
     assert row["transcription"] is None
 
 
-def test_prepare_candidates_auto_rejects_a_prior_human_negative_for_any_roi(tmp_path: Path) -> None:
+def test_prepare_candidates_does_not_reject_repeated_text_without_same_crop(tmp_path: Path) -> None:
     fixtures = tmp_path / "fixtures"
     fixtures.mkdir()
     source = np.full((40, 60, 3), 200, dtype=np.uint8)
@@ -139,9 +139,9 @@ def test_prepare_candidates_auto_rejects_a_prior_human_negative_for_any_roi(tmp_
     )
 
     row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
-    assert summary["auto_rejected"] == 1
-    assert row["review_status"] == "rejected"
-    assert row["auto_reject_reason"] == "negative_review.text_match"
+    assert summary["auto_rejected"] == 0
+    assert row["review_status"] == "pending"
+    assert row["auto_reject_reason"] is None
 
 
 def test_prepare_candidates_deduplicates_overlapping_achievement_and_left_panel_rows(tmp_path: Path) -> None:

@@ -3,7 +3,7 @@
 
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number; teacher_eligible?: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; active_dataset_revision?: string | null; review?: ReviewCounts }
-  type Row = { crop: string; roi: string; review_status: string; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
+  type Row = { crop: string; roi: string; layout_version?: string; review_status: string; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
     status?: string
@@ -34,8 +34,9 @@
     rect: { x: number; y: number; w: number; h: number }
   }
 
-  const ROI_METAS: Record<string, RoiMeta> = {
-    left_panel: {
+  const ROI_META_LAYOUTS: Record<string, Record<string, RoiMeta>> = {
+    '1280x720-v6': {
+      left_panel: {
       name: '左侧统计与进度',
       shortName: '左侧统计',
       code: 'left_panel',
@@ -43,7 +44,7 @@
       dotColor: '#0284c7',
       rect: { x: 2.7, y: 2.1, w: 14.5, h: 63.2 },
     },
-    achievement_panel: {
+      achievement_panel: {
       name: '左上成就与称号',
       shortName: '左上成就',
       code: 'achievement_panel',
@@ -51,15 +52,23 @@
       dotColor: '#b45309',
       rect: { x: 2.7, y: 1.4, w: 14.5, h: 18.8 },
     },
-    run_code_panel: {
+      run_code_panel: {
       name: '房间运行代码',
       shortName: '运行代码',
       code: 'run_code_panel',
       position: '屏幕左中部',
       dotColor: '#6d28d9',
-      rect: { x: 2.3, y: 26.4, w: 25.8, h: 13.2 },
+        rect: { x: 2.3, y: 27.5, w: 14.8, h: 3.3 },
+      },
+      run_code_right_panel: {
+      name: '右侧运行代码',
+      shortName: '右侧代码',
+      code: 'run_code_right_panel',
+      position: '屏幕右上信息区',
+      dotColor: '#7c3aed',
+      rect: { x: 82.8, y: 12.2, w: 14.1, h: 2.5 },
     },
-    center_banner: {
+      center_banner: {
       name: '中央通关横幅',
       shortName: '中央横幅',
       code: 'center_banner',
@@ -67,7 +76,7 @@
       dotColor: '#15803d',
       rect: { x: 11.7, y: 17.4, w: 78.9, h: 12.5 },
     },
-    right_panel: {
+      right_panel: {
       name: '右上地图与难度',
       shortName: '右上地图',
       code: 'right_panel',
@@ -75,18 +84,55 @@
       dotColor: '#b91c1c',
       rect: { x: 81.3, y: 0, w: 18.4, h: 14.6 },
     },
-    bottom_left_hero: {
+      bottom_left_hero: {
       name: '左下英雄状态',
       shortName: '左下英雄',
       code: 'bottom_left_hero',
       position: '屏幕左下角',
       dotColor: '#4338ca',
       rect: { x: 2.3, y: 79.9, w: 23.4, h: 13.2 },
+      },
+    },
+    '1280x800-v1': {
+      left_panel: {
+        name: '左侧统计与进度', shortName: '左侧统计', code: 'left_panel', position: '屏幕左上至左中部', dotColor: '#0284c7',
+        rect: { x: 2.7, y: 1.9, w: 14.5, h: 26.3 },
+      },
+      achievement_panel: {
+        name: '左下成就与称号', shortName: '左下成就', code: 'achievement_panel', position: '屏幕左下统计区下方', dotColor: '#b45309',
+        rect: { x: 1.6, y: 28.1, w: 15.6, h: 11.3 },
+      },
+      run_code_panel: {
+        name: '左侧运行代码', shortName: '左侧代码', code: 'run_code_panel', position: '屏幕左侧统计区底部', dotColor: '#6d28d9',
+        rect: { x: 2.3, y: 24.8, w: 14.8, h: 3.0 },
+      },
+      run_code_right_panel: {
+        name: '右侧运行代码', shortName: '右侧代码', code: 'run_code_right_panel', position: '屏幕右上信息区', dotColor: '#7c3aed',
+        rect: { x: 82.8, y: 11.0, w: 14.1, h: 2.3 },
+      },
+      center_banner: {
+        name: '中央通关横幅', shortName: '中央横幅', code: 'center_banner', position: '屏幕顶部中央', dotColor: '#15803d',
+        rect: { x: 23.4, y: 1.3, w: 58.6, h: 11.3 },
+      },
+      right_panel: {
+        name: '右上地图与难度', shortName: '右上地图', code: 'right_panel', position: '屏幕右上角', dotColor: '#b91c1c',
+        rect: { x: 81.3, y: 0, w: 18.4, h: 15.0 },
+      },
+      bottom_left_hero: {
+        name: '左下英雄状态', shortName: '左下英雄', code: 'bottom_left_hero', position: '屏幕左下角', dotColor: '#4338ca',
+        rect: { x: 2.3, y: 77.5, w: 23.4, h: 21.3 },
+      },
     },
   }
 
-  function getRoiInfo(code: string): RoiMeta {
-    return ROI_METAS[code] || {
+  const ROI_METAS = ROI_META_LAYOUTS['1280x720-v6']
+
+  function getRoiMetas(layoutVersion?: string): Record<string, RoiMeta> {
+    return ROI_META_LAYOUTS[layoutVersion || ''] || ROI_METAS
+  }
+
+  function getRoiInfo(code: string, layoutVersion?: string): RoiMeta {
+    return getRoiMetas(layoutVersion)[code] || {
       name: code,
       shortName: code,
       code,
@@ -1462,7 +1508,7 @@
             </select>
             <select class="control col-span-2" bind:value={roiFilter} on:change={onRoiFilterChange}>
               <option value="all">全部区域 ({rows.length})</option>
-              {#each Object.entries(ROI_METAS) as [key, meta]}
+              {#each Object.entries(getRoiMetas(batch?.layout_version)) as [key, meta]}
                 {@const count = rows.filter((r) => r.roi === key).length}
                 <option value={key}>{meta.shortName} ({count})</option>
               {/each}
@@ -1476,7 +1522,7 @@
           </div>
           <div class="countline">
             <b>{displayedRows.length}</b>
-            <span>条{roiFilter !== 'all' ? ` · ${getRoiInfo(roiFilter).shortName}` : ''}</span>
+            <span>条{roiFilter !== 'all' ? ` · ${getRoiInfo(roiFilter, batch?.layout_version).shortName}` : ''}</span>
             <i>/</i>
             <b>{batch?.review?.pending || 0}</b>
             <span>待复核</span>
@@ -1487,7 +1533,7 @@
           <div class="candidate-scroll">
             {#if displayedRows.length}
               {#each displayedRows as row}
-                {@const roiInfo = getRoiInfo(row.roi)}
+                {@const roiInfo = getRoiInfo(row.roi, row.layout_version || batch?.layout_version)}
                 <button
                   type="button"
                   class:selected-row={selected?.crop === row.crop}
@@ -1520,7 +1566,7 @@
         </aside>
         <article class="review-detail">
           {#if selected && batch}
-            {@const roiInfo = getRoiInfo(selected.roi)}
+            {@const roiInfo = getRoiInfo(selected.roi, selected.layout_version || batch?.layout_version)}
             {@const currentIndex = displayedRows.findIndex((r) => r.crop === selected?.crop)}
             <div class="review-detail-scroll">
               <header class="detail-header">
@@ -1549,7 +1595,7 @@
                   <div class="hud-minimap" title={`游戏画面方位：${roiInfo.position} (${roiInfo.name})`}>
                     <div class="hud-screen-frame">
                       <span class="hud-label">HUD 方位</span>
-                      {#each Object.entries(ROI_METAS) as [key, meta]}
+                      {#each Object.entries(getRoiMetas(selected.layout_version || batch?.layout_version)) as [key, meta]}
                         <div
                           class="hud-box"
                           class:hud-box-active={selected.roi === key}

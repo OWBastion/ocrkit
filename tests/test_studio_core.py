@@ -53,6 +53,28 @@ def test_create_batch_selects_roi_layout_per_source_aspect_ratio(tmp_path: Path)
     assert by_name["wide.png"]["quality"]["warnings"] == []
 
 
+def test_materialize_source_layouts_replaces_stale_layout_metadata(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    source = batch / "sources/tall.png"
+    source.parent.mkdir(parents=True)
+    _sized_image(source, 2560, 1600)
+    manifest = {
+        "layout_version": "1280x720-v6",
+        "roi_config": "configs/roi_1280x720.yaml",
+        "sources": [{
+            "file": "sources/tall.png",
+            "layout_version": "1280x720-v6",
+            "roi_config": "configs/roi_1280x720.yaml",
+        }],
+    }
+
+    studio_core._materialize_source_layouts(batch, manifest)
+
+    assert manifest["layout_version"] == "1280x800-v1"
+    assert manifest["roi_config"] == "configs/roi_1280x800.yaml"
+    assert manifest["sources"][0]["layout_version"] == "1280x800-v1"
+
+
 def test_append_sources_keeps_existing_splits_and_assigns_new_holdout(tmp_path: Path) -> None:
     first = tmp_path / "first.png"
     second = tmp_path / "second.png"
@@ -119,11 +141,13 @@ def test_manual_rejection_is_saved_to_negative_registry(tmp_path: Path) -> None:
     registry = tmp_path / "studio/negative-candidates.jsonl"
     entries = [json.loads(line) for line in registry.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert entries == [{
-        "schema_version": 1,
+        "schema_version": 2,
         "roi": "left_panel",
         "texts": ["错误内容"],
         "crop_sha256": None,
         "raw_roi_sha256": None,
+        "global_box": None,
+        "layout_version": None,
     }]
 
 
@@ -273,6 +297,8 @@ def test_generate_candidates_applies_human_negative_memory_to_pending_rows(tmp_p
         "roi": "left_panel",
         "candidate_text": "错误内容",
         "rapidocr_text": "错误内容",
+        "global_box": [10, 20, 40, 30],
+        "layout_version": "1280x720-v6",
         "review_status": "rejected",
         "auto_reject_reason": None,
     }
@@ -282,6 +308,8 @@ def test_generate_candidates_applies_human_negative_memory_to_pending_rows(tmp_p
         "roi": "left_panel",
         "candidate_text": "错误内容",
         "rapidocr_text": "错误内容",
+        "global_box": [10, 20, 40, 30],
+        "layout_version": "1280x720-v6",
         "review_status": "pending",
     }
     (prior_review / "train.jsonl").write_text(json.dumps(rejected, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -291,13 +319,18 @@ def test_generate_candidates_applies_human_negative_memory_to_pending_rows(tmp_p
     crop_path = current / "dataset/images/train/source-current/000.png"
     crop_path.parent.mkdir(parents=True)
     _image(crop_path)
+    crop_sha256 = studio_core._digest(crop_path)
+    rejected["crop_sha256"] = crop_sha256
+    pending["crop_sha256"] = crop_sha256
+    (prior_review / "train.jsonl").write_text(json.dumps(rejected, ensure_ascii=False) + "\n", encoding="utf-8")
+    (current_review / "train.jsonl").write_text(json.dumps(pending, ensure_ascii=False) + "\n", encoding="utf-8")
 
     summary = generate_candidates(current)
     saved = review_rows(current, "train")[0]
 
     assert summary["negative_auto_rejected"] == 1
     assert saved["review_status"] == "rejected"
-    assert saved["auto_reject_reason"] == "negative_review.text_match"
+    assert saved["auto_reject_reason"] == "negative_review.crop_match"
 
 
 def test_generate_candidates_uses_rust_crops_for_new_batch(tmp_path: Path, monkeypatch) -> None:
