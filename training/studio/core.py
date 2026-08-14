@@ -21,6 +21,7 @@ from training.scripts.prepare_rec_candidates import (
     best_rapid_candidate,
     canonicalize,
     candidate_artifact_version,
+    candidate_rejection_reason,
     create_artifact_ocr,
     discover_candidate_artifact,
     prepare_candidates,
@@ -340,6 +341,7 @@ def refresh_vision_candidates(
         "rows": 0,
         "vision_covered": 0,
         "auto_accepted": 0,
+        "auto_rejected": 0,
         "preserved_accepted": 0,
         "preserved_rejected": 0,
     }
@@ -360,6 +362,12 @@ def refresh_vision_candidates(
             row["vision_confidence"] = round(best.confidence, 4) if best else None
             rapid_text = row.get("rapidocr_text")
             rapid_confidence = row.get("rapidocr_confidence")
+            teacher_text = row.get("teacher_text")
+            auto_reject_reason = candidate_rejection_reason(
+                str(row.get("roi", "")),
+                (rapid_text, best.text if best else None, teacher_text),
+            )
+            was_auto_rejected = bool(row.get("auto_reject_reason"))
             confidences = [value for value in (rapid_confidence, row["vision_confidence"]) if isinstance(value, (int, float))]
             if confidences:
                 row["confidence"] = round(max(confidences), 4)
@@ -373,7 +381,16 @@ def refresh_vision_candidates(
                 and best.confidence >= 0.98
                 and canonicalize(rapid_text) == canonicalize(best.text)
             )
-            if row.get("review_status") == "pending":
+            if auto_reject_reason and (row.get("review_status") == "pending" or row.get("auto_accept_reason")):
+                row["review_status"] = "rejected"
+                row["transcription"] = None
+                row["auto_accept_reason"] = None
+                row["auto_reject_reason"] = auto_reject_reason
+            elif was_auto_rejected and not auto_reject_reason:
+                row["review_status"] = "pending"
+                row["transcription"] = None
+                row["auto_reject_reason"] = None
+            elif row.get("review_status") == "pending":
                 if agrees:
                     row["review_status"] = "accepted"
                     row["transcription"] = canonicalize(rapid_text)
@@ -386,7 +403,6 @@ def refresh_vision_candidates(
                     row["transcription"] = None
                     row["auto_accept_reason"] = None
 
-            teacher_text = row.get("teacher_text")
             teacher_confidence = row.get("teacher_confidence")
             teacher_rapid_agrees = (
                 isinstance(teacher_text, str)
@@ -420,9 +436,11 @@ def refresh_vision_candidates(
                 summary["vision_covered"] += 1
             if row.get("auto_accept_reason") == "rapidocr_vision_agreement":
                 summary["auto_accepted"] += 1
+            if row.get("auto_reject_reason"):
+                summary["auto_rejected"] += 1
             if row.get("review_status") == "accepted" and not row.get("auto_accept_reason"):
                 summary["preserved_accepted"] += 1
-            if row.get("review_status") == "rejected":
+            if row.get("review_status") == "rejected" and not row.get("auto_reject_reason"):
                 summary["preserved_rejected"] += 1
             refreshed.append(row)
         updated[split] = refreshed
@@ -461,6 +479,7 @@ def refresh_teacher_candidates(
         "teacher_suggestions": 0,
         "teacher_auto_accept_eligible": 0,
         "teacher_auto_accepted": 0,
+        "auto_rejected": 0,
         "preserved_accepted": 0,
         "preserved_rejected": 0,
         "teacher_model_version": teacher_model_version,
@@ -470,7 +489,7 @@ def refresh_teacher_candidates(
         refreshed: list[dict[str, Any]] = []
         for row in rows:
             was_accepted = row.get("review_status") == "accepted"
-            was_rejected = row.get("review_status") == "rejected"
+            was_rejected = row.get("review_status") == "rejected" and not row.get("auto_reject_reason")
             crop = Path(str(row.get("crop", "")))
             if crop.is_absolute() or ".." in crop.parts:
                 raise ValueError(f"candidate contains an unsafe crop path: {crop}")
@@ -485,6 +504,20 @@ def refresh_teacher_candidates(
             candidate_text = row.get("candidate_text")
             rapid_text = row.get("rapidocr_text")
             rapid_confidence = row.get("rapidocr_confidence")
+            auto_reject_reason = candidate_rejection_reason(
+                str(row.get("roi", "")),
+                (rapid_text, row.get("vision_text"), teacher_text),
+            )
+            was_auto_rejected = bool(row.get("auto_reject_reason"))
+            if auto_reject_reason and (row.get("review_status") == "pending" or row.get("auto_accept_reason")):
+                row["review_status"] = "rejected"
+                row["transcription"] = None
+                row["auto_accept_reason"] = None
+                row["auto_reject_reason"] = auto_reject_reason
+            elif was_auto_rejected and not auto_reject_reason:
+                row["review_status"] = "pending"
+                row["transcription"] = None
+                row["auto_reject_reason"] = None
             teacher_rapid_agrees = (
                 isinstance(teacher_text, str)
                 and isinstance(rapid_text, str)
@@ -518,6 +551,8 @@ def refresh_teacher_candidates(
                 summary["teacher_suggestions"] = int(summary["teacher_suggestions"]) + 1
             if row["teacher_auto_accept_eligible"]:
                 summary["teacher_auto_accept_eligible"] = int(summary["teacher_auto_accept_eligible"]) + 1
+            if row.get("auto_reject_reason"):
+                summary["auto_rejected"] = int(summary["auto_rejected"]) + 1
             if was_accepted:
                 summary["preserved_accepted"] = int(summary["preserved_accepted"]) + 1
             if was_rejected:
@@ -582,6 +617,7 @@ def update_review_row(batch_dir: Path, split: str, crop: str, status: str, trans
             if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription
             else None
         )
+        row["auto_reject_reason"] = None
         _atomic_jsonl(path, rows)
         return row
     raise ValueError("review candidate no longer exists")

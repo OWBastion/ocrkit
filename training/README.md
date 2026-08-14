@@ -86,6 +86,10 @@ rejected decisions.
 
 Rows for which RapidOCR and Vision agree after normalization at confidence at
 least `0.98` are automatically accepted, but remain visible and editable.
+Strict-format ROIs are checked before review. For example, `run_code_panel`
+must contain a valid `本局代码`/`Run Code` value with three four-digit groups;
+text from another HUD position is automatically rejected, so it does not enter
+the pending queue or become a training label.
 When a complete local model artifact exists below `training/.work/artifacts/`,
 Studio also loads the newest artifact as a previous-model reference. Train
 rows where the previous model and RapidOCR agree at confidence at least `0.98`

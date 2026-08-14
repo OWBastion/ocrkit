@@ -3,7 +3,7 @@
 
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number; teacher_eligible?: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; review?: ReviewCounts }
-  type Row = { crop: string; roi: string; review_status: string; auto_accept_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
+  type Row = { crop: string; roi: string; review_status: string; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
     status?: string
@@ -645,9 +645,9 @@
     if (!batch) return message('先选择或创建批次。', true)
     busy = true
     try {
-      const result = await request<{ review: ReviewCounts; summary: { rows: number; vision_covered: number; auto_accepted: number; preserved_accepted: number; preserved_rejected: number } }>(`/api/batches/${batch.batch_id}/candidates/refresh-vision`, { method: 'POST' })
+      const result = await request<{ review: ReviewCounts; summary: { rows: number; vision_covered: number; auto_accepted: number; auto_rejected: number; preserved_accepted: number; preserved_rejected: number } }>(`/api/batches/${batch.batch_id}/candidates/refresh-vision`, { method: 'POST' })
       batch = { ...batch, review: result.review }
-      message(`已补回 Vision：${result.summary.vision_covered}/${result.summary.rows} 条有结果；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
+      message(`已补回 Vision：${result.summary.vision_covered}/${result.summary.rows} 条有结果，自动排除 ${result.summary.auto_rejected} 条位置不匹配项；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
       active = 'review'
       await refreshReview()
       if (rows[0]) selectCandidate(rows[0])
@@ -658,9 +658,9 @@
     if (!batch) return message('先选择或创建批次。', true)
     busy = true
     try {
-      const result = await request<{ review: ReviewCounts; summary: { rows: number; teacher_model_version?: string | null; teacher_covered: number; teacher_suggestions: number; teacher_auto_accept_eligible: number; teacher_auto_accepted: number; preserved_accepted: number; preserved_rejected: number } }>(`/api/batches/${batch.batch_id}/candidates/refresh-teacher`, { method: 'POST' })
+      const result = await request<{ review: ReviewCounts; summary: { rows: number; teacher_model_version?: string | null; teacher_covered: number; teacher_suggestions: number; teacher_auto_accept_eligible: number; teacher_auto_accepted: number; auto_rejected: number; preserved_accepted: number; preserved_rejected: number } }>(`/api/batches/${batch.batch_id}/candidates/refresh-teacher`, { method: 'POST' })
       batch = { ...batch, review: result.review }
-      message(`已补回上一版模型 ${result.summary.teacher_model_version || '未知版本'}：覆盖 ${result.summary.teacher_covered}/${result.summary.rows} 条，自动接受 ${result.summary.teacher_auto_accepted} 条；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
+      message(`已补回上一版模型 ${result.summary.teacher_model_version || '未知版本'}：覆盖 ${result.summary.teacher_covered}/${result.summary.rows} 条，自动接受 ${result.summary.teacher_auto_accepted} 条，自动排除 ${result.summary.auto_rejected} 条位置不匹配项；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
       active = 'review'
       await refreshReview()
       if (rows[0]) selectCandidate(rows[0])
@@ -1302,7 +1302,7 @@
                 >
                   <span>{row.roi}</span>
                   <strong>{row.candidate_text || '无候选文本'}</strong>
-                  <small>{row.auto_accept_reason ? '自动接受 · 可抽查' : row.teacher_auto_accept_eligible ? '上一版模型建议 · 可接受' : confidenceLabel(row.confidence)}</small>
+                  <small>{row.auto_reject_reason ? '自动排除 · 位置不匹配' : row.auto_accept_reason ? '自动接受 · 可抽查' : row.teacher_auto_accept_eligible ? '上一版模型建议 · 可接受' : confidenceLabel(row.confidence)}</small>
                 </button>
               {/each}
             {:else}
@@ -1314,7 +1314,7 @@
           {#if selected && batch}
             <header class="detail-header">
               <div>
-                <p class="eyebrow">{selected.roi} · {selected.auto_accept_reason ? '自动接受 · 可人工覆盖' : selected.review_status}</p>
+                <p class="eyebrow">{selected.roi} · {selected.auto_reject_reason ? '自动排除 · 位置不匹配' : selected.auto_accept_reason ? '自动接受 · 可人工覆盖' : selected.review_status}</p>
                 <h2>复核</h2>
               </div>
               {#if cropNatural.w}
@@ -1354,7 +1354,9 @@
 
             <div class="detail-copy">
               <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
-              {#if selected.auto_accept_reason}
+              {#if selected.auto_reject_reason}
+                <p class="auto-review-hint">这条切片未通过该 ROI 的内容格式检查，已自动排除，不会进入训练标签。若确认位置和内容都正确，可手动接受并填写转写。</p>
+              {:else if selected.auto_accept_reason}
                 <p class="auto-review-hint">这条切片由自动规则接受，仍可修改转写或点击「拒绝」进行人工覆盖。</p>
               {:else if selected.teacher_auto_accept_eligible}
                 <p class="auto-review-hint">上一版模型与 RapidOCR 高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>

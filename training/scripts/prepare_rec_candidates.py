@@ -26,6 +26,7 @@ from app.core.roi_config import RoiConfig, load_roi_config
 from app.image.loader import decode_image
 from app.image.preprocess import preprocess_by_roi
 from app.image.roi import crop_all_rois
+from app.parser.run_code import looks_like_run_code_value, parse_run_code
 from training.vision import VisionLine, VisionOcr
 
 
@@ -111,6 +112,16 @@ def best_rapid_candidate(result: Any) -> tuple[str | None, float | None]:
 
 def canonicalize(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip())
+
+
+def candidate_rejection_reason(roi_name: str, texts: Iterable[str | None]) -> str | None:
+    """Reject OCR text that cannot belong to a field with a strict format."""
+    if roi_name == "run_code_panel" and not any(
+        isinstance(text, str) and (parse_run_code(text).status == "ok" or looks_like_run_code_value(text))
+        for text in texts
+    ):
+        return "run_code.content_mismatch"
+    return None
 
 
 def load_cases(cases_path: Path) -> list[dict[str, Any]]:
@@ -388,6 +399,10 @@ def prepare_candidates(
                     vision_text = vision_line.text if vision_line else None
                     teacher_text = teacher_line.text if teacher_line else None
                     candidate_text = rapid_text or vision_text or teacher_text
+                    auto_reject_reason = candidate_rejection_reason(
+                        roi_name,
+                        (rapid_text, vision_text, teacher_text),
+                    )
                     teacher_rapid_agrees = (
                         teacher_line is not None
                         and rapid_line is not None
@@ -437,9 +452,10 @@ def prepare_candidates(
                             "teacher_auto_accept_eligible": False,
                             "crop_backend": crop_backend,
                             "raw_roi_sha256": rust_crops.get((case_id, roi_name), {}).get("sha256"),
-                            "review_status": "accepted" if auto_accepted or teacher_auto_accepted else "pending",
-                            "transcription": canonicalize(rapid_line.text) if auto_accepted or teacher_auto_accepted else None,
-                            "auto_accept_reason": auto_accept_reason,
+                            "review_status": "rejected" if auto_reject_reason else "accepted" if auto_accepted or teacher_auto_accepted else "pending",
+                            "transcription": canonicalize(rapid_line.text) if not auto_reject_reason and (auto_accepted or teacher_auto_accepted) else None,
+                            "auto_accept_reason": None if auto_reject_reason else auto_accept_reason,
+                            "auto_reject_reason": auto_reject_reason,
                         }
                     )
 
@@ -462,6 +478,7 @@ def prepare_candidates(
         "train_candidates": len(rows["train"]),
         "holdout_candidates": len(rows["holdout"]),
         "auto_accepted": sum(row["review_status"] == "accepted" for split_rows in rows.values() for row in split_rows),
+        "auto_rejected": sum(bool(row.get("auto_reject_reason")) for split_rows in rows.values() for row in split_rows),
         "teacher_auto_accepted": sum(row.get("auto_accept_reason") == "teacher_rapidocr_agreement" for split_rows in rows.values() for row in split_rows),
         "teacher_model_version": teacher_model_version,
         "teacher_suggestions": sum(row["teacher_suggestion"] for split_rows in rows.values() for row in split_rows),

@@ -56,6 +56,7 @@ def test_prepare_candidates_creates_review_and_empty_label_scaffolds(tmp_path: P
         "train_candidates": 1,
         "holdout_candidates": 0,
         "auto_accepted": 0,
+        "auto_rejected": 0,
         "teacher_auto_accepted": 0,
         "teacher_model_version": None,
         "teacher_suggestions": 0,
@@ -68,6 +69,45 @@ def test_prepare_candidates_creates_review_and_empty_label_scaffolds(tmp_path: P
     assert crop is not None and crop.shape[2] == 3
     assert (tmp_path / "labeled/labels/train.txt").read_text(encoding="utf-8") == ""
     assert (tmp_path / "labeled/labels/holdout.txt").read_text(encoding="utf-8") == ""
+
+
+def test_prepare_candidates_auto_rejects_text_that_does_not_match_run_code_roi(tmp_path: Path) -> None:
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    source = np.full((40, 60, 3), 200, dtype=np.uint8)
+    encoded, data = cv2.imencode(".png", source)
+    assert encoded
+    (fixtures / "sample.png").write_bytes(data.tobytes())
+    (fixtures / "cases.json").write_text(
+        json.dumps([{"id": "sample_01", "image": "sample.png"}], ensure_ascii=False), encoding="utf-8"
+    )
+    config = RoiConfig(width=60, height=40, rois={"run_code_panel": RoiBox(0, 0, 30, 20)})
+
+    class WrongRapidOCR:
+        def __call__(self, image: np.ndarray, use_cls: bool) -> object:
+            assert use_cls is False
+            return type(
+                "WrongResult", (), {"boxes": FakeResult.boxes, "txts": ("保持距离(31秒)",), "scores": (0.99,)}
+            )()
+
+    class WrongVisionOcr:
+        def recognize(self, image: np.ndarray) -> list[VisionLine]:
+            return [VisionLine("保持距离(31秒)", 0.99, FakeResult.boxes[0])]
+
+    summary = prepare_candidates(
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=WrongRapidOCR,
+        vision_factory=WrongVisionOcr,
+    )
+
+    row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
+    assert summary["auto_rejected"] == 1
+    assert row["review_status"] == "rejected"
+    assert row["auto_reject_reason"] == "run_code.content_mismatch"
+    assert row["transcription"] is None
 
 
 def test_holdout_split_is_fixed_to_training_plan() -> None:

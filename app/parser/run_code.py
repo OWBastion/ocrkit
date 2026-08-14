@@ -16,6 +16,9 @@ _CANDIDATE_PATTERN = re.compile(
     rf"(?P<second>{_GROUP})\s*(?P<separator_two>{_SEPARATOR})\s*(?P<third>{_GROUP})(?!\d))",
     re.IGNORECASE,
 )
+_VALUE_PATTERN = re.compile(
+    rf"\s*{_GROUP}\s*{_SEPARATOR}\s*{_GROUP}\s*{_SEPARATOR}\s*{_GROUP}\s*"
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,11 @@ def parse_run_code(text: str) -> ParsedRunCode:
         status="ok",
         normalization=tuple(normalization),
     )
+
+
+def looks_like_run_code_value(text: str) -> bool:
+    """Recognize a cropped run-code value when its label was cropped separately."""
+    return bool(_VALUE_PATTERN.fullmatch(text))
 
 
 def enforce_run_code_confidence(parsed: ParsedRunCode, confidence: float) -> ParsedRunCode:

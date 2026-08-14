@@ -163,6 +163,36 @@ def test_refresh_teacher_preserves_manual_decisions_and_adds_predictions(tmp_pat
     assert saved[2]["review_status"] == "rejected"
 
 
+def test_refresh_teacher_auto_rejects_wrong_content_in_run_code_roi(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    dataset = batch / "dataset"
+    review = dataset / "review"
+    (dataset / "images/train/source-a").mkdir(parents=True)
+    review.mkdir(parents=True)
+    _image(dataset / "images/train/source-a/000.png")
+    row = {
+        "crop": "images/train/source-a/000.png",
+        "roi": "run_code_panel",
+        "rapidocr_text": "保持距离(31秒)",
+        "rapidocr_confidence": 0.99,
+        "review_status": "pending",
+    }
+    (review / "train.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    class FakeTeacher:
+        def __call__(self, image: np.ndarray, *, use_det: bool, use_cls: bool) -> SimpleNamespace:
+            assert use_det is False and use_cls is False
+            return SimpleNamespace(txts=("保持距离(31秒)",), scores=(0.99,))
+
+    summary = refresh_teacher_candidates(batch, teacher_factory=FakeTeacher, teacher_model_version="v1")
+    saved = review_rows(batch, "train")[0]
+
+    assert summary["auto_rejected"] == 1
+    assert saved["review_status"] == "rejected"
+    assert saved["auto_reject_reason"] == "run_code.content_mismatch"
+
+
 def test_generate_candidates_reuses_completed_review_manifest(tmp_path: Path) -> None:
     batch = tmp_path / "batch"
     review = batch / "dataset/review"
@@ -242,7 +272,7 @@ def test_refresh_vision_preserves_manual_review_and_updates_pending_rows(tmp_pat
     summary = refresh_vision_candidates(batch, vision_factory=FakeVision)
     rows = review_rows(batch, "train")
 
-    assert summary == {"rows": 3, "vision_covered": 3, "auto_accepted": 1, "preserved_accepted": 1, "preserved_rejected": 1}
+    assert summary == {"rows": 3, "vision_covered": 3, "auto_accepted": 1, "auto_rejected": 0, "preserved_accepted": 1, "preserved_rejected": 1}
     assert rows[0]["review_status"] == "accepted"
     assert rows[0]["transcription"] == "模型文本"
     assert rows[1]["transcription"] == "人工文本"
