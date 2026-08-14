@@ -118,6 +118,7 @@ def test_review_updates_are_atomic_and_counted(tmp_path: Path) -> None:
     saved = update_review_row(batch, "train", row["crop"], "accepted", "人工文本")
 
     assert saved["transcription"] == "人工文本"
+    assert saved["review_method"] == "human"
     assert review_rows(batch, "train")[0]["review_status"] == "accepted"
     assert review_counts(batch) == {"total": 1, "accepted": 1, "pending": 0, "rejected": 0, "teacher_eligible": 0}
 
@@ -160,6 +161,7 @@ def test_auto_accepted_rows_are_filterable_and_manual_text_override_clears_marke
         "review_status": "accepted",
         "transcription": "模型文本",
         "auto_accept_reason": "rapidocr_vision_agreement",
+        "review_method": "automatic",
     }
     (review / "train.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
     (review / "holdout.jsonl").write_text("", encoding="utf-8")
@@ -169,6 +171,7 @@ def test_auto_accepted_rows_are_filterable_and_manual_text_override_clears_marke
 
     assert updated["transcription"] == "人工修正"
     assert updated["auto_accept_reason"] is None
+    assert updated["review_method"] == "human"
 
 
 def test_accept_teacher_suggestions_only_accepts_eligible_train_rows(tmp_path: Path) -> None:

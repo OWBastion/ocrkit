@@ -3,7 +3,7 @@
 
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number; teacher_eligible?: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; active_dataset_revision?: string | null; review?: ReviewCounts }
-  type Row = { crop: string; roi: string; layout_version?: string; review_status: string; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
+  type Row = { crop: string; roi: string; layout_version?: string; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
     status?: string
@@ -743,6 +743,18 @@
   function confidenceLabel(value?: number | null) {
     if (value == null || Number.isNaN(value)) return '—'
     return `${Math.round(value * 100)}%`
+  }
+
+  function candidateConfidence(row: Row) {
+    return row.candidate_confidence ?? row.confidence
+  }
+
+  function reviewConfidenceTitle(row: Row) {
+    const value = confidenceLabel(candidateConfidence(row))
+    if (row.review_method === 'human' || (!row.review_method && row.review_status === 'accepted' && !row.auto_accept_reason)) {
+      return `人工已确认；原始机器候选置信度 ${value}`
+    }
+    return `机器候选置信度 ${value}`
   }
 
   function selectCandidate(row: Row, event?: MouseEvent) {
@@ -1613,11 +1625,11 @@
 
                       <span
                         class="candidate-conf-tag"
-                        class:candidate-conf-high={(row.confidence ?? 0) >= 0.98}
-                        class:candidate-conf-mid={(row.confidence ?? 0) >= 0.9 && (row.confidence ?? 0) < 0.98}
-                        title={`置信度 ${confidenceLabel(row.confidence)}`}
+                        class:candidate-conf-high={(candidateConfidence(row) ?? 0) >= 0.98}
+                        class:candidate-conf-mid={(candidateConfidence(row) ?? 0) >= 0.9 && (candidateConfidence(row) ?? 0) < 0.98}
+                        title={reviewConfidenceTitle(row)}
                       >
-                        {confidenceLabel(row.confidence)}
+                        {row.review_method === 'human' || (!row.review_method && row.review_status === 'accepted' && !row.auto_accept_reason) ? '已确认' : confidenceLabel(candidateConfidence(row))}
                       </span>
                     </div>
                   </div>

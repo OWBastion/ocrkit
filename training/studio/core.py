@@ -879,6 +879,7 @@ def refresh_vision_candidates(
             confidences = [value for value in (rapid_confidence, row["vision_confidence"]) if isinstance(value, (int, float))]
             if confidences:
                 row["confidence"] = round(max(confidences), 4)
+                row["candidate_confidence"] = row["confidence"]
 
             was_auto_accepted = row.get("auto_accept_reason") in {
                 "rapidocr_vision_agreement",
@@ -892,6 +893,7 @@ def refresh_vision_candidates(
             )
             if auto_reject_reason and (row.get("review_status") == "pending" or row.get("auto_accept_reason")):
                 row["review_status"] = "rejected"
+                row["review_method"] = "automatic"
                 row["transcription"] = None
                 row["auto_accept_reason"] = None
                 row["auto_reject_reason"] = auto_reject_reason
@@ -902,6 +904,7 @@ def refresh_vision_candidates(
             elif row.get("review_status") == "pending":
                 if agrees:
                     row["review_status"] = "accepted"
+                    row["review_method"] = "automatic"
                     row["transcription"] = canonicalize(rapid_text)
                     row["auto_accept_reason"] = "rapidocr_vision_teacher_agreement" if teacher_text else "rapidocr_vision_agreement"
             elif was_auto_accepted:
@@ -921,6 +924,7 @@ def refresh_vision_candidates(
             )
             if split == "train" and row.get("review_status") == "pending" and teacher_rapid_agrees:
                 row["review_status"] = "accepted"
+                row["review_method"] = "automatic"
                 row["transcription"] = canonicalize(rapid_text)
                 row["auto_accept_reason"] = "teacher_rapidocr_agreement"
             row["teacher_auto_accept_eligible"] = (
@@ -1018,6 +1022,7 @@ def refresh_teacher_candidates(
             was_auto_rejected = bool(row.get("auto_reject_reason"))
             if auto_reject_reason and (row.get("review_status") == "pending" or row.get("auto_accept_reason")):
                 row["review_status"] = "rejected"
+                row["review_method"] = "automatic"
                 row["transcription"] = None
                 row["auto_accept_reason"] = None
                 row["auto_reject_reason"] = auto_reject_reason
@@ -1041,6 +1046,7 @@ def refresh_teacher_candidates(
                     row["auto_accept_reason"] = None
             if split == "train" and row.get("review_status") == "pending" and teacher_rapid_agrees:
                 row["review_status"] = "accepted"
+                row["review_method"] = "automatic"
                 row["transcription"] = canonicalize(rapid_text)
                 row["auto_accept_reason"] = "teacher_rapidocr_agreement"
                 summary["teacher_auto_accepted"] = int(summary["teacher_auto_accepted"]) + 1
@@ -1132,6 +1138,7 @@ def update_review_row(batch_dir: Path, split: str, crop: str, status: str, trans
             else None
         )
         row["auto_reject_reason"] = None
+        row["review_method"] = "automatic" if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription else "human"
         _atomic_jsonl(path, rows)
         rebuild_negative_registry(batch_dir)
         return row
@@ -1154,6 +1161,7 @@ def accept_teacher_suggestions(batch_dir: Path) -> dict[str, int]:
             row["review_status"] = "accepted"
             row["transcription"] = canonicalize(transcription)
             row["auto_accept_reason"] = "teacher_model_agreement"
+            row["review_method"] = "automatic"
             accepted += 1
     _atomic_jsonl(path, rows)
     counts = review_counts(batch_dir)
