@@ -118,7 +118,7 @@ def canonicalize(text: str) -> str:
 
 def candidate_rejection_reason(roi_name: str, texts: Iterable[str | None]) -> str | None:
     """Reject OCR text that cannot belong to a field with a strict format."""
-    if roi_name == "run_code_panel" and not any(
+    if roi_name in {"run_code_panel", "run_code_right_panel"} and not any(
         isinstance(text, str) and (parse_run_code(text).status == "ok" or looks_like_run_code_value(text))
         for text in texts
     ):
@@ -184,7 +184,7 @@ def _candidate_global_box(row: dict[str, Any], roi_config: RoiConfig) -> tuple[f
     if not isinstance(box, list) or len(box) != 4 or not isinstance(roi_name, str) or roi_name not in roi_config.rois:
         return None
     roi_box = roi_config.rois[roi_name]
-    scale = 3 if roi_name == "achievement_panel" else 2 if roi_name in {"left_panel", "run_code_panel", "bottom_left_hero", "right_panel"} else 1
+    scale = 3 if roi_name == "achievement_panel" else 2 if roi_name in {"left_panel", "run_code_panel", "run_code_right_panel", "bottom_left_hero", "right_panel"} else 1
     points = [(float(point[0]), float(point[1])) for point in box if isinstance(point, list) and len(point) == 2]
     if len(points) != 4:
         return None
@@ -209,34 +209,38 @@ def _overlap_ratio(first: tuple[float, float, float, float], second: tuple[float
 
 
 def deduplicate_candidate_rows(rows: list[dict[str, Any]], roi_config: RoiConfig) -> int:
-    """Keep achievement-panel candidates over duplicate left-panel candidates."""
-    achievements = [
-        row
-        for row in rows
-        if row.get("roi") == "achievement_panel" and row.get("candidate_text")
-    ]
+    """Keep dedicated field ROIs over duplicate detections in broad panels."""
+    preferred_over = {
+        "achievement_panel": "left_panel",
+        "run_code_panel": "left_panel",
+        "run_code_right_panel": "right_panel",
+    }
     deduplicated = 0
-    for row in rows:
-        if row.get("roi") != "left_panel" or not row.get("candidate_text"):
-            continue
-        if row.get("review_status") not in {"pending", "accepted"} or not row.get("source_id"):
-            continue
-        left_box = _candidate_global_box(row, roi_config)
-        if left_box is None:
-            continue
-        duplicate = any(
-            other.get("source_id") == row.get("source_id")
-            and canonicalize(str(other.get("candidate_text"))) == canonicalize(str(row.get("candidate_text")))
-            and (achievement_box := _candidate_global_box(other, roi_config)) is not None
-            and _overlap_ratio(left_box, achievement_box) >= ROI_DEDUP_OVERLAP
-            for other in achievements
-        )
-        if duplicate and (row.get("review_status") == "pending" or row.get("auto_accept_reason")):
-            row["review_status"] = "rejected"
-            row["transcription"] = None
-            row["auto_accept_reason"] = None
-            row["auto_reject_reason"] = "duplicate_roi_candidate"
-            deduplicated += 1
+    for preferred_roi, broad_roi in preferred_over.items():
+        preferred_rows = [
+            row for row in rows if row.get("roi") == preferred_roi and row.get("candidate_text")
+        ]
+        for row in rows:
+            if row.get("roi") != broad_roi or not row.get("candidate_text"):
+                continue
+            if row.get("review_status") not in {"pending", "accepted"} or not row.get("source_id"):
+                continue
+            broad_box = _candidate_global_box(row, roi_config)
+            if broad_box is None:
+                continue
+            duplicate = any(
+                other.get("source_id") == row.get("source_id")
+                and canonicalize(str(other.get("candidate_text"))) == canonicalize(str(row.get("candidate_text")))
+                and (preferred_box := _candidate_global_box(other, roi_config)) is not None
+                and _overlap_ratio(broad_box, preferred_box) >= ROI_DEDUP_OVERLAP
+                for other in preferred_rows
+            )
+            if duplicate and (row.get("review_status") == "pending" or row.get("auto_accept_reason")):
+                row["review_status"] = "rejected"
+                row["transcription"] = None
+                row["auto_accept_reason"] = None
+                row["auto_reject_reason"] = "duplicate_roi_candidate"
+                deduplicated += 1
     return deduplicated
 
 

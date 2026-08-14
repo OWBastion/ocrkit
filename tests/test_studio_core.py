@@ -18,6 +18,12 @@ def _image(path: Path, value: int = 200) -> None:
     path.write_bytes(data.tobytes())
 
 
+def _sized_image(path: Path, width: int, height: int, value: int = 200) -> None:
+    encoded, data = cv2.imencode(".png", np.full((height, width, 3), value, dtype=np.uint8))
+    assert encoded
+    path.write_bytes(data.tobytes())
+
+
 def test_create_batch_deduplicates_and_splits_whole_sources(tmp_path: Path) -> None:
     first = tmp_path / "first.png"
     second = tmp_path / "second.png"
@@ -28,6 +34,23 @@ def test_create_batch_deduplicates_and_splits_whole_sources(tmp_path: Path) -> N
     assert summary["sources"] == 1  # identical image bytes are intentionally deduplicated.
     manifest = json.loads((batch_dir / "batch.json").read_text(encoding="utf-8"))
     assert manifest["sources"][0]["split"] == "train"
+
+
+def test_create_batch_selects_roi_layout_per_source_aspect_ratio(tmp_path: Path) -> None:
+    tall = tmp_path / "tall.png"
+    wide = tmp_path / "wide.png"
+    _sized_image(tall, 2560, 1600, 100)
+    _sized_image(wide, 1920, 1080, 200)
+
+    batch_dir, summary = create_batch([tall, wide], work_root=tmp_path / "studio", holdout_ratio=0.5)
+
+    manifest = json.loads((batch_dir / "batch.json").read_text(encoding="utf-8"))
+    by_name = {row["original_name"]: row for row in manifest["sources"]}
+    assert summary["layout_version"] == "mixed"
+    assert by_name["tall.png"]["layout_version"] == "1280x800-v1"
+    assert by_name["wide.png"]["layout_version"] == "1280x720-v6"
+    assert by_name["tall.png"]["quality"]["warnings"] == []
+    assert by_name["wide.png"]["quality"]["warnings"] == []
 
 
 def test_append_sources_keeps_existing_splits_and_assigns_new_holdout(tmp_path: Path) -> None:

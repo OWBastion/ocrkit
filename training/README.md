@@ -86,7 +86,8 @@ rejected decisions.
 
 Rows for which RapidOCR and Vision agree after normalization at confidence at
 least `0.98` are automatically accepted, but remain visible and editable.
-Strict-format ROIs are checked before review. For example, `run_code_panel`
+Strict-format ROIs are checked before review. For example, `run_code_panel` and
+`run_code_right_panel`
 must contain a valid `本局代码`/`Run Code` value with three four-digit groups;
 text from another HUD position is automatically rejected, so it does not enter
 the pending queue or become a training label.
@@ -108,10 +109,12 @@ signatures across every panel before a row reaches the pending queue. These
 negative examples are not written to recognition labels: PP-OCR recognition
 training requires a transcription, while the negative registry is the current
 candidate-filter path and can later feed a text-detection training workflow.
-Overlapping `achievement_panel` and `left_panel` detections are also compared
-in normalized screenshot coordinates. When the source, text, and position
-match, the more specific `achievement_panel` row is kept and the duplicate
-`left_panel` row is automatically excluded.
+Overlapping dedicated-field and broad-panel detections are also compared in
+normalized screenshot coordinates. When the source, text, and position match,
+the dedicated `achievement_panel` or run-code ROI is kept and the duplicate
+`left_panel` or `right_panel` row is automatically excluded. A batch may contain
+both 16:9 and 16:10 screenshots; Studio records and crops each source with the
+matching layout instead of applying one layout to the whole batch.
 
 ### Import screenshots from R2
 

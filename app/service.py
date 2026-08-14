@@ -35,6 +35,7 @@ _FIELD_ROIS = {
     "version": ("right_panel",),
     "run_code": ("run_code_panel",),
 }
+_RUN_CODE_ROIS = ("run_code_panel", "run_code_right_panel")
 
 
 def _field_evidence(name: str, value: Any, confidences: dict[str, float]) -> FieldEvidence:
@@ -53,16 +54,17 @@ def _build_field_evidence(
     data,
     confidences: dict[str, float],
     run_code: ParsedRunCode,
+    run_code_rois: tuple[str, ...],
 ) -> dict[str, FieldEvidence]:
     fields = {
         name: _field_evidence(name, getattr(data, name), confidences)
         for name in _FIELD_ROIS
     }
-    run_code_confidence = confidences.get("run_code_panel", 0.0)
+    run_code_confidence = max((confidences.get(roi, 0.0) for roi in run_code_rois), default=0.0)
     fields["run_code"] = FieldEvidence(
         value=data.run_code,
         confidence=run_code_confidence if run_code.status != "missing" else 0.0,
-        source_roi=list(_FIELD_ROIS["run_code"]),
+        source_roi=list(run_code_rois),
         normalization=list(run_code.normalization),
         status=run_code.status,
     )
@@ -104,9 +106,13 @@ def extract_structured(
         left.achievement_title = achievement_titles[0]
         left.achievement_titles = achievement_titles
         left.achievement_unlocked = True
+    run_code_rois = tuple(
+        name for name in _RUN_CODE_ROIS if name in roi_images and raw_text.get(name, "").strip()
+    )
+    evidence_run_code_rois = run_code_rois or tuple(name for name in _RUN_CODE_ROIS if name in roi_images)[:1]
     run_code = enforce_run_code_confidence(
-        parse_run_code(raw_text.get("run_code_panel", "")),
-        confidences.get("run_code_panel", 0.0),
+        parse_run_code("\n".join(raw_text.get(name, "") for name in run_code_rois)),
+        max((confidences.get(name, 0.0) for name in run_code_rois), default=0.0),
     )
     bottom_left = parse_bottom_left_hero(raw_text.get("bottom_left_hero", ""))
     right = parse_right_panel(raw_text.get("right_panel", ""), map_names, map_aliases)
@@ -152,7 +158,7 @@ def extract_structured(
         layout_version=active_roi_config.version,
         ok=True,
         data=data,
-        fields=_build_field_evidence(data, confidences, run_code),
+        fields=_build_field_evidence(data, confidences, run_code, evidence_run_code_rois),
         warnings=warnings,
         quality=QualityPayload(
             original_size=input_quality["original_size"],

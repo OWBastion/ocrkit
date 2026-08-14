@@ -45,7 +45,7 @@ def preprocess_by_roi(roi_name: str, image: np.ndarray) -> np.ndarray:
         return preprocess_left_panel(image)
     if roi_name == "achievement_panel":
         return preprocess_achievement_panel(image)
-    if roi_name == "run_code_panel":
+    if roi_name in {"run_code_panel", "run_code_right_panel"}:
         return preprocess_run_code_panel(image)
     if roi_name == "bottom_left_hero":
         return preprocess_left_panel(image)

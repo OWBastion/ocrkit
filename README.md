@@ -96,7 +96,9 @@ central completion banner is not an authoritative player source, so its player n
 not included in `ChallengeData` or field evidence.
 `map_variant` is `"classic"` when the right-panel map label contains `经典版` or `经典`,
 and `null` when the variant is not detected.
-`run_code` is additive, optional OCR evidence from the dedicated settlement `run_code_panel` ROI.
+`run_code` is additive, optional OCR evidence from the dedicated settlement
+`run_code_panel` / `run_code_right_panel` ROIs. When both sides contain the same code,
+OCRKit merges the repeated evidence and reports the ROI(s) that supplied text.
 When its visible label and all three numeric groups are reliable, OCRKit returns canonical
 `NNNN-NNNN-NNNN`; it records the ROI confidence, source, normalization, and one of
 `ok`, `missing`, `invalid`, `ambiguous`, or `low_confidence`. Legacy supported layouts

@@ -15,7 +15,7 @@ import cv2
 from app.core.roi_config import load_roi_config
 from app.image.loader import decode_image
 from app.image.quality import assess_input_quality
-from app.image.roi import crop_all_rois
+from app.image.roi import crop_all_rois, select_roi_config
 from training.scripts.finalize_rec_labels import finalize
 from training.scripts.prepare_rec_candidates import (
     best_rapid_candidate,
@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORK_ROOT = ROOT / "training/.work/studio"
 DEFAULT_CANDIDATE_ARTIFACT_ROOT = ROOT / "training/.work/artifacts"
 DEFAULT_ROI_CONFIG = ROOT / "configs/roi_1280x720.yaml"
+ROI_CONFIG_VARIANTS = (DEFAULT_ROI_CONFIG, ROOT / "configs/roi_1280x800.yaml")
 PRIVATE_DATASET_ROOT = ROOT / "datasets/labeled/rec/studio"
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -89,6 +90,55 @@ def _digest(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             hasher.update(block)
     return hasher.hexdigest()
+
+
+def _roi_config_options(config_path: Path) -> list[tuple[Path, Any]]:
+    """Return the configured layout plus built-in aspect-ratio variants."""
+    configured = config_path.resolve()
+    paths = [configured]
+    if configured == DEFAULT_ROI_CONFIG.resolve():
+        paths = [path.resolve() for path in ROI_CONFIG_VARIANTS]
+    return [(path, load_roi_config(path)) for path in paths]
+
+
+def _select_source_roi_config(
+    image: Any,
+    options: list[tuple[Path, Any]],
+) -> tuple[Path, Any]:
+    configs = tuple(config for _, config in options)
+    selected = select_roi_config(image, configs)
+    return next((path, config) for path, config in options if config == selected)
+
+
+def _relative_roi_config_path(path: Path) -> str:
+    return path.resolve().relative_to(ROOT).as_posix()
+
+
+def _source_roi_config(
+    batch_dir: Path,
+    source: dict[str, Any],
+    options: list[tuple[Path, Any]],
+) -> tuple[Path, Any]:
+    configured = source.get("roi_config")
+    if isinstance(configured, str) and configured:
+        path = (ROOT / configured).resolve()
+        return path, load_roi_config(path)
+    file = source.get("file")
+    if not isinstance(file, str) or not file:
+        return options[0]
+    image_path = batch_dir / file
+    if not image_path.is_file():
+        return options[0]
+    image = decode_image(image_path.read_bytes())
+    return _select_source_roi_config(image, options)
+
+
+def _layout_summary(sources: list[dict[str, Any]]) -> tuple[str, str]:
+    layouts = {(str(source["layout_version"]), str(source["roi_config"])) for source in sources}
+    if len(layouts) == 1:
+        version, path = next(iter(layouts))
+        return version, path
+    return "mixed", ""
 
 
 def _negative_registry_path(batch_dir: Path) -> Path:
@@ -174,13 +224,27 @@ def apply_negative_matches(batch_dir: Path, negative_path: Path) -> int:
 
 def deduplicate_review_rows(batch_dir: Path) -> int:
     manifest = load_manifest(batch_dir)
-    roi_config = load_roi_config(ROOT / str(manifest.get("roi_config", DEFAULT_ROI_CONFIG.relative_to(ROOT))))
+    options = _roi_config_options(ROOT / str(manifest.get("roi_config") or DEFAULT_ROI_CONFIG.relative_to(ROOT)))
+    source_configs = {
+        str(source["id"]): _source_roi_config(batch_dir, source, options)
+        for source in manifest.get("sources", [])
+    }
     dataset_dir = batch_dir / "dataset"
     updated: dict[str, list[dict[str, Any]]] = {}
     deduplicated = 0
     for split in ("train", "holdout"):
         rows = review_rows(batch_dir, split)
-        deduplicated += deduplicate_candidate_rows(rows, roi_config)
+        by_config: dict[str, tuple[Any, list[dict[str, Any]]]] = {}
+        for row in rows:
+            selected = source_configs.get(str(row.get("source_id")))
+            if selected is not None:
+                path, config = selected
+                by_config.setdefault(str(path), (config, []))[1].append(row)
+        if not by_config:
+            deduplicated += deduplicate_candidate_rows(rows, options[0][1])
+        else:
+            for config, config_rows in by_config.values():
+                deduplicated += deduplicate_candidate_rows(config_rows, config)
         updated[split] = rows
     if deduplicated:
         for split in ("train", "holdout"):
@@ -211,8 +275,8 @@ def create_batch(
     candidates = [Path(item) for item in upload_paths if item]
     if not candidates:
         raise ValueError("select at least one image")
-    roi_config = load_roi_config(roi_config_path)
-    prepared: list[tuple[Path, str, dict[str, Any]]] = []
+    options = _roi_config_options(roi_config_path)
+    prepared: list[tuple[Path, str, dict[str, Any], Path, Any]] = []
     seen: set[str] = set()
     for source in candidates:
         if source.suffix.lower() not in _IMAGE_SUFFIXES:
@@ -223,7 +287,16 @@ def create_batch(
         if digest in seen:
             continue
         image = decode_image(source.read_bytes())
-        prepared.append((source, digest, assess_input_quality(image, roi_config.width, roi_config.height)))
+        selected_path, selected_config = _select_source_roi_config(image, options)
+        prepared.append(
+            (
+                source,
+                digest,
+                assess_input_quality(image, selected_config.width, selected_config.height),
+                selected_path,
+                selected_config,
+            )
+        )
         seen.add(digest)
     if not prepared:
         raise ValueError("no supported, decodable images were selected")
@@ -232,9 +305,9 @@ def create_batch(
     batch_dir = work_root / "batches" / batch_id
     sources_dir = batch_dir / "sources"
     sources_dir.mkdir(parents=True)
-    splits = _split_sources([digest for _, digest, _ in prepared], holdout_ratio)
+    splits = _split_sources([digest for _, digest, *_ in prepared], holdout_ratio)
     sources: list[dict[str, Any]] = []
-    for index, (source, digest, quality) in enumerate(prepared, 1):
+    for index, (source, digest, quality, selected_path, selected_config) in enumerate(prepared, 1):
         extension = source.suffix.lower()
         target_name = f"{index:04d}-{digest[:12]}{extension}"
         shutil.copy2(source, sources_dir / target_name)
@@ -245,16 +318,20 @@ def create_batch(
             "split": splits[digest],
             "original_name": source.name,
             "quality": quality,
+            "layout_version": selected_config.version,
+            "roi_config": _relative_roi_config_path(selected_path),
         }
         if provenance_by_digest and digest in provenance_by_digest:
             row["provenance"] = provenance_by_digest[digest]
         sources.append(row)
+    layout_version, manifest_roi_config = _layout_summary(sources)
     manifest = {
         "schema_version": "1",
         "batch_id": batch_id,
         "created_at": datetime.now(UTC).isoformat(),
-        "layout_version": roi_config.version,
-        "roi_config": str(roi_config_path.relative_to(ROOT)),
+        "layout_version": layout_version,
+        "roi_config": manifest_roi_config,
+        "roi_configs": sorted({str(source["roi_config"]) for source in sources}),
         "holdout_ratio": holdout_ratio,
         "sources": sources,
     }
@@ -277,9 +354,9 @@ def append_sources(
     candidates = [Path(item) for item in upload_paths if item]
     if not candidates:
         raise ValueError("select at least one image")
-    roi_config = load_roi_config(ROOT / str(manifest["roi_config"]))
+    options = _roi_config_options(ROOT / str(manifest.get("roi_config") or DEFAULT_ROI_CONFIG))
     existing = {str(row["sha256"]) for row in manifest["sources"]}
-    prepared: list[tuple[Path, str, dict[str, Any]]] = []
+    prepared: list[tuple[Path, str, dict[str, Any], Path, Any]] = []
     for source in candidates:
         if source.suffix.lower() not in _IMAGE_SUFFIXES or not source.is_file():
             continue
@@ -287,7 +364,16 @@ def append_sources(
         if digest in existing:
             continue
         image = decode_image(source.read_bytes())
-        prepared.append((source, digest, assess_input_quality(image, roi_config.width, roi_config.height)))
+        selected_path, selected_config = _select_source_roi_config(image, options)
+        prepared.append(
+            (
+                source,
+                digest,
+                assess_input_quality(image, selected_config.width, selected_config.height),
+                selected_path,
+                selected_config,
+            )
+        )
         existing.add(digest)
     if not prepared:
         raise ValueError("all selected screenshots already exist in this batch or could not be decoded")
@@ -302,7 +388,7 @@ def append_sources(
     sources_dir = batch_dir / "sources"
     next_index = len(sources) + 1
     added: list[dict[str, Any]] = []
-    for index, (source, digest, quality) in enumerate(sorted(prepared, key=lambda row: row[1])):
+    for index, (source, digest, quality, selected_path, selected_config) in enumerate(sorted(prepared, key=lambda row: row[1])):
         extension = source.suffix.lower()
         target_name = f"{next_index + index:04d}-{digest[:12]}{extension}"
         shutil.copy2(source, sources_dir / target_name)
@@ -313,11 +399,15 @@ def append_sources(
             "split": "holdout" if index < new_holdout else "train",
             "original_name": source.name,
             "quality": quality,
+            "layout_version": selected_config.version,
+            "roi_config": _relative_roi_config_path(selected_path),
         }
         if provenance_by_digest and digest in provenance_by_digest:
             row["provenance"] = provenance_by_digest[digest]
         added.append(row)
     manifest["sources"] = [*sources, *added]
+    manifest["layout_version"], manifest["roi_config"] = _layout_summary(manifest["sources"])
+    manifest["roi_configs"] = sorted({str(source["roi_config"]) for source in manifest["sources"]})
     manifest["updated_at"] = datetime.now(UTC).isoformat()
     _atomic_json(batch_dir / "batch.json", manifest)
     _atomic_json(
@@ -344,7 +434,95 @@ def batch_summary(batch_dir: Path) -> dict[str, Any]:
         "holdout_sources": splits["holdout"],
         "quality_warnings": warnings,
         "layout_version": manifest["layout_version"],
+        "roi_configs": manifest.get("roi_configs", [manifest.get("roi_config", "")]),
     }
+
+
+def _prepare_candidate_groups(
+    batch_dir: Path,
+    sources: list[dict[str, Any]],
+    output_dir: Path,
+    *,
+    roi_config_path: Path,
+    crop_backend: str,
+    teacher_artifact: tuple[Path, str] | None,
+    negative_path: Path,
+) -> dict[str, Any]:
+    """Prepare each source with the ROI layout matching its aspect ratio."""
+    options = _roi_config_options(roi_config_path)
+    if not sources:
+        return prepare_candidates(
+            batch_dir / "cases.json",
+            batch_dir,
+            output_dir,
+            options[0][1],
+            crop_backend=crop_backend,
+            roi_config_path=options[0][0],
+            teacher_model_dir=teacher_artifact[0] if teacher_artifact else None,
+            teacher_model_version=teacher_artifact[1] if teacher_artifact else None,
+            negative_examples_path=negative_path,
+        )
+
+    grouped: dict[str, tuple[Path, Any, list[dict[str, Any]]]] = {}
+    for source in sources:
+        path, config = _source_roi_config(batch_dir, source, options)
+        grouped.setdefault(str(path), (path, config, []))[2].append(source)
+
+    temporary_dir = batch_dir / f".candidate-layouts-{uuid.uuid4().hex}"
+    temporary_dir.mkdir()
+    summaries: list[dict[str, Any]] = []
+    try:
+        for index, (path, config, group_sources) in enumerate(grouped.values(), 1):
+            cases_path = temporary_dir / f"{index:04d}.cases.json"
+            _atomic_json(
+                cases_path,
+                [
+                    {"id": source["id"], "image": source["file"], "split": source["split"]}
+                    for source in group_sources
+                ],
+            )
+            group_output = temporary_dir / f"dataset-{index:04d}"
+            summaries.append(
+                prepare_candidates(
+                    cases_path,
+                    batch_dir,
+                    group_output,
+                    config,
+                    crop_backend=crop_backend,
+                    roi_config_path=path,
+                    teacher_model_dir=teacher_artifact[0] if teacher_artifact else None,
+                    teacher_model_version=teacher_artifact[1] if teacher_artifact else None,
+                    negative_examples_path=negative_path,
+                )
+            )
+            if not output_dir.exists():
+                shutil.copytree(group_output, output_dir)
+            else:
+                shutil.copytree(group_output / "images", output_dir / "images", dirs_exist_ok=True)
+                _merge_crop_manifests(output_dir, group_output)
+
+        merged_rows = {split: [] for split in ("train", "holdout")}
+        for index in range(1, len(summaries) + 1):
+            group_output = temporary_dir / f"dataset-{index:04d}"
+            for split in merged_rows:
+                path = group_output / "review" / f"{split}.jsonl"
+                if path.is_file():
+                    merged_rows[split].extend(
+                        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+                    )
+        for split, rows in merged_rows.items():
+            _atomic_jsonl(output_dir / "review" / f"{split}.jsonl", rows)
+
+        result: dict[str, Any] = {}
+        for summary in summaries:
+            for key, value in summary.items():
+                if isinstance(value, int):
+                    result[key] = int(result.get(key, 0)) + value
+                elif key not in result:
+                    result[key] = value
+        return result
+    finally:
+        shutil.rmtree(temporary_dir, ignore_errors=True)
 
 
 def generate_candidates(
@@ -383,25 +561,23 @@ def generate_candidates(
                     temporary_cases,
                     [{"id": row["id"], "image": row["file"], "split": row["split"]} for row in missing_sources],
                 )
-                prepare_candidates(
-                    temporary_cases,
+                prepared = _prepare_candidate_groups(
                     batch_dir,
+                    missing_sources,
                     temporary_output,
-                    load_roi_config(roi_config_path),
-                    crop_backend=crop_backend,
                     roi_config_path=roi_config_path,
-                    teacher_model_dir=teacher_artifact[0] if teacher_artifact else None,
-                    teacher_model_version=teacher_artifact[1] if teacher_artifact else None,
-                    negative_examples_path=negative_path,
+                    crop_backend=crop_backend,
+                    teacher_artifact=teacher_artifact,
+                    negative_path=negative_path,
                 )
                 for split in ("train", "holdout"):
                     rows[split].extend(review_rows(temporary_output, split))
-                    deduplicated += deduplicate_candidate_rows(rows[split], load_roi_config(roi_config_path))
                     _atomic_jsonl(review_dir / f"{split}.jsonl", rows[split])
                 shutil.copytree(temporary_output / "images", dataset_dir / "images", dirs_exist_ok=True)
                 if crop_backend == "rust":
                     _merge_crop_manifests(dataset_dir, temporary_output)
                 _invalidate_labels(dataset_dir)
+                deduplicated += int(prepared.get("deduplicated", 0))
             finally:
                 shutil.rmtree(temporary_dir, ignore_errors=True)
             return {
@@ -428,16 +604,15 @@ def generate_candidates(
             "deduplicated": deduplicated,
             "reused_existing_candidates": True,
         }
-    return prepare_candidates(
-        batch_dir / "cases.json",
+    sources = load_manifest(batch_dir).get("sources", []) if (batch_dir / "batch.json").is_file() else []
+    return _prepare_candidate_groups(
         batch_dir,
+        sources,
         dataset_dir,
-        load_roi_config(roi_config_path),
-        crop_backend=crop_backend,
         roi_config_path=roi_config_path,
-        teacher_model_dir=teacher_artifact[0] if teacher_artifact else None,
-        teacher_model_version=teacher_artifact[1] if teacher_artifact else None,
-        negative_examples_path=negative_path,
+        crop_backend=crop_backend,
+        teacher_artifact=teacher_artifact,
+        negative_path=negative_path,
     )
 
 
@@ -689,7 +864,9 @@ def roi_preview_paths(batch_dir: Path) -> list[tuple[str, str]]:
         return []
     source = batch_dir / manifest["sources"][0]["file"]
     image = decode_image(source.read_bytes())
-    normalized, rois = crop_all_rois(image, load_roi_config(DEFAULT_ROI_CONFIG))
+    options = _roi_config_options(DEFAULT_ROI_CONFIG)
+    _, roi_config = _source_roi_config(batch_dir, manifest["sources"][0], options)
+    normalized, rois = crop_all_rois(image, roi_config)
     preview_dir = batch_dir / "previews"
     preview_dir.mkdir(exist_ok=True)
     normalized_path = preview_dir / "normalized.png"
