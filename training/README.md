@@ -87,14 +87,15 @@ rejected decisions.
 Rows for which RapidOCR and Vision agree after normalization at confidence at
 least `0.98` are automatically accepted, but remain visible and editable.
 When a complete local model artifact exists below `training/.work/artifacts/`,
-Studio also loads the newest artifact as a teacher. Train rows where the
-teacher and current candidates agree at confidence at least `0.98` are marked
-as batch-accept eligible; they remain pending until the operator explicitly
-clicks the batch action. Teacher suggestions never auto-accept holdout rows.
+Studio also loads the newest artifact as a previous-model reference. Train
+rows where the previous model and RapidOCR agree at confidence at least `0.98`
+are automatically accepted and remain visible for spot checking. Apple Vision
+remains visible as a third reference, but does not block this Train decision.
+Previous-model suggestions never auto-accept holdout rows.
 Every remaining row must be manually accepted with a transcription or rejected
 before labels can be generated. Set
 `OCRKIT_STUDIO_CANDIDATE_ARTIFACT_DIR` to pin a specific local artifact when
-the newest artifact is not the desired teacher.
+the newest artifact is not the desired previous model.
 
 ### Import screenshots from R2
 

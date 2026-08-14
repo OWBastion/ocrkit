@@ -518,7 +518,7 @@
       const result = await request<{ review: ReviewCounts; summary: { reused_existing_candidates?: boolean; teacher_model_version?: string | null; teacher_suggestions?: number; teacher_auto_accept_eligible?: number } }>(`/api/batches/${batch.batch_id}/candidates`, { method: 'POST' })
       batch = { ...batch, review: result.review }
       const teacherHint = result.summary.teacher_model_version
-        ? `历史模型 ${result.summary.teacher_model_version} 已提供 ${result.summary.teacher_suggestions || 0} 条建议；Train 可批量接受 ${result.summary.teacher_auto_accept_eligible || 0} 条。`
+        ? `上一版模型 ${result.summary.teacher_model_version} 已提供 ${result.summary.teacher_suggestions || 0} 条建议；Train 会自动接受与 RapidOCR 高置信一致的结果。`
         : ''
       message(result.summary.reused_existing_candidates ? '已打开现有候选，进入复核。' : `候选已生成。${teacherHint}`)
       active = 'review'
@@ -535,9 +535,9 @@
       batch = { ...batch, review: result.counts }
       await refreshReview()
       if (rows[0]) selectCandidate(rows[0])
-      message(`已批量接受 ${result.result.accepted} 条高置信度教师建议；holdout 未自动接受。`)
+      message(`已批量接受 ${result.result.accepted} 条上一版模型 + RapidOCR 一致项；holdout 未自动接受。`)
     } catch (cause) {
-      message(cause instanceof Error ? cause.message : '批量接受教师建议失败', true)
+      message(cause instanceof Error ? cause.message : '批量接受上一版模型建议失败', true)
     } finally {
       busy = false
     }
@@ -658,13 +658,13 @@
     if (!batch) return message('先选择或创建批次。', true)
     busy = true
     try {
-      const result = await request<{ review: ReviewCounts; summary: { rows: number; teacher_model_version?: string | null; teacher_covered: number; teacher_suggestions: number; teacher_auto_accept_eligible: number; preserved_accepted: number; preserved_rejected: number } }>(`/api/batches/${batch.batch_id}/candidates/refresh-teacher`, { method: 'POST' })
+      const result = await request<{ review: ReviewCounts; summary: { rows: number; teacher_model_version?: string | null; teacher_covered: number; teacher_suggestions: number; teacher_auto_accept_eligible: number; teacher_auto_accepted: number; preserved_accepted: number; preserved_rejected: number } }>(`/api/batches/${batch.batch_id}/candidates/refresh-teacher`, { method: 'POST' })
       batch = { ...batch, review: result.review }
-      message(`已补回历史模型 ${result.summary.teacher_model_version || '未知版本'}：覆盖 ${result.summary.teacher_covered}/${result.summary.rows} 条，Train 可批量接受 ${result.summary.teacher_auto_accept_eligible} 条；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
+      message(`已补回上一版模型 ${result.summary.teacher_model_version || '未知版本'}：覆盖 ${result.summary.teacher_covered}/${result.summary.rows} 条，自动接受 ${result.summary.teacher_auto_accepted} 条；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
       active = 'review'
       await refreshReview()
       if (rows[0]) selectCandidate(rows[0])
-    } catch (cause) { message(cause instanceof Error ? cause.message : '补回历史模型结果失败', true) } finally { busy = false }
+    } catch (cause) { message(cause instanceof Error ? cause.message : '补回上一版模型结果失败', true) } finally { busy = false }
   }
 
   async function finalize() {
@@ -1247,7 +1247,7 @@
         <header class="panel-head">
           <p class="eyebrow">步骤 2</p>
           <h2>生成候选</h2>
-          <p>按固定 ROI 切片，并用历史模型、RapidOCR 与 Vision 写入复核清单。已有结果会直接打开，不会覆盖人工修改。</p>
+          <p>按固定 ROI 切片，并用上一版模型、RapidOCR 与 Vision 写入复核清单。上一版模型只提供识别建议，不代表人工真值。</p>
         </header>
         <div class="panel-actions">
           <button class="button-primary" disabled={!batch || busy} on:click={candidates}>
@@ -1257,7 +1257,7 @@
             {busy ? '补回中…' : '补回 Vision（保留标注）'}
           </button>
           <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={() => void refreshTeacher()}>
-            {busy ? '补回中…' : '补回历史模型（保留标注）'}
+            {busy ? '补回中…' : '补回上一版模型（保留标注）'}
           </button>
         </div>
       </section>
@@ -1273,14 +1273,14 @@
               <option value="pending">待复核</option>
               <option value="accepted">已接受</option>
               <option value="auto_accepted">自动接受</option>
-              <option value="teacher_eligible">教师建议</option>
+              <option value="teacher_eligible">上一版模型建议</option>
               <option value="rejected">已拒绝</option>
               <option value="all">全部</option>
             </select>
             <button class="button-secondary button-compact" on:click={() => refreshReview()}>刷新</button>
             {#if split === 'train' && (batch?.review?.teacher_eligible ?? 0) > 0}
               <button class="button-primary button-compact" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>
-                接受高置信度建议 ({batch?.review?.teacher_eligible})
+                接受上一版模型 + RapidOCR 一致项 ({batch?.review?.teacher_eligible})
               </button>
             {/if}
           </div>
@@ -1302,7 +1302,7 @@
                 >
                   <span>{row.roi}</span>
                   <strong>{row.candidate_text || '无候选文本'}</strong>
-                  <small>{row.auto_accept_reason ? '自动 · 可复核' : row.teacher_auto_accept_eligible ? '教师建议 · 可批量接受' : confidenceLabel(row.confidence)}</small>
+                  <small>{row.auto_accept_reason ? '自动接受 · 可抽查' : row.teacher_auto_accept_eligible ? '上一版模型建议 · 可接受' : confidenceLabel(row.confidence)}</small>
                 </button>
               {/each}
             {:else}
@@ -1355,9 +1355,9 @@
             <div class="detail-copy">
               <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
               {#if selected.auto_accept_reason}
-                <p class="auto-review-hint">这条切片由双模型一致且高置信度自动接受；仍可修改转写或点击「拒绝」进行人工覆盖。</p>
+                <p class="auto-review-hint">这条切片由自动规则接受，仍可修改转写或点击「拒绝」进行人工覆盖。</p>
               {:else if selected.teacher_auto_accept_eligible}
-                <p class="auto-review-hint">历史模型与当前候选高置信度一致。这条建议只属于 Train，可用左侧批量按钮接受；Holdout 不会自动接受。</p>
+                <p class="auto-review-hint">上一版模型与 RapidOCR 高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>
               {/if}
               <div class="engine-picks" role="group" aria-label="双引擎识别结果">
                 <button
@@ -1407,7 +1407,7 @@
                   on:click={() => applyEngineText(selected?.teacher_text)}
                 >
                   <span class="engine-pick-head">
-                    <span class="engine-name">历史模型{selected.teacher_model_version ? ` · ${selected.teacher_model_version}` : ''}</span>
+                    <span class="engine-name">上一版模型{selected.teacher_model_version ? ` · ${selected.teacher_model_version}` : ''}</span>
                     <span
                       class="engine-conf"
                       class:engine-conf-high={(selected.teacher_confidence ?? 0) >= 0.98}

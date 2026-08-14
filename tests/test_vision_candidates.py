@@ -76,7 +76,7 @@ def test_low_confidence_matching_candidates_remain_pending(tmp_path: Path) -> No
     assert row["auto_accept_reason"] is None
 
 
-def test_teacher_model_adds_train_suggestion_without_overwriting_review_status(tmp_path: Path) -> None:
+def test_teacher_model_auto_accepts_high_confidence_train_agreement(tmp_path: Path) -> None:
     fixtures, config = _fixtures(tmp_path)
 
     class EmptyVision:
@@ -97,7 +97,9 @@ def test_teacher_model_adds_train_suggestion_without_overwriting_review_status(t
     row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
     assert summary["teacher_model_version"] == "2026.07.31-110827"
     assert summary["teacher_suggestions"] == 1
-    assert summary["teacher_auto_accept_eligible"] == 1
-    assert row["review_status"] == "pending"
+    assert summary["teacher_auto_accepted"] == 1
+    assert row["review_status"] == "accepted"
+    assert row["transcription"] == "A 挑战"
+    assert row["auto_accept_reason"] == "teacher_rapidocr_agreement"
     assert row["teacher_text"] == "A 挑战"
     assert row["suggested_transcription"] == "A 挑战"

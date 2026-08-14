@@ -388,16 +388,12 @@ def prepare_candidates(
                     vision_text = vision_line.text if vision_line else None
                     teacher_text = teacher_line.text if teacher_line else None
                     candidate_text = rapid_text or vision_text or teacher_text
-                    current_lines = [line for line in (rapid_line, vision_line) if line is not None]
-                    teacher_agrees = (
+                    teacher_rapid_agrees = (
                         teacher_line is not None
-                        and bool(current_lines)
-                        and all(
-                            line.confidence >= TEACHER_AUTO_ACCEPT_CONFIDENCE
-                            and canonicalize(line.text) == canonicalize(teacher_line.text)
-                            for line in current_lines
-                        )
+                        and rapid_line is not None
+                        and rapid_line.confidence >= TEACHER_AUTO_ACCEPT_CONFIDENCE
                         and teacher_line.confidence >= TEACHER_AUTO_ACCEPT_CONFIDENCE
+                        and canonicalize(rapid_line.text) == canonicalize(teacher_line.text)
                     )
                     teacher_suggestion = (
                         teacher_line is not None
@@ -411,6 +407,14 @@ def prepare_candidates(
                         and rapid_line.confidence >= AUTO_ACCEPT_CONFIDENCE
                         and vision_line.confidence >= AUTO_ACCEPT_CONFIDENCE
                         and canonicalize(rapid_line.text) == canonicalize(vision_line.text)
+                    )
+                    teacher_auto_accepted = split == "train" and not auto_accepted and teacher_rapid_agrees
+                    auto_accept_reason = (
+                        "rapidocr_vision_agreement"
+                        if auto_accepted
+                        else "teacher_rapidocr_agreement"
+                        if teacher_auto_accepted
+                        else None
                     )
                     rows[split].append(
                         {
@@ -430,12 +434,12 @@ def prepare_candidates(
                             "teacher_confidence": round(teacher_line.confidence, 4) if teacher_line else None,
                             "teacher_suggestion": teacher_suggestion,
                             "suggested_transcription": canonicalize(teacher_text) if teacher_suggestion and teacher_text else None,
-                            "teacher_auto_accept_eligible": split == "train" and not auto_accepted and teacher_agrees,
+                            "teacher_auto_accept_eligible": False,
                             "crop_backend": crop_backend,
                             "raw_roi_sha256": rust_crops.get((case_id, roi_name), {}).get("sha256"),
-                            "review_status": "accepted" if auto_accepted else "pending",
-                            "transcription": canonicalize(rapid_line.text) if auto_accepted else None,
-                            "auto_accept_reason": "rapidocr_vision_agreement" if auto_accepted else None,
+                            "review_status": "accepted" if auto_accepted or teacher_auto_accepted else "pending",
+                            "transcription": canonicalize(rapid_line.text) if auto_accepted or teacher_auto_accepted else None,
+                            "auto_accept_reason": auto_accept_reason,
                         }
                     )
 
@@ -458,6 +462,7 @@ def prepare_candidates(
         "train_candidates": len(rows["train"]),
         "holdout_candidates": len(rows["holdout"]),
         "auto_accepted": sum(row["review_status"] == "accepted" for split_rows in rows.values() for row in split_rows),
+        "teacher_auto_accepted": sum(row.get("auto_accept_reason") == "teacher_rapidocr_agreement" for split_rows in rows.values() for row in split_rows),
         "teacher_model_version": teacher_model_version,
         "teacher_suggestions": sum(row["teacher_suggestion"] for split_rows in rows.values() for row in split_rows),
         "teacher_auto_accept_eligible": sum(row["teacher_auto_accept_eligible"] for row in rows["train"]),

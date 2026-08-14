@@ -56,6 +56,7 @@ def test_prepare_candidates_creates_review_and_empty_label_scaffolds(tmp_path: P
         "train_candidates": 1,
         "holdout_candidates": 0,
         "auto_accepted": 0,
+        "teacher_auto_accepted": 0,
         "teacher_model_version": None,
         "teacher_suggestions": 0,
         "teacher_auto_accept_eligible": 0,

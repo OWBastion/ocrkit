@@ -388,20 +388,23 @@ def refresh_vision_candidates(
 
             teacher_text = row.get("teacher_text")
             teacher_confidence = row.get("teacher_confidence")
-            current_texts = [value for value in (rapid_text, best.text if best else None) if isinstance(value, str) and value.strip()]
+            teacher_rapid_agrees = (
+                isinstance(teacher_text, str)
+                and isinstance(rapid_text, str)
+                and isinstance(teacher_confidence, (int, float))
+                and teacher_confidence >= 0.98
+                and isinstance(rapid_confidence, (int, float))
+                and rapid_confidence >= 0.98
+                and canonicalize(teacher_text) == canonicalize(rapid_text)
+            )
+            if split == "train" and row.get("review_status") == "pending" and teacher_rapid_agrees:
+                row["review_status"] = "accepted"
+                row["transcription"] = canonicalize(rapid_text)
+                row["auto_accept_reason"] = "teacher_rapidocr_agreement"
             row["teacher_auto_accept_eligible"] = (
                 split == "train"
                 and row.get("review_status") == "pending"
-                and isinstance(teacher_text, str)
-                and isinstance(teacher_confidence, (int, float))
-                and teacher_confidence >= 0.98
-                and bool(current_texts)
-                and all(canonicalize(value) == canonicalize(teacher_text) for value in current_texts)
-                and all(
-                    confidence >= 0.98
-                    for confidence in (rapid_confidence, row["vision_confidence"])
-                    if isinstance(confidence, (int, float)) and confidence is not None
-                )
+                and teacher_rapid_agrees
             )
             row["teacher_suggestion"] = (
                 isinstance(teacher_text, str)
@@ -457,6 +460,7 @@ def refresh_teacher_candidates(
         "teacher_covered": 0,
         "teacher_suggestions": 0,
         "teacher_auto_accept_eligible": 0,
+        "teacher_auto_accepted": 0,
         "preserved_accepted": 0,
         "preserved_rejected": 0,
         "teacher_model_version": teacher_model_version,
@@ -465,6 +469,8 @@ def refresh_teacher_candidates(
         rows = review_rows(batch_dir, split)
         refreshed: list[dict[str, Any]] = []
         for row in rows:
+            was_accepted = row.get("review_status") == "accepted"
+            was_rejected = row.get("review_status") == "rejected"
             crop = Path(str(row.get("crop", "")))
             if crop.is_absolute() or ".." in crop.parts:
                 raise ValueError(f"candidate contains an unsafe crop path: {crop}")
@@ -477,7 +483,22 @@ def refresh_teacher_candidates(
             row["teacher_text"] = teacher_text
             row["teacher_confidence"] = round(teacher_confidence, 4) if teacher_confidence is not None else None
             candidate_text = row.get("candidate_text")
-            current_texts = [value for value in (row.get("rapidocr_text"), row.get("vision_text")) if isinstance(value, str) and value.strip()]
+            rapid_text = row.get("rapidocr_text")
+            rapid_confidence = row.get("rapidocr_confidence")
+            teacher_rapid_agrees = (
+                isinstance(teacher_text, str)
+                and isinstance(rapid_text, str)
+                and isinstance(teacher_confidence, (int, float))
+                and teacher_confidence >= 0.98
+                and isinstance(rapid_confidence, (int, float))
+                and rapid_confidence >= 0.98
+                and canonicalize(teacher_text) == canonicalize(rapid_text)
+            )
+            if split == "train" and row.get("review_status") == "pending" and teacher_rapid_agrees:
+                row["review_status"] = "accepted"
+                row["transcription"] = canonicalize(rapid_text)
+                row["auto_accept_reason"] = "teacher_rapidocr_agreement"
+                summary["teacher_auto_accepted"] = int(summary["teacher_auto_accepted"]) + 1
             row["teacher_suggestion"] = (
                 teacher_text is not None
                 and teacher_confidence is not None
@@ -488,17 +509,7 @@ def refresh_teacher_candidates(
             row["teacher_auto_accept_eligible"] = (
                 split == "train"
                 and row.get("review_status") == "pending"
-                and teacher_text is not None
-                and teacher_confidence is not None
-                and teacher_confidence >= 0.98
-                and bool(current_texts)
-                and all(canonicalize(value) == canonicalize(teacher_text) for value in current_texts)
-                and all(
-                    isinstance(row.get(f"{name}_confidence"), (int, float))
-                    and row[f"{name}_confidence"] >= 0.98
-                    for name in ("rapidocr", "vision")
-                    if isinstance(row.get(f"{name}_text"), str) and row[f"{name}_text"].strip()
-                )
+                and teacher_rapid_agrees
             )
             summary["rows"] = int(summary["rows"]) + 1
             if teacher_text:
@@ -507,9 +518,9 @@ def refresh_teacher_candidates(
                 summary["teacher_suggestions"] = int(summary["teacher_suggestions"]) + 1
             if row["teacher_auto_accept_eligible"]:
                 summary["teacher_auto_accept_eligible"] = int(summary["teacher_auto_accept_eligible"]) + 1
-            if row.get("review_status") == "accepted":
+            if was_accepted:
                 summary["preserved_accepted"] = int(summary["preserved_accepted"]) + 1
-            if row.get("review_status") == "rejected":
+            if was_rejected:
                 summary["preserved_rejected"] = int(summary["preserved_rejected"]) + 1
             refreshed.append(row)
         updated[split] = refreshed

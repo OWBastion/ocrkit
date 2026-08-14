@@ -153,11 +153,12 @@ def test_refresh_teacher_preserves_manual_decisions_and_adds_predictions(tmp_pat
 
     assert summary["rows"] == 3
     assert summary["teacher_covered"] == 3
-    assert summary["teacher_auto_accept_eligible"] == 1
+    assert summary["teacher_auto_accepted"] == 1
     assert summary["preserved_accepted"] == 1
     assert summary["preserved_rejected"] == 1
     assert saved[0]["teacher_text"] == "教师文本"
-    assert saved[0]["teacher_auto_accept_eligible"] is True
+    assert saved[0]["review_status"] == "accepted"
+    assert saved[0]["auto_accept_reason"] == "teacher_rapidocr_agreement"
     assert saved[1]["transcription"] == "人工文本"
     assert saved[2]["review_status"] == "rejected"
 
