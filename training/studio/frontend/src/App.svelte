@@ -195,6 +195,7 @@
   const supportedClipboardTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
   $: displayedRows = roiFilter === 'all' ? rows : rows.filter((row) => row.roi === roiFilter)
+  $: selectedRatio = selected ? getEngineRatio(selected) : null
 
   const nav = [
     ['import', '1', '导入'],
@@ -830,17 +831,43 @@
     return Boolean(selected?.transcription && text && selected.transcription === text)
   }
 
-  function engineAgreement(row: Row) {
-    const texts = [row.rapidocr_text, row.vision_text, row.teacher_text]
-      .filter((text): text is string => Boolean(text?.trim()))
-      .map((text) => text.normalize('NFKC').replace(/\s+/g, ' ').trim())
-    return texts.length >= 2 && new Set(texts).size === 1
-  }
+  function getEngineRatio(row: Row) {
+    const engineOutputs: { name: string; text: string }[] = []
+    if (row.rapidocr_text?.trim()) engineOutputs.push({ name: 'RapidOCR', text: row.rapidocr_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
+    if (row.vision_text?.trim()) engineOutputs.push({ name: 'Vision', text: row.vision_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
+    if (row.teacher_text?.trim()) engineOutputs.push({ name: '上一版模型', text: row.teacher_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
 
-  function engineAgreementLabel(row: Row) {
-    const count = [row.rapidocr_text, row.vision_text, row.teacher_text].filter((text) => Boolean(text?.trim())).length
-    if (count < 2) return '待人工核对'
-    return engineAgreement(row) ? `${count} 路引擎一致` : `${count} 路引擎不一致`
+    const total = engineOutputs.length
+    if (total === 0) {
+      return { matching: 0, total: 0, isAgreement: false, isConflict: false, tagClass: 'ratio-none', tooltip: '暂无引擎识别结果' }
+    }
+    if (total === 1) {
+      return { matching: 1, total: 1, isAgreement: true, isConflict: false, tagClass: 'ratio-single', tooltip: `单引擎结果 (${engineOutputs[0].name})` }
+    }
+
+    const counts = new Map<string, number>()
+    for (const item of engineOutputs) {
+      counts.set(item.text, (counts.get(item.text) || 0) + 1)
+    }
+    const maxMatching = Math.max(...counts.values())
+    const isAgreement = maxMatching === total
+    const isConflict = maxMatching < total
+
+    let tagClass = 'ratio-agree'
+    if (isAgreement) {
+      tagClass = 'ratio-agree'
+    } else if (maxMatching >= 2) {
+      tagClass = 'ratio-partial'
+    } else {
+      tagClass = 'ratio-conflict'
+    }
+
+    const agreeNames = engineOutputs.map((o) => o.name).join(' · ')
+    const tooltip = isAgreement
+      ? `${total}/${total} 引擎输出一致 (${agreeNames})`
+      : `${maxMatching}/${total} 引擎输出一致 · 存在分歧 (${agreeNames})`
+
+    return { matching: maxMatching, total, isAgreement, isConflict, tagClass, tooltip }
   }
 
   async function save(statusValue: 'accepted' | 'rejected') {
@@ -1557,6 +1584,7 @@
             {#if displayedRows.length}
               {#each displayedRows as row}
                 {@const roiInfo = getRoiInfo(row.roi, row.layout_version || batch?.layout_version)}
+                {@const ratio = getEngineRatio(row)}
                 <button
                   type="button"
                   class:selected-row={selected?.crop === row.crop}
@@ -1568,18 +1596,32 @@
                       <span class="candidate-roi-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
                       <span>{roiInfo.shortName}</span>
                     </span>
-                    <span
-                      class="candidate-conf-tag"
-                      class:candidate-conf-high={(row.confidence ?? 0) >= 0.98}
-                      class:candidate-conf-mid={(row.confidence ?? 0) >= 0.9 && (row.confidence ?? 0) < 0.98}
-                    >
-                      {confidenceLabel(row.confidence)}
-                    </span>
+                    <div class="candidate-meta-tags">
+                      {#if row.auto_reject_reason}
+                        <span class="status-tag status-tag-rejected" title="自动排除 · 格式不匹配">排除</span>
+                      {:else if row.auto_accept_reason}
+                        <span class="status-tag status-tag-auto" title="自动接受 · 可抽查">自动</span>
+                      {:else if row.teacher_auto_accept_eligible}
+                        <span class="status-tag status-tag-teacher" title="上一版模型建议">建议</span>
+                      {/if}
+
+                      {#if ratio.total > 1}
+                        <span class={`ratio-tag ${ratio.tagClass}`} title={ratio.tooltip}>
+                          {ratio.matching}/{ratio.total}
+                        </span>
+                      {/if}
+
+                      <span
+                        class="candidate-conf-tag"
+                        class:candidate-conf-high={(row.confidence ?? 0) >= 0.98}
+                        class:candidate-conf-mid={(row.confidence ?? 0) >= 0.9 && (row.confidence ?? 0) < 0.98}
+                        title={`置信度 ${confidenceLabel(row.confidence)}`}
+                      >
+                        {confidenceLabel(row.confidence)}
+                      </span>
+                    </div>
                   </div>
                   <strong class="candidate-text">{row.candidate_text || '无候选文本'}</strong>
-                  <small class="candidate-note">
-                    {row.auto_reject_reason ? '自动排除 · 格式不匹配' : row.auto_accept_reason ? '自动接受 · 可抽查' : row.teacher_auto_accept_eligible ? '上一版模型建议' : engineAgreementLabel(row)}
-                  </small>
                 </button>
               {/each}
             {:else}
@@ -1608,7 +1650,7 @@
                       class:status-chip-accepted={selected.review_status === 'accepted' || selected.review_status === 'auto_accepted'}
                       class:status-chip-rejected={selected.review_status === 'rejected'}
                     >
-                      {selected.auto_reject_reason ? '自动排除 · 格式不匹配' : selected.auto_accept_reason ? '自动接受 · 可人工覆盖' : selected.teacher_auto_accept_eligible ? '上一版模型建议 · 可接受' : selected.review_status === 'pending' ? '待复核' : selected.review_status === 'accepted' ? '已接受' : '已拒绝'}
+                      {selected.auto_reject_reason ? '自动排除' : selected.auto_accept_reason ? '自动接受' : selected.teacher_auto_accept_eligible ? '模型建议' : selected.review_status === 'pending' ? '待复核' : selected.review_status === 'accepted' ? '已接受' : '已拒绝'}
                     </span>
                     <code class="crop-id-code" title={selected.crop}>{selected.crop.split('/').pop() || selected.crop}</code>
                   </div>
@@ -1739,12 +1781,17 @@
                     {#if engineSelected(selected.teacher_text)}<span class="engine-chosen">已选用</span>{/if}
                   </button>
                 </div>
-                {#if selected.rapidocr_text && selected.vision_text}
-                  {#if engineAgreement(selected)}
-                    <p class="engine-agree">{engineAgreementLabel(selected)}。</p>
-                  {:else}
-                    <p class="engine-disagree">{engineAgreementLabel(selected)}，请对照切片选择或手改。</p>
-                  {/if}
+                {#if selectedRatio && selectedRatio.total > 1}
+                  <div class="engine-status-bar">
+                    <div class={`engine-ratio-badge ${selectedRatio.tagClass}`}>
+                      <span class="ratio-indicator-dot"></span>
+                      <strong class="ratio-value font-mono tabular-nums">{selectedRatio.matching}/{selectedRatio.total}</strong>
+                      <span class="ratio-text">{selectedRatio.isAgreement ? '一致' : '分歧'}</span>
+                    </div>
+                    <span class="engine-status-text">
+                      {selectedRatio.isAgreement ? '多路引擎识别结果完全一致' : '引擎输出存在分歧，请对照切片选择或修正'}
+                    </span>
+                  </div>
                 {/if}
                 <label class="transcription-field">
                   <span>转写</span>

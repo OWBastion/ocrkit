@@ -771,10 +771,37 @@
     @apply flex items-center justify-between gap-2;
   }
   .candidate-roi-pill {
-    @apply inline-flex items-center gap-1.5 rounded-full bg-ink/6 px-2 py-0.5 text-[11px] font-semibold text-ink/75;
+    @apply inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ink/6 px-2 py-0.5 text-[11px] font-semibold text-ink/75;
   }
   .candidate-roi-dot {
     @apply h-1.5 w-1.5 rounded-full shadow-2xs;
+  }
+  .candidate-meta-tags {
+    @apply flex shrink-0 items-center gap-1;
+  }
+  .status-tag {
+    @apply rounded-full px-1.5 py-[1px] text-[10px] font-semibold tracking-tight;
+  }
+  .status-tag-rejected {
+    @apply border border-ink/15 bg-ink/10 text-ink/70;
+  }
+  .status-tag-auto {
+    @apply border border-leaf/25 bg-leaf/12 text-leaf;
+  }
+  .status-tag-teacher {
+    @apply border border-clay/25 bg-clay/12 text-clay;
+  }
+  .ratio-tag {
+    @apply inline-flex items-center justify-center rounded-full border px-1.5 py-[1px] font-mono text-[10px] font-bold tabular-nums shadow-2xs;
+  }
+  .ratio-agree {
+    @apply border-leaf/30 bg-leaf/12 text-leaf;
+  }
+  .ratio-partial {
+    @apply border-clay/30 bg-clay/12 text-clay;
+  }
+  .ratio-conflict {
+    @apply border-clay/40 bg-clay/12 text-clay font-bold;
   }
   .candidate-conf-tag {
     @apply rounded-full bg-ink/5 px-1.5 py-[1px] font-mono text-[10px] font-medium tabular-nums text-ink/50;
@@ -788,9 +815,6 @@
   .candidate-text {
     @apply line-clamp-2 text-sm font-semibold leading-snug text-ink break-all;
     letter-spacing: -0.01em;
-  }
-  .candidate-note {
-    @apply truncate text-[11px] text-ink/45;
   }
   .selected-row {
     @apply bg-clay/14;
@@ -979,8 +1003,36 @@
   .engine-conf-high { @apply bg-leaf/15 text-leaf; }
   .engine-text { @apply break-all text-base font-medium leading-6 text-ink; }
   .engine-chosen { @apply text-xs font-semibold tracking-wide text-leaf; }
-  .engine-agree { @apply mt-3 text-sm font-medium text-leaf; }
-  .engine-disagree { @apply mt-3 text-sm font-medium text-red-800; }
+  .engine-status-bar {
+    @apply mt-3.5 flex flex-wrap items-center gap-2.5 rounded-xl border border-ink/8 bg-white/70 px-3.5 py-2 backdrop-blur-sm;
+  }
+  .engine-ratio-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold;
+  }
+  .engine-ratio-badge.ratio-agree {
+    @apply border-leaf/30 bg-leaf/12 text-leaf;
+  }
+  .engine-ratio-badge.ratio-partial {
+    @apply border-clay/30 bg-clay/12 text-clay;
+  }
+  .engine-ratio-badge.ratio-conflict {
+    @apply border-clay/40 bg-clay/12 text-clay;
+  }
+  .ratio-indicator-dot {
+    @apply h-2 w-2 rounded-full;
+  }
+  .ratio-agree .ratio-indicator-dot {
+    @apply bg-leaf;
+  }
+  .ratio-partial .ratio-indicator-dot {
+    @apply bg-clay;
+  }
+  .ratio-conflict .ratio-indicator-dot {
+    @apply bg-clay;
+  }
+  .engine-status-text {
+    @apply text-xs text-ink/65;
+  }
 
   .transcription-field {
     @apply mt-4 grid gap-2 text-sm font-medium text-ink/65;
