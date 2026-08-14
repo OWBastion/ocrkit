@@ -135,6 +135,7 @@
   let hoverPreviewObject: RemoteObject | null = null
   let hoverPreviewTimeout: ReturnType<typeof setTimeout> | null = null
   let previewModalObject: RemoteObject | null = null
+  let showRecreateModal = false
   let downloadProgress: DownloadProgress | null = null
   let cropZoom: CropZoom = 'auto'
   let cropNatural = { w: 0, h: 0 }
@@ -403,6 +404,17 @@
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    if (showRecreateModal) {
+      if (event.key === 'Escape' && !busy) {
+        event.preventDefault()
+        closeRecreateModal()
+      } else if (event.key === 'Enter' && !busy) {
+        event.preventDefault()
+        void confirmRecreateCandidates()
+      }
+      return
+    }
+
     if (previewModalObject) {
       if (event.key === 'Escape') {
         closePreviewModal()
@@ -624,9 +636,18 @@
     } catch (cause) { message(cause instanceof Error ? cause.message : '候选生成失败', true) } finally { busy = false }
   }
 
-  async function recreateCandidates() {
+  function openRecreateModal() {
     if (!batch) return message('先选择或创建批次。', true)
-    if (!window.confirm('将按当前 ROI 重新切片并生成候选。明确的人工接受/拒绝会尝试继承，无法安全匹配的候选会重新待复核；旧候选会保留为历史版本。继续吗？')) return
+    showRecreateModal = true
+  }
+
+  function closeRecreateModal() {
+    if (busy) return
+    showRecreateModal = false
+  }
+
+  async function confirmRecreateCandidates() {
+    if (!batch || busy) return
     busy = true
     try {
       const result = await request<{
@@ -645,10 +666,15 @@
       const rejected = result.summary.inherited_manual_rejected || 0
       const unmatched = result.summary.unmatched_manual_decisions || 0
       message(`候选已重建（${result.summary.revision_id || '新版本'}）。已继承人工接受 ${accepted} 条、拒绝 ${rejected} 条；${unmatched} 条无法安全匹配，已重新待复核。`)
+      showRecreateModal = false
       active = 'review'
       await refreshReview()
-      if (rows[0]) selectCandidate(rows[0])
-    } catch (cause) { message(cause instanceof Error ? cause.message : '候选重建失败', true) } finally { busy = false }
+      if (displayedRows[0]) selectCandidate(displayedRows[0])
+    } catch (cause) {
+      message(cause instanceof Error ? cause.message : '候选重建失败', true)
+    } finally {
+      busy = false
+    }
   }
 
   async function acceptTeacherSuggestions() {
@@ -1413,7 +1439,7 @@
           <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={() => void refreshTeacher()}>
             {busy ? '补回中…' : '补回上一版模型（保留标注）'}
           </button>
-          <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={() => void recreateCandidates()}>
+          <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={openRecreateModal}>
             {busy ? '重建中…' : '按最新 ROI 重建候选（保留人工决定）'}
           </button>
         </div>
@@ -2009,6 +2035,79 @@
             {/if}
           </div>
           <span class="modal-keyboard-hint">快捷键：← / → 切换 · 空格 选择 · Esc 关闭</span>
+        </footer>
+      </div>
+    </div>
+  {/if}
+
+  {#if showRecreateModal}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="recreate-modal-title">
+      <button
+        type="button"
+        class="modal-backdrop-dismiss"
+        disabled={busy}
+        on:click={closeRecreateModal}
+        aria-label="关闭对话框"
+      ></button>
+      <div class="modal-dialog recreate-modal-dialog">
+        <header class="recreate-modal-header">
+          <div class="recreate-modal-title-wrap">
+            <span class="recreate-modal-eyebrow">ROI 重建确认</span>
+            <h3 id="recreate-modal-title">按最新 ROI 配置重新切片</h3>
+          </div>
+          <button
+            type="button"
+            class="modal-close-btn"
+            disabled={busy}
+            on:click={closeRecreateModal}
+            aria-label="关闭"
+          >×</button>
+        </header>
+
+        <div class="recreate-modal-body">
+          <p class="recreate-modal-desc">
+            将基于当前最新的 ROI 配置重新切片并提取候选文本。系统会自动继承已完成的审核，无需重复核对。
+          </p>
+
+          <div class="recreate-info-grid">
+            <div class="recreate-info-card">
+              <span class="recreate-card-title">人工决定智能继承</span>
+              <p class="recreate-card-text">
+                位置与尺寸完全吻合的切片，已接受或已拒绝的人工审核结论将自动迁移继承。
+              </p>
+            </div>
+            <div class="recreate-info-card">
+              <span class="recreate-card-title">未匹配项重新待复核</span>
+              <p class="recreate-card-text">
+                坐标发生变动或无法安全匹配的切片将重置为待复核，确保训练集质量。
+              </p>
+            </div>
+            <div class="recreate-info-card">
+              <span class="recreate-card-title">历史版本自动快照</span>
+              <p class="recreate-card-text">
+                当前的切片清单将安全归档为历史版本，随时可追溯，不发生不可逆覆写。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <footer class="recreate-modal-footer">
+          <button
+            type="button"
+            class="button-secondary button-compact"
+            disabled={busy}
+            on:click={closeRecreateModal}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="button-primary button-compact"
+            disabled={busy}
+            on:click={confirmRecreateCandidates}
+          >
+            {busy ? '正在重新切片…' : '确认重建候选'}
+          </button>
         </footer>
       </div>
     </div>
