@@ -830,6 +830,19 @@
     return Boolean(selected?.transcription && text && selected.transcription === text)
   }
 
+  function engineAgreement(row: Row) {
+    const texts = [row.rapidocr_text, row.vision_text, row.teacher_text]
+      .filter((text): text is string => Boolean(text?.trim()))
+      .map((text) => text.normalize('NFKC').replace(/\s+/g, ' ').trim())
+    return texts.length >= 2 && new Set(texts).size === 1
+  }
+
+  function engineAgreementLabel(row: Row) {
+    const count = [row.rapidocr_text, row.vision_text, row.teacher_text].filter((text) => Boolean(text?.trim())).length
+    if (count < 2) return '待人工核对'
+    return engineAgreement(row) ? `${count} 路引擎一致` : `${count} 路引擎不一致`
+  }
+
   async function save(statusValue: 'accepted' | 'rejected') {
     if (!batch || !selected) return
     busy = true
@@ -1565,7 +1578,7 @@
                   </div>
                   <strong class="candidate-text">{row.candidate_text || '无候选文本'}</strong>
                   <small class="candidate-note">
-                    {row.auto_reject_reason ? '自动排除 · 格式不匹配' : row.auto_accept_reason ? '自动接受 · 可抽查' : row.teacher_auto_accept_eligible ? '上一版模型建议' : (row.rapidocr_text && row.vision_text && row.rapidocr_text === row.vision_text ? '双引擎一致' : (row.rapidocr_text && row.vision_text ? '双引擎不一致' : '待人工核对'))}
+                    {row.auto_reject_reason ? '自动排除 · 格式不匹配' : row.auto_accept_reason ? '自动接受 · 可抽查' : row.teacher_auto_accept_eligible ? '上一版模型建议' : engineAgreementLabel(row)}
                   </small>
                 </button>
               {/each}
@@ -1665,9 +1678,9 @@
                 {:else if selected.auto_accept_reason}
                   <p class="auto-review-hint">这条切片由自动规则接受，仍可修改转写或点击「拒绝」进行人工覆盖。</p>
                 {:else if selected.teacher_auto_accept_eligible}
-                  <p class="auto-review-hint">上一版模型与 RapidOCR 高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>
+                  <p class="auto-review-hint">上一版模型与其他已返回引擎高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>
                 {/if}
-                <div class="engine-picks" role="group" aria-label="双引擎识别结果">
+                <div class="engine-picks" role="group" aria-label="多引擎识别结果">
                   <button
                     type="button"
                     class="engine-pick"
@@ -1726,10 +1739,12 @@
                     {#if engineSelected(selected.teacher_text)}<span class="engine-chosen">已选用</span>{/if}
                   </button>
                 </div>
-                {#if selected.rapidocr_text && selected.vision_text && selected.rapidocr_text !== selected.vision_text}
-                  <p class="engine-disagree">两引擎不一致，请对照切片选择或手改。</p>
-                {:else if selected.rapidocr_text && selected.vision_text && selected.rapidocr_text === selected.vision_text}
-                  <p class="engine-agree">两引擎一致。</p>
+                {#if selected.rapidocr_text && selected.vision_text}
+                  {#if engineAgreement(selected)}
+                    <p class="engine-agree">{engineAgreementLabel(selected)}。</p>
+                  {:else}
+                    <p class="engine-disagree">{engineAgreementLabel(selected)}，请对照切片选择或手改。</p>
+                  {/if}
                 {/if}
                 <label class="transcription-field">
                   <span>转写</span>

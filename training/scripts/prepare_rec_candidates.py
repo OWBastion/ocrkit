@@ -116,6 +116,19 @@ def canonicalize(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip())
 
 
+def engine_results_agree(*results: tuple[str | None, float | None], minimum_confidence: float | None = None) -> bool:
+    """Return whether every available engine result agrees at the requested confidence."""
+    available = [(text, confidence) for text, confidence in results if isinstance(text, str) and text.strip()]
+    if len(available) < 2:
+        return False
+    if minimum_confidence is not None and any(
+        not isinstance(confidence, (int, float)) or confidence < minimum_confidence
+        for _, confidence in available
+    ):
+        return False
+    return len({canonicalize(text) for text, _ in available}) == 1
+
+
 def candidate_rejection_reason(roi_name: str, texts: Iterable[str | None]) -> str | None:
     """Reject OCR text that cannot belong to a field with a strict format."""
     if roi_name in {"run_code_panel", "run_code_right_panel"} and not any(
@@ -573,29 +586,29 @@ def prepare_candidates(
                         crop_sha256=crop_sha256,
                         negative_candidates=negative_candidates,
                     )
-                    teacher_rapid_agrees = (
-                        teacher_line is not None
-                        and rapid_line is not None
-                        and rapid_line.confidence >= TEACHER_AUTO_ACCEPT_CONFIDENCE
-                        and teacher_line.confidence >= TEACHER_AUTO_ACCEPT_CONFIDENCE
-                        and canonicalize(rapid_line.text) == canonicalize(teacher_line.text)
-                    )
+                    teacher_rapid_agrees = engine_results_agree(
+                        (rapid_text, rapid_line.confidence if rapid_line else None),
+                        (vision_text, vision_line.confidence if vision_line else None),
+                        (teacher_text, teacher_line.confidence if teacher_line else None),
+                        minimum_confidence=TEACHER_AUTO_ACCEPT_CONFIDENCE,
+                    ) and teacher_line is not None and rapid_line is not None
                     teacher_suggestion = (
                         teacher_line is not None
                         and bool(teacher_text)
                         and teacher_line.confidence >= TEACHER_SUGGESTION_CONFIDENCE
                         and (not candidate_text or canonicalize(candidate_text) == canonicalize(teacher_text))
                     )
-                    auto_accepted = (
-                        rapid_line is not None
-                        and vision_line is not None
-                        and rapid_line.confidence >= AUTO_ACCEPT_CONFIDENCE
-                        and vision_line.confidence >= AUTO_ACCEPT_CONFIDENCE
-                        and canonicalize(rapid_line.text) == canonicalize(vision_line.text)
-                    )
+                    auto_accepted = engine_results_agree(
+                        (rapid_text, rapid_line.confidence if rapid_line else None),
+                        (vision_text, vision_line.confidence if vision_line else None),
+                        (teacher_text, teacher_line.confidence if teacher_line else None),
+                        minimum_confidence=AUTO_ACCEPT_CONFIDENCE,
+                    ) and rapid_line is not None and vision_line is not None
                     teacher_auto_accepted = split == "train" and not auto_accepted and teacher_rapid_agrees
                     auto_accept_reason = (
-                        "rapidocr_vision_agreement"
+                        "rapidocr_vision_teacher_agreement"
+                        if auto_accepted and teacher_line is not None
+                        else "rapidocr_vision_agreement"
                         if auto_accepted
                         else "teacher_rapidocr_agreement"
                         if teacher_auto_accepted

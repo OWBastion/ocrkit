@@ -103,3 +103,23 @@ def test_teacher_model_auto_accepts_high_confidence_train_agreement(tmp_path: Pa
     assert row["auto_accept_reason"] == "teacher_rapidocr_agreement"
     assert row["teacher_text"] == "A 挑战"
     assert row["suggested_transcription"] == "A 挑战"
+
+
+def test_previous_model_disagreement_blocks_rapidocr_vision_auto_acceptance(tmp_path: Path) -> None:
+    fixtures, config = _fixtures(tmp_path)
+
+    summary = prepare_candidates(
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=_rapid_factory("A 挑战", 0.99),
+        vision_factory=_vision_factory("A 挑战", 0.99),
+        teacher_model_version="2026.07.31-110827",
+        teacher_ocr_factory=_rapid_factory("B 挑战", 0.99),
+    )
+
+    row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
+    assert summary["auto_accepted"] == 0
+    assert row["review_status"] == "pending"
+    assert row["auto_accept_reason"] is None

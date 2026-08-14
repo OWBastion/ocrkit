@@ -29,3 +29,26 @@ def test_evaluate_compares_each_engine_and_agreement_to_holdout_truth(tmp_path: 
         "teacher": {"covered": 0, "correct": 0},
         "agreement": {"covered": 1, "correct": 1},
     }
+
+
+def test_evaluate_excludes_rapidocr_vision_agreement_when_previous_model_disagrees(tmp_path: Path) -> None:
+    labels = tmp_path / "labels"
+    review = tmp_path / "review"
+    labels.mkdir()
+    review.mkdir()
+    (labels / "holdout.txt").write_text("images/holdout/a.png\t挑战 完成\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text(
+        json.dumps(
+            {
+                "crop": "images/holdout/a.png",
+                "rapidocr_text": "挑战 完成",
+                "vision_text": "挑战 完成",
+                "teacher_text": "挑战 失败",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert evaluate(tmp_path)["agreement"] == {"covered": 0, "correct": 0}

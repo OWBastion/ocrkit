@@ -237,6 +237,38 @@ def test_refresh_teacher_preserves_manual_decisions_and_adds_predictions(tmp_pat
     assert saved[2]["review_status"] == "rejected"
 
 
+def test_refresh_teacher_reopens_auto_accepted_row_when_previous_model_disagrees(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    dataset = batch / "dataset"
+    review = dataset / "review"
+    (dataset / "images/train/source-a").mkdir(parents=True)
+    review.mkdir(parents=True)
+    _image(dataset / "images/train/source-a/000.png")
+    row = {
+        "crop": "images/train/source-a/000.png",
+        "rapidocr_text": "当前模型文本",
+        "rapidocr_confidence": 0.99,
+        "vision_text": "当前模型文本",
+        "vision_confidence": 0.99,
+        "review_status": "accepted",
+        "transcription": "当前模型文本",
+        "auto_accept_reason": "rapidocr_vision_agreement",
+    }
+    (review / "train.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    class FakeTeacher:
+        def __call__(self, image: np.ndarray, *, use_det: bool, use_cls: bool) -> SimpleNamespace:
+            return SimpleNamespace(txts=("上一版模型文本",), scores=(0.99,))
+
+    refresh_teacher_candidates(batch, teacher_factory=FakeTeacher, teacher_model_version="v1")
+
+    saved = review_rows(batch, "train")[0]
+    assert saved["review_status"] == "pending"
+    assert saved["transcription"] is None
+    assert saved["auto_accept_reason"] is None
+
+
 def test_refresh_teacher_auto_rejects_wrong_content_in_run_code_roi(tmp_path: Path) -> None:
     batch = tmp_path / "batch"
     dataset = batch / "dataset"

@@ -25,6 +25,7 @@ from training.scripts.prepare_rec_candidates import (
     create_artifact_ocr,
     deduplicate_candidate_rows,
     discover_candidate_artifact,
+    engine_results_agree,
     load_negative_candidates,
     negative_candidate_rejection_reason,
     prepare_candidates,
@@ -879,14 +880,15 @@ def refresh_vision_candidates(
             if confidences:
                 row["confidence"] = round(max(confidences), 4)
 
-            was_auto_accepted = row.get("auto_accept_reason") == "rapidocr_vision_agreement"
-            agrees = (
-                isinstance(rapid_text, str)
-                and best is not None
-                and isinstance(rapid_confidence, (int, float))
-                and rapid_confidence >= 0.98
-                and best.confidence >= 0.98
-                and canonicalize(rapid_text) == canonicalize(best.text)
+            was_auto_accepted = row.get("auto_accept_reason") in {
+                "rapidocr_vision_agreement",
+                "rapidocr_vision_teacher_agreement",
+            }
+            agrees = engine_results_agree(
+                (rapid_text if isinstance(rapid_text, str) else None, rapid_confidence if isinstance(rapid_confidence, (int, float)) else None),
+                (best.text if best else None, best.confidence if best else None),
+                (teacher_text if isinstance(teacher_text, str) else None, row.get("teacher_confidence") if isinstance(row.get("teacher_confidence"), (int, float)) else None),
+                minimum_confidence=0.98,
             )
             if auto_reject_reason and (row.get("review_status") == "pending" or row.get("auto_accept_reason")):
                 row["review_status"] = "rejected"
@@ -901,24 +903,21 @@ def refresh_vision_candidates(
                 if agrees:
                     row["review_status"] = "accepted"
                     row["transcription"] = canonicalize(rapid_text)
-                    row["auto_accept_reason"] = "rapidocr_vision_agreement"
+                    row["auto_accept_reason"] = "rapidocr_vision_teacher_agreement" if teacher_text else "rapidocr_vision_agreement"
             elif was_auto_accepted:
                 if agrees:
-                    row["auto_accept_reason"] = "rapidocr_vision_agreement"
+                    row["auto_accept_reason"] = "rapidocr_vision_teacher_agreement" if teacher_text else "rapidocr_vision_agreement"
                 else:
                     row["review_status"] = "pending"
                     row["transcription"] = None
                     row["auto_accept_reason"] = None
 
             teacher_confidence = row.get("teacher_confidence")
-            teacher_rapid_agrees = (
-                isinstance(teacher_text, str)
-                and isinstance(rapid_text, str)
-                and isinstance(teacher_confidence, (int, float))
-                and teacher_confidence >= 0.98
-                and isinstance(rapid_confidence, (int, float))
-                and rapid_confidence >= 0.98
-                and canonicalize(teacher_text) == canonicalize(rapid_text)
+            teacher_rapid_agrees = engine_results_agree(
+                (rapid_text if isinstance(rapid_text, str) else None, rapid_confidence if isinstance(rapid_confidence, (int, float)) else None),
+                (row.get("vision_text") if isinstance(row.get("vision_text"), str) else None, row.get("vision_confidence") if isinstance(row.get("vision_confidence"), (int, float)) else None),
+                (teacher_text if isinstance(teacher_text, str) else None, teacher_confidence if isinstance(teacher_confidence, (int, float)) else None),
+                minimum_confidence=0.98,
             )
             if split == "train" and row.get("review_status") == "pending" and teacher_rapid_agrees:
                 row["review_status"] = "accepted"
@@ -941,7 +940,7 @@ def refresh_vision_candidates(
             summary["rows"] += 1
             if best is not None and best.text.strip():
                 summary["vision_covered"] += 1
-            if row.get("auto_accept_reason") == "rapidocr_vision_agreement":
+            if row.get("auto_accept_reason") in {"rapidocr_vision_agreement", "rapidocr_vision_teacher_agreement"}:
                 summary["auto_accepted"] += 1
             if row.get("auto_reject_reason"):
                 summary["auto_rejected"] += 1
@@ -1005,6 +1004,7 @@ def refresh_teacher_candidates(
                 raise ValueError(f"candidate crop does not exist: {crop}")
             result = teacher(decode_image(crop_path.read_bytes()), use_det=False, use_cls=False)
             teacher_text, teacher_confidence = best_rapid_candidate(result)
+            was_auto_accepted = bool(row.get("auto_accept_reason"))
             row["teacher_model_version"] = teacher_model_version
             row["teacher_text"] = teacher_text
             row["teacher_confidence"] = round(teacher_confidence, 4) if teacher_confidence is not None else None
@@ -1025,15 +1025,20 @@ def refresh_teacher_candidates(
                 row["review_status"] = "pending"
                 row["transcription"] = None
                 row["auto_reject_reason"] = None
-            teacher_rapid_agrees = (
-                isinstance(teacher_text, str)
-                and isinstance(rapid_text, str)
-                and isinstance(teacher_confidence, (int, float))
-                and teacher_confidence >= 0.98
-                and isinstance(rapid_confidence, (int, float))
-                and rapid_confidence >= 0.98
-                and canonicalize(teacher_text) == canonicalize(rapid_text)
+            teacher_rapid_agrees = engine_results_agree(
+                (rapid_text if isinstance(rapid_text, str) else None, rapid_confidence if isinstance(rapid_confidence, (int, float)) else None),
+                (row.get("vision_text") if isinstance(row.get("vision_text"), str) else None, row.get("vision_confidence") if isinstance(row.get("vision_confidence"), (int, float)) else None),
+                (teacher_text if isinstance(teacher_text, str) else None, teacher_confidence if isinstance(teacher_confidence, (int, float)) else None),
+                minimum_confidence=0.98,
             )
+            if was_auto_accepted and not auto_reject_reason:
+                if teacher_rapid_agrees:
+                    if row.get("vision_text"):
+                        row["auto_accept_reason"] = "rapidocr_vision_teacher_agreement"
+                else:
+                    row["review_status"] = "pending"
+                    row["transcription"] = None
+                    row["auto_accept_reason"] = None
             if split == "train" and row.get("review_status") == "pending" and teacher_rapid_agrees:
                 row["review_status"] = "accepted"
                 row["transcription"] = canonicalize(rapid_text)

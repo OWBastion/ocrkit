@@ -47,15 +47,16 @@ def evaluate(output_dir: Path) -> dict[str, dict[str, int]]:
         if isinstance(teacher, str):
             scores["teacher"]["covered"] += 1
             scores["teacher"]["correct"] += canonicalize(teacher) == expected
-        if isinstance(rapid, str) and isinstance(vision, str) and canonicalize(rapid) == canonicalize(vision):
+        results = [text for text in (rapid, vision, teacher) if isinstance(text, str) and text.strip()]
+        if len(results) >= 2 and len({canonicalize(text) for text in results}) == 1:
             scores["agreement"]["covered"] += 1
-            scores["agreement"]["correct"] += canonicalize(rapid) == expected
+            scores["agreement"]["correct"] += canonicalize(results[0]) == expected
 
     return {"labels": {"total": len(truth)}, **scores}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare RapidOCR and Apple Vision candidates against reviewed holdout labels.")
+    parser = argparse.ArgumentParser(description="Compare RapidOCR, Apple Vision, and the previous-model candidates against reviewed holdout labels.")
     parser.add_argument("--output", type=Path, default=Path("datasets/labeled/rec"))
     args = parser.parse_args()
     print(json.dumps(evaluate(args.output), ensure_ascii=False))
