@@ -337,6 +337,44 @@ def _paired_candidate_lines(
     return pairs
 
 
+def _is_achievement_marker(text: str) -> bool:
+    normalized = canonicalize(text)
+    return bool(re.search(r"[✓✔√☑☒]", normalized)) or normalized.casefold() in {"v", "l"}
+
+
+def _achievement_candidates(
+    pairs: list[tuple[CandidateLine | None, CandidateLine | None, CandidateLine | None]],
+) -> list[tuple[CandidateLine | None, CandidateLine | None, CandidateLine | None]]:
+    """Keep only lines adjacent to an OCR check marker in the variable-height HUD block."""
+    markers = [
+        line
+        for pair in pairs
+        for line in pair
+        if line is not None and _is_achievement_marker(line.text)
+    ]
+    if not markers:
+        return []
+
+    def near_marker(line: CandidateLine) -> bool:
+        x1, y1, x2, y2 = _box_bounds(line.box)
+        for marker in markers:
+            mx1, my1, mx2, my2 = _box_bounds(marker.box)
+            vertical_overlap = min(y2, my2) - max(y1, my1)
+            if vertical_overlap > 0:
+                return True
+            height = max(y2 - y1, my2 - my1)
+            if height > 0 and abs((y1 + y2) - (my1 + my2)) / 2 <= height:
+                return True
+        return False
+
+    return [
+        pair
+        for pair in pairs
+        if (line := next((item for item in pair if item is not None), None)) is not None
+        and near_marker(line)
+    ]
+
+
 def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -494,6 +532,8 @@ def prepare_candidates(
                 vision_lines = _vision_lines(vision.recognize(processed))
                 teacher_lines = _rapid_lines(teacher(processed, use_cls=False)) if teacher is not None else []
                 paired_lines = _paired_candidate_lines(rapid, vision_lines, teacher_lines)
+                if roi_name == "achievement_panel":
+                    paired_lines = _achievement_candidates(paired_lines)
                 for index, (rapid_line, vision_line, teacher_line) in enumerate(paired_lines):
                     if rapid_line is not None and vision_line is not None:
                         box = _union_box(rapid_line.box, vision_line.box)

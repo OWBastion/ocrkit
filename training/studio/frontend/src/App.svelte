@@ -42,15 +42,15 @@
       code: 'left_panel',
       position: '屏幕左侧',
       dotColor: '#0284c7',
-      rect: { x: 2.7, y: 2.1, w: 14.5, h: 63.2 },
-    },
+      rect: { x: 2.7, y: 2.1, w: 14.5, h: 29.2 },
+      },
       achievement_panel: {
-      name: '左上成就与称号',
-      shortName: '左上成就',
+      name: '左下成就与称号',
+      shortName: '左下成就',
       code: 'achievement_panel',
-      position: '屏幕左上角',
+      position: '屏幕左侧事件区下方',
       dotColor: '#b45309',
-      rect: { x: 2.7, y: 1.4, w: 14.5, h: 18.8 },
+      rect: { x: 2.7, y: 39.6, w: 14.5, h: 10.4 },
     },
       run_code_panel: {
       name: '房间运行代码',
@@ -58,7 +58,7 @@
       code: 'run_code_panel',
       position: '屏幕左中部',
       dotColor: '#6d28d9',
-        rect: { x: 2.3, y: 27.5, w: 14.8, h: 3.3 },
+        rect: { x: 2.3, y: 27.5, w: 14.8, h: 3.1 },
       },
       run_code_right_panel: {
       name: '右侧运行代码',
@@ -100,11 +100,11 @@
       },
       achievement_panel: {
         name: '左下成就与称号', shortName: '左下成就', code: 'achievement_panel', position: '屏幕左下统计区下方', dotColor: '#b45309',
-        rect: { x: 1.6, y: 28.1, w: 15.6, h: 11.3 },
+        rect: { x: 1.6, y: 35.0, w: 15.6, h: 7.5 },
       },
       run_code_panel: {
         name: '左侧运行代码', shortName: '左侧代码', code: 'run_code_panel', position: '屏幕左侧统计区底部', dotColor: '#6d28d9',
-        rect: { x: 2.3, y: 24.8, w: 14.8, h: 3.0 },
+        rect: { x: 2.3, y: 24.8, w: 14.8, h: 2.8 },
       },
       run_code_right_panel: {
         name: '右侧运行代码', shortName: '右侧代码', code: 'run_code_right_panel', position: '屏幕右上信息区', dotColor: '#7c3aed',

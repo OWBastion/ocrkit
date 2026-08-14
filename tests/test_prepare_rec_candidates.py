@@ -163,13 +163,21 @@ def test_prepare_candidates_deduplicates_overlapping_achievement_and_left_panel_
         },
     )
 
+    class DuplicateRapidOCR:
+        def __call__(self, image: np.ndarray, use_cls: bool) -> FakeResult:
+            return type("Result", (), {"boxes": FakeResult.boxes, "txts": ("候选文字 ✓",), "scores": FakeResult.scores})()
+
+    class DuplicateVisionOcr:
+        def recognize(self, image: np.ndarray) -> list[VisionLine]:
+            return [VisionLine("候选文字 ✓", 0.95, FakeResult.boxes[0])]
+
     summary = prepare_candidates(
         fixtures / "cases.json",
         fixtures,
         tmp_path / "labeled",
         config,
-        ocr_factory=FakeRapidOCR,
-        vision_factory=FakeVisionOcr,
+        ocr_factory=DuplicateRapidOCR,
+        vision_factory=DuplicateVisionOcr,
     )
 
     rows = [json.loads(line) for line in (tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -179,6 +187,35 @@ def test_prepare_candidates_deduplicates_overlapping_achievement_and_left_panel_
     left = next(row for row in rows if row["roi"] == "left_panel")
     assert left["review_status"] == "rejected"
     assert left["auto_reject_reason"] == "duplicate_roi_candidate"
+
+
+def test_prepare_candidates_ignores_variable_height_event_lines_in_achievement_roi(tmp_path: Path) -> None:
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    source = np.full((40, 60, 3), 200, dtype=np.uint8)
+    (fixtures / "sample.png").write_bytes(cv2.imencode(".png", source)[1].tobytes())
+    (fixtures / "cases.json").write_text(json.dumps([{"id": "sample_01", "image": "sample.png"}]), encoding="utf-8")
+    config = RoiConfig(width=60, height=40, rois={"achievement_panel": RoiBox(0, 0, 30, 20)})
+
+    class EventRapidOCR:
+        def __call__(self, image: np.ndarray, use_cls: bool) -> FakeResult:
+            return type("Result", (), {"boxes": FakeResult.boxes, "txts": ("当前事件描述",), "scores": FakeResult.scores})()
+
+    class EventVisionOcr:
+        def recognize(self, image: np.ndarray) -> list[VisionLine]:
+            return [VisionLine("当前事件描述", 0.99, FakeResult.boxes[0])]
+
+    summary = prepare_candidates(
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=EventRapidOCR,
+        vision_factory=EventVisionOcr,
+    )
+
+    assert summary["train_candidates"] == 0
+    assert (tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8") == ""
 
 
 def test_holdout_split_is_fixed_to_training_plan() -> None:
