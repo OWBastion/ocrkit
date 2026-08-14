@@ -1714,7 +1714,19 @@
               </section>
 
               <div class="detail-copy">
-                <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
+                <div class="engine-hint-row">
+                  <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
+                  {#if selectedRatio && selectedRatio.total > 1}
+                    <div
+                      class={`engine-ratio-badge ${selectedRatio.tagClass}`}
+                      title={selectedRatio.tooltip}
+                    >
+                      <span class="ratio-indicator-dot"></span>
+                      <strong class="ratio-value font-mono tabular-nums">{selectedRatio.matching}/{selectedRatio.total}</strong>
+                      <span class="ratio-text">{selectedRatio.isAgreement ? '一致' : '分歧'}</span>
+                    </div>
+                  {/if}
+                </div>
                 {#if selected.auto_reject_reason}
                   <p class="auto-review-hint">这条切片未通过该 ROI 的内容格式检查，已自动排除，不会进入训练标签。若确认位置和内容都正确，可手动接受并填写转写。</p>
                 {:else if selected.auto_accept_reason}
@@ -1781,18 +1793,6 @@
                     {#if engineSelected(selected.teacher_text)}<span class="engine-chosen">已选用</span>{/if}
                   </button>
                 </div>
-                {#if selectedRatio && selectedRatio.total > 1}
-                  <div class="engine-status-bar">
-                    <div class={`engine-ratio-badge ${selectedRatio.tagClass}`}>
-                      <span class="ratio-indicator-dot"></span>
-                      <strong class="ratio-value font-mono tabular-nums">{selectedRatio.matching}/{selectedRatio.total}</strong>
-                      <span class="ratio-text">{selectedRatio.isAgreement ? '一致' : '分歧'}</span>
-                    </div>
-                    <span class="engine-status-text">
-                      {selectedRatio.isAgreement ? '多路引擎识别结果完全一致' : '引擎输出存在分歧，请对照切片选择或修正'}
-                    </span>
-                  </div>
-                {/if}
                 <label class="transcription-field">
                   <span>转写</span>
                   <textarea bind:value={selected.transcription} aria-label="转写" rows="3"></textarea>

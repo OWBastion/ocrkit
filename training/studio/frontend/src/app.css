@@ -973,6 +973,9 @@
   }
 
   .detail-copy { @apply grid gap-0; }
+  .engine-hint-row {
+    @apply flex flex-wrap items-center justify-between gap-3;
+  }
   .engine-hint { @apply text-sm leading-6 text-ink/55; }
   .auto-review-hint { @apply mt-2 rounded-lg bg-leaf/10 px-3 py-2 text-sm leading-6 text-leaf; }
   .engine-picks { @apply mt-3 grid gap-3 sm:grid-cols-2; }
@@ -1003,11 +1006,8 @@
   .engine-conf-high { @apply bg-leaf/15 text-leaf; }
   .engine-text { @apply break-all text-base font-medium leading-6 text-ink; }
   .engine-chosen { @apply text-xs font-semibold tracking-wide text-leaf; }
-  .engine-status-bar {
-    @apply mt-3.5 flex flex-wrap items-center gap-2.5 rounded-xl border border-ink/8 bg-white/70 px-3.5 py-2 backdrop-blur-sm;
-  }
   .engine-ratio-badge {
-    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold;
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold shadow-2xs;
   }
   .engine-ratio-badge.ratio-agree {
     @apply border-leaf/30 bg-leaf/12 text-leaf;
@@ -1029,9 +1029,6 @@
   }
   .ratio-conflict .ratio-indicator-dot {
     @apply bg-clay;
-  }
-  .engine-status-text {
-    @apply text-xs text-ink/65;
   }
 
   .transcription-field {
