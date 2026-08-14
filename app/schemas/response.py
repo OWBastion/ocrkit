@@ -5,13 +5,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class DebugPayload(BaseModel):
-    normalized_size: tuple[int, int]
-    roi_coordinates: dict[str, dict[str, int]]
-    raw_text: dict[str, str]
-    confidence: dict[str, float]
-
-
 class TerminologyTokenMatch(BaseModel):
     raw: str
     normalized: str

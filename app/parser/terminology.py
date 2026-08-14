@@ -20,12 +20,12 @@ Guarantees:
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
-import re
-import unicodedata
 from typing import Any
 
 import yaml
@@ -251,10 +251,10 @@ def _parse_scope(raw: dict[str, Any]) -> Scope:
 def load_terminology_rules(path: Path) -> TerminologyCatalog:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("rules_version"), str):
-        raise ValueError(f"terminology rules are missing a rules_version: {path}")
+        raise TypeError(f"terminology rules are missing a rules_version: {path}")
     raw_scopes = data.get("scopes")
     if not isinstance(raw_scopes, list):
-        raise ValueError(f"terminology rules are missing a scopes list: {path}")
+        raise TypeError(f"terminology rules are missing a scopes list: {path}")
     scopes = [_parse_scope(item) for item in raw_scopes]
     seen: set[str] = set()
     for scope in scopes:

@@ -218,6 +218,78 @@ Omit `--crop-backend rust` to use the Python crop implementation. The
 preparation script writes only below `datasets/labeled/rec/`; review output is
 not a substitute for human approval.
 
+## ROI terminology normalization (#3)
+
+`app/parser/terminology.py` is the versioned, ROI-scoped deterministic
+terminology normalization layer shared by production recognition and offline
+preparation. Rules live in `configs/terminology.yaml`, keyed by layout version
++ ROI with an allowed canonical term set. Exact aliases and single-character
+confusion mappings are adopted only when the result is an allowed term; opt-in
+constrained fuzzy matching abstains when candidates tie. Raw OCR evidence is
+never overwritten, and holdout truth is never rewritten.
+
+Candidate preparation records per-row terminology evidence; candidate
+evaluation reports raw versus post-normalization accuracy and hit / false
+correction rates:
+
+```bash
+uv run python training/scripts/evaluate_rec_candidates.py
+```
+
+## Constrained text adjudication experiment (#4)
+
+`training/adjudication/` is an offline, replayable experiment that measures
+whether a constrained text-only adjudicator reduces manual review for OCR
+terminology cases that deterministic normalization leaves unresolved.
+
+Preconditions before a real go/no-go decision:
+
+1. #3 deterministic normalization is implemented and measured (done);
+2. #5 can materialize a representative reviewed-annotation dataset from the
+   platform (not yet available; the checked-in fixture only demonstrates the
+   methodology);
+3. the remaining unresolved population is large enough to justify evaluation.
+
+Run the experiment against a reviewed-annotations record file:
+
+```bash
+uv run python training/scripts/evaluate_adjudication.py \
+  --records training/adjudication/fixtures/reviewed_annotations.jsonl \
+  --report training/.work/adjudication/report.json \
+  --adjudicator heuristic
+```
+
+Records contain only text metadata: schema/layout version, ROI and field
+family, per-engine text and confidence, the #3 normalization result, the
+allowed canonical candidates, and reviewed ground truth. Extra keys are
+forbidden so images, private object URLs, player identity, QQ data, and
+submission state cannot enter an experiment or reach a provider.
+
+The heuristic adjudicator is the offline, dependency-free baseline. An
+optional OpenAI-compatible provider path is configured through environment
+variables (`OCRKIT_ADJUDICATION_ENDPOINT`, `OCRKIT_ADJUDICATION_MODEL`,
+`OCRKIT_ADJUDICATION_API_KEY`) and is fail-closed: timeout, invalid output,
+off-allowlist candidates, and errors all fall back to `unresolved` for human
+review. It never becomes a production OCRKit dependency.
+
+The report compares deterministic-only (arm A) against normalization plus
+adjudication (arm B), measures manual-review reduction, precision on resolved
+cases, false confident corrections, coverage by field family, cost per 1,000
+candidates, and provider failure rate, and applies a maintainer-approved
+go/no-go gate. Captured outputs are stored next to the report and can be
+replayed later without re-calling the provider:
+
+```bash
+uv run python training/scripts/evaluate_adjudication.py \
+  --records <records.jsonl> \
+  --report training/.work/adjudication/report.json \
+  --replay-dir training/.work/adjudication/captured-outputs
+```
+
+Do not add a maintained provider adapter unless the experiment on
+platform-reviewed annotations shows a material manual-review reduction with
+false confident corrections within the gate.
+
 ## Recognition Smoke training
 
 Prepare the offline environment once, then run the CPU recognition Smoke:
