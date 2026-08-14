@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -121,6 +122,55 @@ def candidate_rejection_reason(roi_name: str, texts: Iterable[str | None]) -> st
         for text in texts
     ):
         return "run_code.content_mismatch"
+    return None
+
+
+def load_negative_candidates(path: Path | None) -> list[dict[str, Any]]:
+    if path is None or not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        value = json.loads(line)
+        if isinstance(value, dict) and isinstance(value.get("roi"), str):
+            rows.append(value)
+    return rows
+
+
+def _sha256_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            hasher.update(block)
+    return hasher.hexdigest()
+
+
+def negative_candidate_rejection_reason(
+    roi_name: str,
+    texts: Iterable[str | None],
+    *,
+    crop_sha256: str | None = None,
+    negative_candidates: Iterable[dict[str, Any]] = (),
+) -> str | None:
+    text_values = tuple(text for text in texts if isinstance(text, str) and text.strip())
+    strict_reason = candidate_rejection_reason(roi_name, text_values)
+    if strict_reason:
+        return strict_reason
+
+    canonical_texts = {canonicalize(text) for text in text_values}
+    for negative in negative_candidates:
+        if negative.get("roi") != roi_name:
+            continue
+        if crop_sha256 and crop_sha256 == negative.get("crop_sha256"):
+            return "negative_review.crop_match"
+        negative_texts = {
+            canonicalize(str(text))
+            for text in negative.get("texts", [])
+            if isinstance(text, str) and text.strip()
+        }
+        if canonical_texts & negative_texts:
+            return "negative_review.text_match"
     return None
 
 
@@ -327,6 +377,7 @@ def prepare_candidates(
     teacher_model_dir: Path | None = None,
     teacher_model_version: str | None = None,
     teacher_ocr_factory: Callable[[], Any] | None = None,
+    negative_examples_path: Path | None = None,
 ) -> dict[str, Any]:
     """Create editable recognition-label candidates without changing fixture files."""
     cases = load_cases(cases_path)
@@ -338,6 +389,7 @@ def prepare_candidates(
     ocr = ocr_factory()
     vision = vision_factory()
     teacher = teacher_ocr_factory() if teacher_ocr_factory is not None else (create_artifact_ocr(teacher_model_dir) if teacher_model_dir else None)
+    negative_candidates = load_negative_candidates(negative_examples_path)
     rows: dict[str, list[dict[str, Any]]] = {"train": [], "holdout": []}
     rust_workspace: Path | None = None
     output_dir.mkdir(parents=True)
@@ -395,13 +447,16 @@ def prepare_candidates(
                     crop_path.parent.mkdir(parents=True, exist_ok=True)
                     if not cv2.imwrite(str(crop_path), crop):
                         raise RuntimeError(f"failed to write crop: {crop_path}")
+                    crop_sha256 = _sha256_file(crop_path)
                     rapid_text = rapid_line.text if rapid_line else None
                     vision_text = vision_line.text if vision_line else None
                     teacher_text = teacher_line.text if teacher_line else None
                     candidate_text = rapid_text or vision_text or teacher_text
-                    auto_reject_reason = candidate_rejection_reason(
+                    auto_reject_reason = negative_candidate_rejection_reason(
                         roi_name,
                         (rapid_text, vision_text, teacher_text),
+                        crop_sha256=crop_sha256,
+                        negative_candidates=negative_candidates,
                     )
                     teacher_rapid_agrees = (
                         teacher_line is not None
@@ -452,6 +507,7 @@ def prepare_candidates(
                             "teacher_auto_accept_eligible": False,
                             "crop_backend": crop_backend,
                             "raw_roi_sha256": rust_crops.get((case_id, roi_name), {}).get("sha256"),
+                            "crop_sha256": crop_sha256,
                             "review_status": "rejected" if auto_reject_reason else "accepted" if auto_accepted or teacher_auto_accepted else "pending",
                             "transcription": canonicalize(rapid_line.text) if not auto_reject_reason and (auto_accepted or teacher_auto_accepted) else None,
                             "auto_accept_reason": None if auto_reject_reason else auto_accept_reason,
@@ -493,6 +549,7 @@ def main() -> None:
     parser.add_argument("--roi-config", type=Path, default=DEFAULT_ROI_CONFIG)
     parser.add_argument("--crop-backend", choices=("python", "rust"), default="python")
     parser.add_argument("--teacher-artifact-dir", type=Path)
+    parser.add_argument("--negative-examples", type=Path)
     args = parser.parse_args()
     teacher_artifact = args.teacher_artifact_dir
     teacher_version = candidate_artifact_version(teacher_artifact) if teacher_artifact else None
@@ -511,6 +568,7 @@ def main() -> None:
                 roi_config_path=args.roi_config,
                 teacher_model_dir=teacher_artifact,
                 teacher_model_version=teacher_version,
+                negative_examples_path=args.negative_examples,
             ),
             ensure_ascii=False,
         )

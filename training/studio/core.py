@@ -24,6 +24,8 @@ from training.scripts.prepare_rec_candidates import (
     candidate_rejection_reason,
     create_artifact_ocr,
     discover_candidate_artifact,
+    load_negative_candidates,
+    negative_candidate_rejection_reason,
     prepare_candidates,
 )
 from training.scripts.validate_annotations import validate_rec
@@ -86,6 +88,87 @@ def _digest(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             hasher.update(block)
     return hasher.hexdigest()
+
+
+def _negative_registry_path(batch_dir: Path) -> Path:
+    return batch_dir.parent.parent / "negative-candidates.jsonl"
+
+
+def rebuild_negative_registry(batch_dir: Path) -> Path:
+    """Persist human-rejected candidate signatures for future batches."""
+    work_root = batch_dir.parent.parent
+    batches_dir = work_root / "batches"
+    owners = [path for path in batches_dir.iterdir() if (path / "batch.json").is_file()] if batches_dir.is_dir() else []
+    if batch_dir not in owners:
+        owners.append(batch_dir)
+    negatives: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for owner in owners:
+        for split in ("train", "holdout"):
+            review_path = owner / "dataset/review" / f"{split}.jsonl"
+            if not review_path.is_file():
+                continue
+            for row in review_rows(owner, split):
+                if row.get("review_status") != "rejected" or row.get("auto_reject_reason"):
+                    continue
+                roi = row.get("roi")
+                if not isinstance(roi, str) or not roi:
+                    continue
+                texts = sorted(
+                    {
+                        canonicalize(str(row.get(name)))
+                        for name in ("candidate_text", "rapidocr_text", "vision_text", "teacher_text")
+                        if isinstance(row.get(name), str) and str(row.get(name)).strip()
+                    }
+                )
+                crop_sha256 = row.get("crop_sha256")
+                raw_roi_sha256 = row.get("raw_roi_sha256")
+                if not texts and not isinstance(crop_sha256, str) and not isinstance(raw_roi_sha256, str):
+                    continue
+                key = (roi, "\u001f".join(texts), str(crop_sha256 or ""), str(raw_roi_sha256 or ""))
+                negatives[key] = {
+                    "schema_version": 1,
+                    "roi": roi,
+                    "texts": texts,
+                    "crop_sha256": crop_sha256,
+                    "raw_roi_sha256": raw_roi_sha256,
+                }
+    registry = _negative_registry_path(batch_dir)
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_jsonl(registry, (negatives[key] for key in sorted(negatives)))
+    return registry
+
+
+def apply_negative_matches(batch_dir: Path, negative_path: Path) -> int:
+    """Remove pending candidates matching a prior human rejection."""
+    negatives = load_negative_candidates(negative_path)
+    if not negatives:
+        return 0
+    dataset_dir = batch_dir / "dataset"
+    updated: dict[str, list[dict[str, Any]]] = {}
+    rejected = 0
+    for split in ("train", "holdout"):
+        rows = review_rows(batch_dir, split)
+        for row in rows:
+            if row.get("review_status") != "pending":
+                continue
+            crop_path = dataset_dir / str(row.get("crop", ""))
+            crop_sha256 = _digest(crop_path) if crop_path.is_file() else row.get("crop_sha256")
+            reason = negative_candidate_rejection_reason(
+                str(row.get("roi", "")),
+                (row.get("candidate_text"), row.get("rapidocr_text"), row.get("vision_text"), row.get("teacher_text")),
+                crop_sha256=crop_sha256 if isinstance(crop_sha256, str) else None,
+                negative_candidates=negatives,
+            )
+            if reason and reason.startswith("negative_review."):
+                row["review_status"] = "rejected"
+                row["transcription"] = None
+                row["auto_accept_reason"] = None
+                row["auto_reject_reason"] = reason
+                rejected += 1
+        updated[split] = rows
+    for split in ("train", "holdout"):
+        _atomic_jsonl(dataset_dir / "review" / f"{split}.jsonl", updated[split])
+    return rejected
 
 
 def _split_sources(digests: list[str], holdout_ratio: float) -> dict[str, str]:
@@ -254,6 +337,7 @@ def generate_candidates(
 ) -> dict[str, Any]:
     dataset_dir = batch_dir / "dataset"
     teacher_artifact = _candidate_artifact()
+    negative_path = rebuild_negative_registry(batch_dir)
     review_dir = dataset_dir / "review"
     review_files = [review_dir / "train.jsonl", review_dir / "holdout.jsonl"]
     if dataset_dir.exists():
@@ -262,6 +346,10 @@ def generate_candidates(
                 f"candidate output is incomplete: {dataset_dir}; create a new batch instead of overwriting private review data"
             )
         rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
+        negative_auto_rejected = apply_negative_matches(batch_dir, negative_path)
+        if negative_auto_rejected:
+            rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
+            _invalidate_labels(dataset_dir)
         known_sources = {str(row["source_id"]) for split_rows in rows.values() for row in split_rows}
         missing_sources = [source for source in load_manifest(batch_dir)["sources"] if str(source["id"]) not in known_sources]
         if missing_sources:
@@ -283,6 +371,7 @@ def generate_candidates(
                     roi_config_path=roi_config_path,
                     teacher_model_dir=teacher_artifact[0] if teacher_artifact else None,
                     teacher_model_version=teacher_artifact[1] if teacher_artifact else None,
+                    negative_examples_path=negative_path,
                 )
                 for split in ("train", "holdout"):
                     rows[split].extend(review_rows(temporary_output, split))
@@ -300,6 +389,8 @@ def generate_candidates(
                 "train_candidates": len(rows["train"]),
                 "holdout_candidates": len(rows["holdout"]),
                 "auto_accepted": sum(row.get("auto_accept_reason") == "rapidocr_vision_agreement" for split_rows in rows.values() for row in split_rows),
+                "auto_rejected": sum(bool(row.get("auto_reject_reason")) for split_rows in rows.values() for row in split_rows),
+                "negative_auto_rejected": negative_auto_rejected,
                 "reused_existing_candidates": False,
             }
         return {
@@ -309,6 +400,8 @@ def generate_candidates(
             "train_candidates": len(rows["train"]),
             "holdout_candidates": len(rows["holdout"]),
             "auto_accepted": sum(row.get("auto_accept_reason") == "rapidocr_vision_agreement" for split_rows in rows.values() for row in split_rows),
+            "auto_rejected": sum(bool(row.get("auto_reject_reason")) for split_rows in rows.values() for row in split_rows),
+            "negative_auto_rejected": negative_auto_rejected,
             "reused_existing_candidates": True,
         }
     return prepare_candidates(
@@ -320,6 +413,7 @@ def generate_candidates(
         roi_config_path=roi_config_path,
         teacher_model_dir=teacher_artifact[0] if teacher_artifact else None,
         teacher_model_version=teacher_artifact[1] if teacher_artifact else None,
+        negative_examples_path=negative_path,
     )
 
 
@@ -619,6 +713,7 @@ def update_review_row(batch_dir: Path, split: str, crop: str, status: str, trans
         )
         row["auto_reject_reason"] = None
         _atomic_jsonl(path, rows)
+        rebuild_negative_registry(batch_dir)
         return row
     raise ValueError("review candidate no longer exists")
 

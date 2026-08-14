@@ -101,6 +101,14 @@ before labels can be generated. Set
 `OCRKIT_STUDIO_CANDIDATE_ARTIFACT_DIR` to pin a specific local artifact when
 the newest artifact is not the desired previous model.
 
+Manual rejections are also stored locally in
+`training/.work/studio/negative-candidates.jsonl` as ROI-scoped negative
+examples. New batches use the registry to exclude matching text or crop
+signatures across every panel before a row reaches the pending queue. These
+negative examples are not written to recognition labels: PP-OCR recognition
+training requires a transcription, while the negative registry is the current
+candidate-filter path and can later feed a text-detection training workflow.
+
 ### Import screenshots from R2
 
 R2 access is used only by the local Studio backend. The browser receives no R2

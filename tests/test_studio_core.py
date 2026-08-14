@@ -77,6 +77,33 @@ def test_review_updates_are_atomic_and_counted(tmp_path: Path) -> None:
     assert review_counts(batch) == {"total": 1, "accepted": 1, "pending": 0, "rejected": 0, "teacher_eligible": 0}
 
 
+def test_manual_rejection_is_saved_to_negative_registry(tmp_path: Path) -> None:
+    batch = tmp_path / "studio/batches/batch-1"
+    review = batch / "dataset/review"
+    review.mkdir(parents=True)
+    row = {
+        "crop": "images/train/source/000.png",
+        "roi": "left_panel",
+        "candidate_text": "错误内容",
+        "rapidocr_text": "错误内容",
+        "review_status": "pending",
+    }
+    (review / "train.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    update_review_row(batch, "train", row["crop"], "rejected", None)
+
+    registry = tmp_path / "studio/negative-candidates.jsonl"
+    entries = [json.loads(line) for line in registry.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert entries == [{
+        "schema_version": 1,
+        "roi": "left_panel",
+        "texts": ["错误内容"],
+        "crop_sha256": None,
+        "raw_roi_sha256": None,
+    }]
+
+
 def test_auto_accepted_rows_are_filterable_and_manual_text_override_clears_marker(tmp_path: Path) -> None:
     batch = tmp_path / "batch"
     review = batch / "dataset/review"
@@ -206,6 +233,48 @@ def test_generate_candidates_reuses_completed_review_manifest(tmp_path: Path) ->
 
     assert summary["train_candidates"] == 1
     assert summary["reused_existing_candidates"] is True
+
+
+def test_generate_candidates_applies_human_negative_memory_to_pending_rows(tmp_path: Path) -> None:
+    work_root = tmp_path / "studio"
+    prior = work_root / "batches/prior"
+    current = work_root / "batches/current"
+    prior_review = prior / "dataset/review"
+    current_review = current / "dataset/review"
+    prior_review.mkdir(parents=True)
+    (current / "batch.json").parent.mkdir(parents=True, exist_ok=True)
+    current_review.mkdir(parents=True)
+    (prior / "batch.json").write_text(json.dumps({"sources": []}), encoding="utf-8")
+    (current / "batch.json").write_text(json.dumps({"sources": [{"id": "source-current"}]}), encoding="utf-8")
+    rejected = {
+        "roi": "left_panel",
+        "candidate_text": "错误内容",
+        "rapidocr_text": "错误内容",
+        "review_status": "rejected",
+        "auto_reject_reason": None,
+    }
+    pending = {
+        "crop": "images/train/source-current/000.png",
+        "source_id": "source-current",
+        "roi": "left_panel",
+        "candidate_text": "错误内容",
+        "rapidocr_text": "错误内容",
+        "review_status": "pending",
+    }
+    (prior_review / "train.jsonl").write_text(json.dumps(rejected, ensure_ascii=False) + "\n", encoding="utf-8")
+    (prior_review / "holdout.jsonl").write_text("", encoding="utf-8")
+    (current_review / "train.jsonl").write_text(json.dumps(pending, ensure_ascii=False) + "\n", encoding="utf-8")
+    (current_review / "holdout.jsonl").write_text("", encoding="utf-8")
+    crop_path = current / "dataset/images/train/source-current/000.png"
+    crop_path.parent.mkdir(parents=True)
+    _image(crop_path)
+
+    summary = generate_candidates(current)
+    saved = review_rows(current, "train")[0]
+
+    assert summary["negative_auto_rejected"] == 1
+    assert saved["review_status"] == "rejected"
+    assert saved["auto_reject_reason"] == "negative_review.text_match"
 
 
 def test_generate_candidates_uses_rust_crops_for_new_batch(tmp_path: Path, monkeypatch) -> None:
