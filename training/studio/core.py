@@ -23,6 +23,7 @@ from training.scripts.prepare_rec_candidates import (
     candidate_artifact_version,
     candidate_rejection_reason,
     create_artifact_ocr,
+    deduplicate_candidate_rows,
     discover_candidate_artifact,
     load_negative_candidates,
     negative_candidate_rejection_reason,
@@ -169,6 +170,23 @@ def apply_negative_matches(batch_dir: Path, negative_path: Path) -> int:
     for split in ("train", "holdout"):
         _atomic_jsonl(dataset_dir / "review" / f"{split}.jsonl", updated[split])
     return rejected
+
+
+def deduplicate_review_rows(batch_dir: Path) -> int:
+    manifest = load_manifest(batch_dir)
+    roi_config = load_roi_config(ROOT / str(manifest.get("roi_config", DEFAULT_ROI_CONFIG.relative_to(ROOT))))
+    dataset_dir = batch_dir / "dataset"
+    updated: dict[str, list[dict[str, Any]]] = {}
+    deduplicated = 0
+    for split in ("train", "holdout"):
+        rows = review_rows(batch_dir, split)
+        deduplicated += deduplicate_candidate_rows(rows, roi_config)
+        updated[split] = rows
+    if deduplicated:
+        for split in ("train", "holdout"):
+            _atomic_jsonl(dataset_dir / "review" / f"{split}.jsonl", updated[split])
+        _invalidate_labels(dataset_dir)
+    return deduplicated
 
 
 def _split_sources(digests: list[str], holdout_ratio: float) -> dict[str, str]:
@@ -346,6 +364,9 @@ def generate_candidates(
                 f"candidate output is incomplete: {dataset_dir}; create a new batch instead of overwriting private review data"
             )
         rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
+        deduplicated = deduplicate_review_rows(batch_dir)
+        if deduplicated:
+            rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
         negative_auto_rejected = apply_negative_matches(batch_dir, negative_path)
         if negative_auto_rejected:
             rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
@@ -375,6 +396,7 @@ def generate_candidates(
                 )
                 for split in ("train", "holdout"):
                     rows[split].extend(review_rows(temporary_output, split))
+                    deduplicated += deduplicate_candidate_rows(rows[split], load_roi_config(roi_config_path))
                     _atomic_jsonl(review_dir / f"{split}.jsonl", rows[split])
                 shutil.copytree(temporary_output / "images", dataset_dir / "images", dirs_exist_ok=True)
                 if crop_backend == "rust":
@@ -391,6 +413,7 @@ def generate_candidates(
                 "auto_accepted": sum(row.get("auto_accept_reason") == "rapidocr_vision_agreement" for split_rows in rows.values() for row in split_rows),
                 "auto_rejected": sum(bool(row.get("auto_reject_reason")) for split_rows in rows.values() for row in split_rows),
                 "negative_auto_rejected": negative_auto_rejected,
+                "deduplicated": deduplicated,
                 "reused_existing_candidates": False,
             }
         return {
@@ -402,6 +425,7 @@ def generate_candidates(
             "auto_accepted": sum(row.get("auto_accept_reason") == "rapidocr_vision_agreement" for split_rows in rows.values() for row in split_rows),
             "auto_rejected": sum(bool(row.get("auto_reject_reason")) for split_rows in rows.values() for row in split_rows),
             "negative_auto_rejected": negative_auto_rejected,
+            "deduplicated": deduplicated,
             "reused_existing_candidates": True,
         }
     return prepare_candidates(

@@ -108,6 +108,10 @@ signatures across every panel before a row reaches the pending queue. These
 negative examples are not written to recognition labels: PP-OCR recognition
 training requires a transcription, while the negative registry is the current
 candidate-filter path and can later feed a text-detection training workflow.
+Overlapping `achievement_panel` and `left_panel` detections are also compared
+in normalized screenshot coordinates. When the source, text, and position
+match, the more specific `achievement_panel` row is kept and the duplicate
+`left_panel` row is automatically excluded.
 
 ### Import screenshots from R2
 

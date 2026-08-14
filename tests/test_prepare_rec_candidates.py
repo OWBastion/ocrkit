@@ -57,6 +57,7 @@ def test_prepare_candidates_creates_review_and_empty_label_scaffolds(tmp_path: P
         "holdout_candidates": 0,
         "auto_accepted": 0,
         "auto_rejected": 0,
+        "deduplicated": 0,
         "teacher_auto_accepted": 0,
         "teacher_model_version": None,
         "teacher_suggestions": 0,
@@ -141,6 +142,43 @@ def test_prepare_candidates_auto_rejects_a_prior_human_negative_for_any_roi(tmp_
     assert summary["auto_rejected"] == 1
     assert row["review_status"] == "rejected"
     assert row["auto_reject_reason"] == "negative_review.text_match"
+
+
+def test_prepare_candidates_deduplicates_overlapping_achievement_and_left_panel_rows(tmp_path: Path) -> None:
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    source = np.full((40, 60, 3), 200, dtype=np.uint8)
+    encoded, data = cv2.imencode(".png", source)
+    assert encoded
+    (fixtures / "sample.png").write_bytes(data.tobytes())
+    (fixtures / "cases.json").write_text(
+        json.dumps([{"id": "sample_01", "image": "sample.png"}], ensure_ascii=False), encoding="utf-8"
+    )
+    config = RoiConfig(
+        width=60,
+        height=40,
+        rois={
+            "left_panel": RoiBox(0, 0, 30, 20),
+            "achievement_panel": RoiBox(0, 0, 30, 20),
+        },
+    )
+
+    summary = prepare_candidates(
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=FakeRapidOCR,
+        vision_factory=FakeVisionOcr,
+    )
+
+    rows = [json.loads(line) for line in (tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert summary["deduplicated"] == 1
+    assert {row["roi"] for row in rows} == {"left_panel", "achievement_panel"}
+    assert next(row for row in rows if row["roi"] == "achievement_panel")["review_status"] == "pending"
+    left = next(row for row in rows if row["roi"] == "left_panel")
+    assert left["review_status"] == "rejected"
+    assert left["auto_reject_reason"] == "duplicate_roi_candidate"
 
 
 def test_holdout_split_is_fixed_to_training_plan() -> None:

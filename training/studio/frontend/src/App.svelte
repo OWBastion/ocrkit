@@ -515,7 +515,7 @@
     if (!batch) return message('先选择或创建批次。', true)
     busy = true
     try {
-      const result = await request<{ review: ReviewCounts; summary: { reused_existing_candidates?: boolean; negative_auto_rejected?: number; teacher_model_version?: string | null; teacher_suggestions?: number; teacher_auto_accept_eligible?: number } }>(`/api/batches/${batch.batch_id}/candidates`, { method: 'POST' })
+      const result = await request<{ review: ReviewCounts; summary: { reused_existing_candidates?: boolean; negative_auto_rejected?: number; deduplicated?: number; teacher_model_version?: string | null; teacher_suggestions?: number; teacher_auto_accept_eligible?: number } }>(`/api/batches/${batch.batch_id}/candidates`, { method: 'POST' })
       batch = { ...batch, review: result.review }
       const teacherHint = result.summary.teacher_model_version
         ? `上一版模型 ${result.summary.teacher_model_version} 已提供 ${result.summary.teacher_suggestions || 0} 条建议；Train 会自动接受与 RapidOCR 高置信一致的结果。`
@@ -523,7 +523,10 @@
       const negativeHint = result.summary.negative_auto_rejected
         ? `已根据历史人工拒绝排除 ${result.summary.negative_auto_rejected} 条重复错误候选。`
         : ''
-      message(result.summary.reused_existing_candidates ? `已打开现有候选，进入复核。${negativeHint}` : `候选已生成。${negativeHint}${teacherHint}`)
+      const duplicateHint = result.summary.deduplicated
+        ? `已合并 ${result.summary.deduplicated} 条重叠 ROI 重复候选。`
+        : ''
+      message(result.summary.reused_existing_candidates ? `已打开现有候选，进入复核。${duplicateHint}${negativeHint}` : `候选已生成。${duplicateHint}${negativeHint}${teacherHint}`)
       active = 'review'
       await refreshReview()
       if (rows[0]) selectCandidate(rows[0])

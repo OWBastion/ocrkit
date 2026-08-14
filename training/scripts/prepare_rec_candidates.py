@@ -51,6 +51,7 @@ AUTO_ACCEPT_CONFIDENCE = 0.98
 TEACHER_SUGGESTION_CONFIDENCE = 0.95
 TEACHER_AUTO_ACCEPT_CONFIDENCE = 0.98
 MATCH_IOU = 0.5
+ROI_DEDUP_OVERLAP = 0.6
 REQUIRED_ARTIFACT_FILES = ("rapidocr.yaml", "det.onnx", "rec.onnx", "rec_dict.txt")
 
 
@@ -172,6 +173,71 @@ def negative_candidate_rejection_reason(
         if canonical_texts & negative_texts:
             return "negative_review.text_match"
     return None
+
+
+def _candidate_global_box(row: dict[str, Any], roi_config: RoiConfig) -> tuple[float, float, float, float] | None:
+    global_box = row.get("global_box")
+    if isinstance(global_box, list) and len(global_box) == 4:
+        return tuple(float(value) for value in global_box)  # type: ignore[return-value]
+    box = row.get("box")
+    roi_name = row.get("roi")
+    if not isinstance(box, list) or len(box) != 4 or not isinstance(roi_name, str) or roi_name not in roi_config.rois:
+        return None
+    roi_box = roi_config.rois[roi_name]
+    scale = 3 if roi_name == "achievement_panel" else 2 if roi_name in {"left_panel", "run_code_panel", "bottom_left_hero", "right_panel"} else 1
+    points = [(float(point[0]), float(point[1])) for point in box if isinstance(point, list) and len(point) == 2]
+    if len(points) != 4:
+        return None
+    return (
+        roi_box.x1 + min(point[0] for point in points) / scale,
+        roi_box.y1 + min(point[1] for point in points) / scale,
+        roi_box.x1 + max(point[0] for point in points) / scale,
+        roi_box.y1 + max(point[1] for point in points) / scale,
+    )
+
+
+def _overlap_ratio(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> float:
+    x1 = max(first[0], second[0])
+    y1 = max(first[1], second[1])
+    x2 = min(first[2], second[2])
+    y2 = min(first[3], second[3])
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    smaller_area = min(first_area, second_area)
+    return intersection / smaller_area if smaller_area else 0.0
+
+
+def deduplicate_candidate_rows(rows: list[dict[str, Any]], roi_config: RoiConfig) -> int:
+    """Keep achievement-panel candidates over duplicate left-panel candidates."""
+    achievements = [
+        row
+        for row in rows
+        if row.get("roi") == "achievement_panel" and row.get("candidate_text")
+    ]
+    deduplicated = 0
+    for row in rows:
+        if row.get("roi") != "left_panel" or not row.get("candidate_text"):
+            continue
+        if row.get("review_status") not in {"pending", "accepted"} or not row.get("source_id"):
+            continue
+        left_box = _candidate_global_box(row, roi_config)
+        if left_box is None:
+            continue
+        duplicate = any(
+            other.get("source_id") == row.get("source_id")
+            and canonicalize(str(other.get("candidate_text"))) == canonicalize(str(row.get("candidate_text")))
+            and (achievement_box := _candidate_global_box(other, roi_config)) is not None
+            and _overlap_ratio(left_box, achievement_box) >= ROI_DEDUP_OVERLAP
+            for other in achievements
+        )
+        if duplicate and (row.get("review_status") == "pending" or row.get("auto_accept_reason")):
+            row["review_status"] = "rejected"
+            row["transcription"] = None
+            row["auto_accept_reason"] = None
+            row["auto_reject_reason"] = "duplicate_roi_candidate"
+            deduplicated += 1
+    return deduplicated
 
 
 def load_cases(cases_path: Path) -> list[dict[str, Any]]:
@@ -442,6 +508,19 @@ def prepare_candidates(
                         continue
                     if crop.ndim == 2:
                         crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
+                    roi_box = roi_config.rois[roi_name]
+                    scale_x = (roi_box.x2 - roi_box.x1) / processed.shape[1]
+                    scale_y = (roi_box.y2 - roi_box.y1) / processed.shape[0]
+                    box_points = np.asarray(box, dtype=np.float32).reshape(-1, 2)
+                    global_box = [
+                        round(value, 2)
+                        for value in (
+                            roi_box.x1 + float(box_points[:, 0].min()) * scale_x,
+                            roi_box.y1 + float(box_points[:, 1].min()) * scale_y,
+                            roi_box.x1 + float(box_points[:, 0].max()) * scale_x,
+                            roi_box.y1 + float(box_points[:, 1].max()) * scale_y,
+                        )
+                    ]
                     relative_crop = Path("images") / split / case_id / roi_name / f"{index:03d}.png"
                     crop_path = output_dir / relative_crop
                     crop_path.parent.mkdir(parents=True, exist_ok=True)
@@ -493,6 +572,7 @@ def prepare_candidates(
                             "split": split,
                             "roi": roi_name,
                             "box": np.asarray(box, dtype=float).round(2).tolist(),
+                            "global_box": global_box,
                             "candidate_text": candidate_text,
                             "confidence": round(max(line.confidence for line in (rapid_line, vision_line, teacher_line) if line), 4),
                             "rapidocr_text": rapid_text,
@@ -515,6 +595,7 @@ def prepare_candidates(
                         }
                     )
 
+        deduplicated = sum(deduplicate_candidate_rows(split_rows, roi_config) for split_rows in rows.values())
         review_dir = output_dir / "review"
         review_dir.mkdir(parents=True, exist_ok=True)
         for split, split_rows in rows.items():
@@ -535,6 +616,7 @@ def prepare_candidates(
         "holdout_candidates": len(rows["holdout"]),
         "auto_accepted": sum(row["review_status"] == "accepted" for split_rows in rows.values() for row in split_rows),
         "auto_rejected": sum(bool(row.get("auto_reject_reason")) for split_rows in rows.values() for row in split_rows),
+        "deduplicated": deduplicated,
         "teacher_auto_accepted": sum(row.get("auto_accept_reason") == "teacher_rapidocr_agreement" for split_rows in rows.values() for row in split_rows),
         "teacher_model_version": teacher_model_version,
         "teacher_suggestions": sum(row["teacher_suggestion"] for split_rows in rows.values() for row in split_rows),
