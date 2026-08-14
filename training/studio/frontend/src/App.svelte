@@ -1098,6 +1098,12 @@
               <option value={item.batch_id}>{item.batch_id}</option>
             {/each}
           </select>
+          {#if batch}
+            <span class="batch-revision" title={batch.active_dataset_revision || '当前批次尚未生成候选 revision'}>
+              <span>当前 revision</span>
+              <code>{batch.active_dataset_revision || '尚未生成'}</code>
+            </span>
+          {/if}
         </label>
       </header>
 
@@ -1465,6 +1471,10 @@
               <div><dt>Holdout</dt><dd>{batch.holdout_sources}</dd></div>
               <div><dt>待复核</dt><dd>{batch.review?.pending ?? '—'}</dd></div>
             </dl>
+            <div class="batch-revision-summary">
+              <span>当前候选 revision</span>
+              <code>{batch.active_dataset_revision || '尚未生成'}</code>
+            </div>
           {/if}
         </aside>
       </section>
