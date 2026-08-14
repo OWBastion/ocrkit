@@ -28,7 +28,7 @@ def _load_review(path: Path) -> list[dict[str, object]]:
 def evaluate(output_dir: Path) -> dict[str, dict[str, int]]:
     truth = _load_labels(output_dir / "labels/holdout.txt")
     rows = _load_review(output_dir / "review/holdout.jsonl")
-    scores = {name: {"correct": 0, "covered": 0} for name in ("rapidocr", "vision", "agreement")}
+    scores = {name: {"correct": 0, "covered": 0} for name in ("rapidocr", "vision", "teacher", "agreement")}
 
     for row in rows:
         crop = row.get("crop")
@@ -43,6 +43,10 @@ def evaluate(output_dir: Path) -> dict[str, dict[str, int]]:
         if isinstance(vision, str):
             scores["vision"]["covered"] += 1
             scores["vision"]["correct"] += canonicalize(vision) == expected
+        teacher = row.get("teacher_text")
+        if isinstance(teacher, str):
+            scores["teacher"]["covered"] += 1
+            scores["teacher"]["correct"] += canonicalize(teacher) == expected
         if isinstance(rapid, str) and isinstance(vision, str) and canonicalize(rapid) == canonicalize(vision):
             scores["agreement"]["covered"] += 1
             scores["agreement"]["correct"] += canonicalize(rapid) == expected

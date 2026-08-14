@@ -19,12 +19,14 @@ from pydantic import BaseModel, Field
 from training.studio.core import (
     DEFAULT_WORK_ROOT,
     append_sources,
+    accept_teacher_suggestions,
     batch_summary,
     create_batch,
     export_dataset,
     finalize_dataset,
     generate_candidates,
     refresh_vision_candidates,
+    refresh_teacher_candidates,
     review_counts,
     review_rows,
     roi_preview_paths,
@@ -519,10 +521,21 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return {"summary": summary, "review": review_counts(batch_dir)}
 
+    @app.post("/api/batches/{batch_id}/candidates/refresh-teacher")
+    async def refresh_teacher(batch_id: str) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        try:
+            summary = await run_in_threadpool(refresh_teacher_candidates, batch_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"summary": summary, "review": review_counts(batch_dir)}
+
     @app.get("/api/batches/{batch_id}/review")
     def review(batch_id: str, split: str = "train", status: str = "pending") -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
-        if split not in {"train", "holdout"} or status not in {"pending", "accepted", "auto_accepted", "rejected", "all"}:
+        if split not in {"train", "holdout"} or status not in {"pending", "accepted", "auto_accepted", "teacher_eligible", "rejected", "all"}:
             raise HTTPException(status_code=422, detail="invalid review filter")
         rows = review_rows(batch_dir, split, status)
         return {"rows": rows, "counts": review_counts(batch_dir)}
@@ -536,6 +549,12 @@ def create_app(
         batch_dir = _batch_dir(work_root, batch_id)
         row = await run_in_threadpool(update_review_row, batch_dir, update.split, update.crop, update.status, update.transcription)
         return {"row": row, "counts": review_counts(batch_dir)}
+
+    @app.post("/api/batches/{batch_id}/review/accept-teacher")
+    async def accept_teacher(batch_id: str) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        result = await run_in_threadpool(accept_teacher_suggestions, batch_dir)
+        return {"result": result, "counts": review_counts(batch_dir)}
 
     @app.post("/api/batches/{batch_id}/finalize")
     async def finalize(batch_id: str) -> dict[str, int]:

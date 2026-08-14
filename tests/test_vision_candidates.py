@@ -74,3 +74,30 @@ def test_low_confidence_matching_candidates_remain_pending(tmp_path: Path) -> No
     assert row["review_status"] == "pending"
     assert row["transcription"] is None
     assert row["auto_accept_reason"] is None
+
+
+def test_teacher_model_adds_train_suggestion_without_overwriting_review_status(tmp_path: Path) -> None:
+    fixtures, config = _fixtures(tmp_path)
+
+    class EmptyVision:
+        def recognize(self, image: np.ndarray) -> list[VisionLine]:
+            return []
+
+    summary = prepare_candidates(
+        fixtures / "cases.json",
+        fixtures,
+        tmp_path / "labeled",
+        config,
+        ocr_factory=_rapid_factory("A 挑战", 0.99),
+        vision_factory=EmptyVision,
+        teacher_model_version="2026.07.31-110827",
+        teacher_ocr_factory=_rapid_factory("A 挑战", 0.99),
+    )
+
+    row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
+    assert summary["teacher_model_version"] == "2026.07.31-110827"
+    assert summary["teacher_suggestions"] == 1
+    assert summary["teacher_auto_accept_eligible"] == 1
+    assert row["review_status"] == "pending"
+    assert row["teacher_text"] == "A 挑战"
+    assert row["suggested_transcription"] == "A 挑战"

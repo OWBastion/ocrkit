@@ -26,5 +26,6 @@ def test_evaluate_compares_each_engine_and_agreement_to_holdout_truth(tmp_path: 
         "labels": {"total": 2},
         "rapidocr": {"covered": 2, "correct": 2},
         "vision": {"covered": 2, "correct": 1},
+        "teacher": {"covered": 0, "correct": 0},
         "agreement": {"covered": 1, "correct": 1},
     }

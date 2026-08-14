@@ -8,7 +8,7 @@ import numpy as np
 
 from app.core.roi_config import RoiBox, RoiConfig
 import training.scripts.prepare_rec_candidates as prepare_module
-from training.scripts.prepare_rec_candidates import HOLDOUT_IDS, prepare_candidates, split_for_case
+from training.scripts.prepare_rec_candidates import HOLDOUT_IDS, discover_candidate_artifact, prepare_candidates, split_for_case
 from training.vision import VisionLine
 
 
@@ -56,6 +56,9 @@ def test_prepare_candidates_creates_review_and_empty_label_scaffolds(tmp_path: P
         "train_candidates": 1,
         "holdout_candidates": 0,
         "auto_accepted": 0,
+        "teacher_model_version": None,
+        "teacher_suggestions": 0,
+        "teacher_auto_accept_eligible": 0,
     }
     row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
     assert row["candidate_text"] == "候选文字"
@@ -71,6 +74,24 @@ def test_holdout_split_is_fixed_to_training_plan() -> None:
     assert split_for_case("route_66_01") == "holdout"
     assert split_for_case("not_in_plan") == "train"
     assert len(HOLDOUT_IDS) == 8
+
+
+def test_discover_candidate_artifact_ignores_unmanifested_fixture_models(tmp_path: Path) -> None:
+    fixture = tmp_path / "fixture-rec-99999999"
+    fixture.mkdir()
+    for name in ("rapidocr.yaml", "det.onnx", "rec.onnx", "rec_dict.txt"):
+        (fixture / name).write_bytes(b"fixture")
+
+    artifact = tmp_path / "2026.07.31-110827"
+    artifact.mkdir()
+    for name in ("rapidocr.yaml", "det.onnx", "rec.onnx", "rec_dict.txt"):
+        (artifact / name).write_bytes(b"artifact")
+    (artifact / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "model": "pp-ocrv6-small", "version": "2026.07.31-110827"}),
+        encoding="utf-8",
+    )
+
+    assert discover_candidate_artifact(tmp_path) == (artifact, "2026.07.31-110827")
 
 
 def test_prepare_candidates_honors_explicit_source_level_split(tmp_path: Path) -> None:

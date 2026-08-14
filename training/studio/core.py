@@ -17,12 +17,20 @@ from app.image.loader import decode_image
 from app.image.quality import assess_input_quality
 from app.image.roi import crop_all_rois
 from training.scripts.finalize_rec_labels import finalize
-from training.scripts.prepare_rec_candidates import canonicalize, prepare_candidates
+from training.scripts.prepare_rec_candidates import (
+    best_rapid_candidate,
+    canonicalize,
+    candidate_artifact_version,
+    create_artifact_ocr,
+    discover_candidate_artifact,
+    prepare_candidates,
+)
 from training.scripts.validate_annotations import validate_rec
 from training.vision import VisionLine, VisionOcr
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_WORK_ROOT = ROOT / "training/.work/studio"
+DEFAULT_CANDIDATE_ARTIFACT_ROOT = ROOT / "training/.work/artifacts"
 DEFAULT_ROI_CONFIG = ROOT / "configs/roi_1280x720.yaml"
 PRIVATE_DATASET_ROOT = ROOT / "datasets/labeled/rec/studio"
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
@@ -61,6 +69,14 @@ def _merge_crop_manifests(dataset_dir: Path, temporary_dir: Path) -> None:
         _atomic_json(destination, existing)
     else:
         shutil.copy2(temporary_manifest, destination)
+
+
+def _candidate_artifact() -> tuple[Path, str] | None:
+    configured = os.environ.get("OCRKIT_STUDIO_CANDIDATE_ARTIFACT_DIR")
+    if configured:
+        path = Path(configured).expanduser().resolve()
+        return path, candidate_artifact_version(path)
+    return discover_candidate_artifact(DEFAULT_CANDIDATE_ARTIFACT_ROOT)
 
 
 def _digest(path: Path) -> str:
@@ -234,8 +250,9 @@ def generate_candidates(
     *,
     roi_config_path: Path = DEFAULT_ROI_CONFIG,
     crop_backend: str = "rust",
-) -> dict[str, int | bool]:
+) -> dict[str, Any]:
     dataset_dir = batch_dir / "dataset"
+    teacher_artifact = _candidate_artifact()
     review_dir = dataset_dir / "review"
     review_files = [review_dir / "train.jsonl", review_dir / "holdout.jsonl"]
     if dataset_dir.exists():
@@ -263,6 +280,8 @@ def generate_candidates(
                     load_roi_config(roi_config_path),
                     crop_backend=crop_backend,
                     roi_config_path=roi_config_path,
+                    teacher_model_dir=teacher_artifact[0] if teacher_artifact else None,
+                    teacher_model_version=teacher_artifact[1] if teacher_artifact else None,
                 )
                 for split in ("train", "holdout"):
                     rows[split].extend(review_rows(temporary_output, split))
@@ -298,6 +317,8 @@ def generate_candidates(
         load_roi_config(roi_config_path),
         crop_backend=crop_backend,
         roi_config_path=roi_config_path,
+        teacher_model_dir=teacher_artifact[0] if teacher_artifact else None,
+        teacher_model_version=teacher_artifact[1] if teacher_artifact else None,
     )
 
 
@@ -365,6 +386,32 @@ def refresh_vision_candidates(
                     row["transcription"] = None
                     row["auto_accept_reason"] = None
 
+            teacher_text = row.get("teacher_text")
+            teacher_confidence = row.get("teacher_confidence")
+            current_texts = [value for value in (rapid_text, best.text if best else None) if isinstance(value, str) and value.strip()]
+            row["teacher_auto_accept_eligible"] = (
+                split == "train"
+                and row.get("review_status") == "pending"
+                and isinstance(teacher_text, str)
+                and isinstance(teacher_confidence, (int, float))
+                and teacher_confidence >= 0.98
+                and bool(current_texts)
+                and all(canonicalize(value) == canonicalize(teacher_text) for value in current_texts)
+                and all(
+                    confidence >= 0.98
+                    for confidence in (rapid_confidence, row["vision_confidence"])
+                    if isinstance(confidence, (int, float)) and confidence is not None
+                )
+            )
+            row["teacher_suggestion"] = (
+                isinstance(teacher_text, str)
+                and bool(teacher_text.strip())
+                and isinstance(teacher_confidence, (int, float))
+                and teacher_confidence >= 0.95
+                and (not row.get("candidate_text") or canonicalize(str(row["candidate_text"])) == canonicalize(teacher_text))
+            )
+            row["suggested_transcription"] = canonicalize(teacher_text) if row["teacher_suggestion"] else None
+
             summary["rows"] += 1
             if best is not None and best.text.strip():
                 summary["vision_covered"] += 1
@@ -374,6 +421,96 @@ def refresh_vision_candidates(
                 summary["preserved_accepted"] += 1
             if row.get("review_status") == "rejected":
                 summary["preserved_rejected"] += 1
+            refreshed.append(row)
+        updated[split] = refreshed
+
+    for split, path in review_paths.items():
+        _atomic_jsonl(path, updated[split])
+    return summary
+
+
+def refresh_teacher_candidates(
+    batch_dir: Path,
+    *,
+    teacher_factory: Callable[[], Any] | None = None,
+    teacher_model_dir: Path | None = None,
+    teacher_model_version: str | None = None,
+) -> dict[str, int | str | None]:
+    """Add teacher predictions to existing crops without changing human decisions."""
+    dataset_dir = batch_dir / "dataset"
+    review_dir = dataset_dir / "review"
+    review_paths = {split: review_dir / f"{split}.jsonl" for split in ("train", "holdout")}
+    if not all(path.is_file() for path in review_paths.values()):
+        raise ValueError("generate candidates before refreshing teacher results")
+    if teacher_factory is not None:
+        teacher = teacher_factory()
+    else:
+        artifact = (teacher_model_dir, teacher_model_version) if teacher_model_dir else _candidate_artifact()
+        if artifact is None:
+            raise ValueError("no complete local teacher artifact is available")
+        teacher_model_dir, teacher_model_version = artifact
+        teacher = create_artifact_ocr(teacher_model_dir)
+
+    updated: dict[str, list[dict[str, Any]]] = {}
+    summary: dict[str, int | str | None] = {
+        "rows": 0,
+        "teacher_covered": 0,
+        "teacher_suggestions": 0,
+        "teacher_auto_accept_eligible": 0,
+        "preserved_accepted": 0,
+        "preserved_rejected": 0,
+        "teacher_model_version": teacher_model_version,
+    }
+    for split, path in review_paths.items():
+        rows = review_rows(batch_dir, split)
+        refreshed: list[dict[str, Any]] = []
+        for row in rows:
+            crop = Path(str(row.get("crop", "")))
+            if crop.is_absolute() or ".." in crop.parts:
+                raise ValueError(f"candidate contains an unsafe crop path: {crop}")
+            crop_path = (dataset_dir / crop).resolve()
+            if dataset_dir.resolve() not in crop_path.parents or not crop_path.is_file():
+                raise ValueError(f"candidate crop does not exist: {crop}")
+            result = teacher(decode_image(crop_path.read_bytes()), use_det=False, use_cls=False)
+            teacher_text, teacher_confidence = best_rapid_candidate(result)
+            row["teacher_model_version"] = teacher_model_version
+            row["teacher_text"] = teacher_text
+            row["teacher_confidence"] = round(teacher_confidence, 4) if teacher_confidence is not None else None
+            candidate_text = row.get("candidate_text")
+            current_texts = [value for value in (row.get("rapidocr_text"), row.get("vision_text")) if isinstance(value, str) and value.strip()]
+            row["teacher_suggestion"] = (
+                teacher_text is not None
+                and teacher_confidence is not None
+                and teacher_confidence >= 0.95
+                and (not isinstance(candidate_text, str) or not candidate_text or canonicalize(candidate_text) == canonicalize(teacher_text))
+            )
+            row["suggested_transcription"] = canonicalize(teacher_text) if row["teacher_suggestion"] else None
+            row["teacher_auto_accept_eligible"] = (
+                split == "train"
+                and row.get("review_status") == "pending"
+                and teacher_text is not None
+                and teacher_confidence is not None
+                and teacher_confidence >= 0.98
+                and bool(current_texts)
+                and all(canonicalize(value) == canonicalize(teacher_text) for value in current_texts)
+                and all(
+                    isinstance(row.get(f"{name}_confidence"), (int, float))
+                    and row[f"{name}_confidence"] >= 0.98
+                    for name in ("rapidocr", "vision")
+                    if isinstance(row.get(f"{name}_text"), str) and row[f"{name}_text"].strip()
+                )
+            )
+            summary["rows"] = int(summary["rows"]) + 1
+            if teacher_text:
+                summary["teacher_covered"] = int(summary["teacher_covered"]) + 1
+            if row["teacher_suggestion"]:
+                summary["teacher_suggestions"] = int(summary["teacher_suggestions"]) + 1
+            if row["teacher_auto_accept_eligible"]:
+                summary["teacher_auto_accept_eligible"] = int(summary["teacher_auto_accept_eligible"]) + 1
+            if row.get("review_status") == "accepted":
+                summary["preserved_accepted"] = int(summary["preserved_accepted"]) + 1
+            if row.get("review_status") == "rejected":
+                summary["preserved_rejected"] = int(summary["preserved_rejected"]) + 1
             refreshed.append(row)
         updated[split] = refreshed
 
@@ -408,6 +545,8 @@ def review_rows(batch_dir: Path, split: str, status: str = "all") -> list[dict[s
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if status == "auto_accepted":
         rows = [row for row in rows if row.get("auto_accept_reason") == "rapidocr_vision_agreement"]
+    elif status == "teacher_eligible":
+        rows = [row for row in rows if row.get("teacher_auto_accept_eligible") is True and row.get("review_status") == "pending"]
     elif status != "all":
         rows = [row for row in rows if row.get("review_status") == status]
     return rows
@@ -424,7 +563,7 @@ def update_review_row(batch_dir: Path, split: str, crop: str, status: str, trans
         if status == "accepted" and not (transcription or "").strip():
             raise ValueError("accepted candidates require a transcription")
         previous_transcription = row.get("transcription")
-        was_auto_accepted = row.get("auto_accept_reason") == "rapidocr_vision_agreement"
+        was_auto_accepted = bool(row.get("auto_accept_reason"))
         row["review_status"] = status
         row["transcription"] = transcription.strip() if status == "accepted" and transcription else None
         row["auto_accept_reason"] = (
@@ -437,10 +576,38 @@ def update_review_row(batch_dir: Path, split: str, crop: str, status: str, trans
     raise ValueError("review candidate no longer exists")
 
 
+def accept_teacher_suggestions(batch_dir: Path) -> dict[str, int]:
+    """Accept only explicit high-confidence teacher suggestions in train data."""
+    path = batch_dir / "dataset/review/train.jsonl"
+    rows = review_rows(batch_dir, "train")
+    accepted = 0
+    for row in rows:
+        transcription = row.get("teacher_text")
+        if (
+            row.get("review_status") == "pending"
+            and row.get("teacher_auto_accept_eligible") is True
+            and isinstance(transcription, str)
+            and transcription.strip()
+        ):
+            row["review_status"] = "accepted"
+            row["transcription"] = canonicalize(transcription)
+            row["auto_accept_reason"] = "teacher_model_agreement"
+            accepted += 1
+    _atomic_jsonl(path, rows)
+    counts = review_counts(batch_dir)
+    return {"accepted": accepted, "pending": counts["pending"], "teacher_eligible": counts["teacher_eligible"]}
+
+
 def review_counts(batch_dir: Path) -> dict[str, int]:
     rows = review_rows(batch_dir, "train") + review_rows(batch_dir, "holdout")
     counts = Counter(str(row.get("review_status", "pending")) for row in rows)
-    return {"total": len(rows), "accepted": counts["accepted"], "pending": counts["pending"], "rejected": counts["rejected"]}
+    return {
+        "total": len(rows),
+        "accepted": counts["accepted"],
+        "pending": counts["pending"],
+        "rejected": counts["rejected"],
+        "teacher_eligible": sum(row.get("teacher_auto_accept_eligible") is True and row.get("review_status") == "pending" for row in rows),
+    }
 
 
 def _validate_review_readiness(batch_dir: Path) -> None:

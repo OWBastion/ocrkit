@@ -70,7 +70,7 @@ The Studio workflow is:
 import local/R2 screenshots
 → SHA-256 deduplicate and split whole source screenshots into train/holdout
 → Rust fixed-ROI crop export with provenance
-→ RapidOCR + Apple Vision candidates
+→ previous OCR artifact + RapidOCR + Apple Vision candidates
 → human review and transcription correction
 → validated labels
 → CPU recognition Smoke
@@ -86,9 +86,15 @@ rejected decisions.
 
 Rows for which RapidOCR and Vision agree after normalization at confidence at
 least `0.98` are automatically accepted, but remain visible and editable.
-Every other row must be manually accepted with a transcription or rejected
-before labels can be generated. Both train and holdout must contain at least
-one accepted label.
+When a complete local model artifact exists below `training/.work/artifacts/`,
+Studio also loads the newest artifact as a teacher. Train rows where the
+teacher and current candidates agree at confidence at least `0.98` are marked
+as batch-accept eligible; they remain pending until the operator explicitly
+clicks the batch action. Teacher suggestions never auto-accept holdout rows.
+Every remaining row must be manually accepted with a transcription or rejected
+before labels can be generated. Set
+`OCRKIT_STUDIO_CANDIDATE_ARTIFACT_DIR` to pin a specific local artifact when
+the newest artifact is not the desired teacher.
 
 ### Import screenshots from R2
 

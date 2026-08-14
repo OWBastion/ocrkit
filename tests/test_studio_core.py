@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
 
 from training.studio import core as studio_core
-from training.studio.core import append_sources, create_batch, export_dataset, generate_candidates, refresh_vision_candidates, review_counts, review_rows, update_review_row
+from training.studio.core import accept_teacher_suggestions, append_sources, create_batch, export_dataset, generate_candidates, refresh_teacher_candidates, refresh_vision_candidates, review_counts, review_rows, update_review_row
 from training.vision import VisionLine
 
 
@@ -73,7 +74,7 @@ def test_review_updates_are_atomic_and_counted(tmp_path: Path) -> None:
 
     assert saved["transcription"] == "人工文本"
     assert review_rows(batch, "train")[0]["review_status"] == "accepted"
-    assert review_counts(batch) == {"total": 1, "accepted": 1, "pending": 0, "rejected": 0}
+    assert review_counts(batch) == {"total": 1, "accepted": 1, "pending": 0, "rejected": 0, "teacher_eligible": 0}
 
 
 def test_auto_accepted_rows_are_filterable_and_manual_text_override_clears_marker(tmp_path: Path) -> None:
@@ -94,6 +95,71 @@ def test_auto_accepted_rows_are_filterable_and_manual_text_override_clears_marke
 
     assert updated["transcription"] == "人工修正"
     assert updated["auto_accept_reason"] is None
+
+
+def test_accept_teacher_suggestions_only_accepts_eligible_train_rows(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    review = batch / "dataset/review"
+    review.mkdir(parents=True)
+    rows = [
+        {
+            "crop": "images/train/source/000.png",
+            "review_status": "pending",
+            "teacher_text": "教师文本",
+            "teacher_auto_accept_eligible": True,
+        },
+        {
+            "crop": "images/train/source/001.png",
+            "review_status": "pending",
+            "teacher_text": "不应自动接受",
+            "teacher_auto_accept_eligible": False,
+        },
+    ]
+    (review / "train.jsonl").write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    result = accept_teacher_suggestions(batch)
+    saved = review_rows(batch, "train")
+
+    assert result == {"accepted": 1, "pending": 1, "teacher_eligible": 0}
+    assert saved[0]["review_status"] == "accepted"
+    assert saved[0]["transcription"] == "教师文本"
+    assert saved[0]["auto_accept_reason"] == "teacher_model_agreement"
+    assert saved[1]["review_status"] == "pending"
+
+
+def test_refresh_teacher_preserves_manual_decisions_and_adds_predictions(tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    dataset = batch / "dataset"
+    review = dataset / "review"
+    (dataset / "images/train/source-a").mkdir(parents=True)
+    review.mkdir(parents=True)
+    _image(dataset / "images/train/source-a/000.png")
+    rows = [
+        {"crop": "images/train/source-a/000.png", "candidate_text": "教师文本", "rapidocr_text": "教师文本", "rapidocr_confidence": 0.99, "review_status": "pending"},
+        {"crop": "images/train/source-a/000.png", "candidate_text": "教师文本", "review_status": "accepted", "transcription": "人工文本"},
+        {"crop": "images/train/source-a/000.png", "candidate_text": "教师文本", "review_status": "rejected", "transcription": None},
+    ]
+    (review / "train.jsonl").write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text("", encoding="utf-8")
+
+    class FakeTeacher:
+        def __call__(self, image: np.ndarray, *, use_det: bool, use_cls: bool) -> SimpleNamespace:
+            assert use_det is False and use_cls is False
+            return SimpleNamespace(txts=("教师文本",), scores=(0.99,))
+
+    summary = refresh_teacher_candidates(batch, teacher_factory=FakeTeacher, teacher_model_version="v1")
+    saved = review_rows(batch, "train")
+
+    assert summary["rows"] == 3
+    assert summary["teacher_covered"] == 3
+    assert summary["teacher_auto_accept_eligible"] == 1
+    assert summary["preserved_accepted"] == 1
+    assert summary["preserved_rejected"] == 1
+    assert saved[0]["teacher_text"] == "教师文本"
+    assert saved[0]["teacher_auto_accept_eligible"] is True
+    assert saved[1]["transcription"] == "人工文本"
+    assert saved[2]["review_status"] == "rejected"
 
 
 def test_generate_candidates_reuses_completed_review_manifest(tmp_path: Path) -> None:

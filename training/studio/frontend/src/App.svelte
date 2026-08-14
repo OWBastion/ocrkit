@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte'
 
-  type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number }
+  type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number; teacher_eligible?: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; review?: ReviewCounts }
-  type Row = { crop: string; roi: string; review_status: string; auto_accept_reason?: string | null; candidate_text?: string; transcription?: string; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number }
+  type Row = { crop: string; roi: string; review_status: string; auto_accept_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
     status?: string
@@ -515,13 +515,32 @@
     if (!batch) return message('先选择或创建批次。', true)
     busy = true
     try {
-      const result = await request<{ review: ReviewCounts; summary: { reused_existing_candidates?: boolean } }>(`/api/batches/${batch.batch_id}/candidates`, { method: 'POST' })
+      const result = await request<{ review: ReviewCounts; summary: { reused_existing_candidates?: boolean; teacher_model_version?: string | null; teacher_suggestions?: number; teacher_auto_accept_eligible?: number } }>(`/api/batches/${batch.batch_id}/candidates`, { method: 'POST' })
       batch = { ...batch, review: result.review }
-      message(result.summary.reused_existing_candidates ? '已打开现有候选，进入复核。' : '候选已生成，进入复核。')
+      const teacherHint = result.summary.teacher_model_version
+        ? `历史模型 ${result.summary.teacher_model_version} 已提供 ${result.summary.teacher_suggestions || 0} 条建议；Train 可批量接受 ${result.summary.teacher_auto_accept_eligible || 0} 条。`
+        : ''
+      message(result.summary.reused_existing_candidates ? '已打开现有候选，进入复核。' : `候选已生成。${teacherHint}`)
       active = 'review'
       await refreshReview()
       if (rows[0]) selectCandidate(rows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '候选生成失败', true) } finally { busy = false }
+  }
+
+  async function acceptTeacherSuggestions() {
+    if (!batch || split !== 'train' || !(batch.review?.teacher_eligible ?? 0)) return
+    busy = true
+    try {
+      const result = await request<{ result: { accepted: number }; counts: ReviewCounts }>(`/api/batches/${batch.batch_id}/review/accept-teacher`, { method: 'POST' })
+      batch = { ...batch, review: result.counts }
+      await refreshReview()
+      if (rows[0]) selectCandidate(rows[0])
+      message(`已批量接受 ${result.result.accepted} 条高置信度教师建议；holdout 未自动接受。`)
+    } catch (cause) {
+      message(cause instanceof Error ? cause.message : '批量接受教师建议失败', true)
+    } finally {
+      busy = false
+    }
   }
 
   function confidenceLabel(value?: number | null) {
@@ -530,7 +549,7 @@
   }
 
   function selectCandidate(row: Row, event?: MouseEvent) {
-    selected = { ...row, transcription: row.transcription || row.candidate_text || '' }
+    selected = { ...row, transcription: row.transcription || row.suggested_transcription || row.candidate_text || '' }
     cropZoom = 'auto'
     cropNatural = { w: 0, h: 0 }
     // Keep focus scroll inside the list pane; avoid jumping the whole page.
@@ -633,6 +652,19 @@
       await refreshReview()
       if (rows[0]) selectCandidate(rows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '补回 Vision 结果失败', true) } finally { busy = false }
+  }
+
+  async function refreshTeacher() {
+    if (!batch) return message('先选择或创建批次。', true)
+    busy = true
+    try {
+      const result = await request<{ review: ReviewCounts; summary: { rows: number; teacher_model_version?: string | null; teacher_covered: number; teacher_suggestions: number; teacher_auto_accept_eligible: number; preserved_accepted: number; preserved_rejected: number } }>(`/api/batches/${batch.batch_id}/candidates/refresh-teacher`, { method: 'POST' })
+      batch = { ...batch, review: result.review }
+      message(`已补回历史模型 ${result.summary.teacher_model_version || '未知版本'}：覆盖 ${result.summary.teacher_covered}/${result.summary.rows} 条，Train 可批量接受 ${result.summary.teacher_auto_accept_eligible} 条；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
+      active = 'review'
+      await refreshReview()
+      if (rows[0]) selectCandidate(rows[0])
+    } catch (cause) { message(cause instanceof Error ? cause.message : '补回历史模型结果失败', true) } finally { busy = false }
   }
 
   async function finalize() {
@@ -1215,7 +1247,7 @@
         <header class="panel-head">
           <p class="eyebrow">步骤 2</p>
           <h2>生成候选</h2>
-          <p>按固定 ROI 切片，并用 RapidOCR 与 Vision 写入复核清单。已有结果会直接打开，不会覆盖人工修改。</p>
+          <p>按固定 ROI 切片，并用历史模型、RapidOCR 与 Vision 写入复核清单。已有结果会直接打开，不会覆盖人工修改。</p>
         </header>
         <div class="panel-actions">
           <button class="button-primary" disabled={!batch || busy} on:click={candidates}>
@@ -1223,6 +1255,9 @@
           </button>
           <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={() => void refreshVision()}>
             {busy ? '补回中…' : '补回 Vision（保留标注）'}
+          </button>
+          <button class="button-secondary" disabled={!batch || busy || !batch?.review?.total} on:click={() => void refreshTeacher()}>
+            {busy ? '补回中…' : '补回历史模型（保留标注）'}
           </button>
         </div>
       </section>
@@ -1238,10 +1273,16 @@
               <option value="pending">待复核</option>
               <option value="accepted">已接受</option>
               <option value="auto_accepted">自动接受</option>
+              <option value="teacher_eligible">教师建议</option>
               <option value="rejected">已拒绝</option>
               <option value="all">全部</option>
             </select>
             <button class="button-secondary button-compact" on:click={() => refreshReview()}>刷新</button>
+            {#if split === 'train' && (batch?.review?.teacher_eligible ?? 0) > 0}
+              <button class="button-primary button-compact" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>
+                接受高置信度建议 ({batch?.review?.teacher_eligible})
+              </button>
+            {/if}
           </div>
           <div class="countline">
             <b>{batch?.review?.pending || 0}</b>
@@ -1261,7 +1302,7 @@
                 >
                   <span>{row.roi}</span>
                   <strong>{row.candidate_text || '无候选文本'}</strong>
-                  <small>{row.auto_accept_reason ? '自动 · 可复核' : confidenceLabel(row.confidence)}</small>
+                  <small>{row.auto_accept_reason ? '自动 · 可复核' : row.teacher_auto_accept_eligible ? '教师建议 · 可批量接受' : confidenceLabel(row.confidence)}</small>
                 </button>
               {/each}
             {:else}
@@ -1315,6 +1356,8 @@
               <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
               {#if selected.auto_accept_reason}
                 <p class="auto-review-hint">这条切片由双模型一致且高置信度自动接受；仍可修改转写或点击「拒绝」进行人工覆盖。</p>
+              {:else if selected.teacher_auto_accept_eligible}
+                <p class="auto-review-hint">历史模型与当前候选高置信度一致。这条建议只属于 Train，可用左侧批量按钮接受；Holdout 不会自动接受。</p>
               {/if}
               <div class="engine-picks" role="group" aria-label="双引擎识别结果">
                 <button
@@ -1354,6 +1397,25 @@
                   </span>
                   <strong class="engine-text">{selected.vision_text || '无识别结果'}</strong>
                   {#if engineSelected(selected.vision_text)}<span class="engine-chosen">已选用</span>{/if}
+                </button>
+                <button
+                  type="button"
+                  class="engine-pick"
+                  class:engine-pick-active={engineSelected(selected.teacher_text)}
+                  class:engine-pick-empty={!selected.teacher_text}
+                  disabled={!selected.teacher_text}
+                  on:click={() => applyEngineText(selected?.teacher_text)}
+                >
+                  <span class="engine-pick-head">
+                    <span class="engine-name">历史模型{selected.teacher_model_version ? ` · ${selected.teacher_model_version}` : ''}</span>
+                    <span
+                      class="engine-conf"
+                      class:engine-conf-high={(selected.teacher_confidence ?? 0) >= 0.98}
+                      class:engine-conf-mid={(selected.teacher_confidence ?? 0) >= 0.9 && (selected.teacher_confidence ?? 0) < 0.98}
+                    >{confidenceLabel(selected.teacher_confidence)}</span>
+                  </span>
+                  <strong class="engine-text">{selected.teacher_text || '无识别结果'}</strong>
+                  {#if engineSelected(selected.teacher_text)}<span class="engine-chosen">已选用</span>{/if}
                 </button>
               </div>
               {#if selected.rapidocr_text && selected.vision_text && selected.rapidocr_text !== selected.vision_text}

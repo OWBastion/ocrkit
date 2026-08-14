@@ -46,7 +46,10 @@ HOLDOUT_IDS = frozenset(
     }
 )
 AUTO_ACCEPT_CONFIDENCE = 0.98
+TEACHER_SUGGESTION_CONFIDENCE = 0.95
+TEACHER_AUTO_ACCEPT_CONFIDENCE = 0.98
 MATCH_IOU = 0.5
+REQUIRED_ARTIFACT_FILES = ("rapidocr.yaml", "det.onnx", "rec.onnx", "rec_dict.txt")
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,56 @@ class CandidateLine:
     text: str
     confidence: float
     box: np.ndarray
+
+
+def candidate_artifact_version(artifact_dir: Path) -> str:
+    """Return the immutable model version for a validated local artifact."""
+    if not artifact_dir.is_dir():
+        raise ValueError(f"candidate artifact directory does not exist: {artifact_dir}")
+    missing = [name for name in REQUIRED_ARTIFACT_FILES if not (artifact_dir / name).is_file()]
+    if missing:
+        raise ValueError(f"candidate artifact is incomplete: {', '.join(missing)}")
+    manifest_path = artifact_dir / "manifest.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"candidate artifact manifest is invalid: {manifest_path}") from exc
+        version = manifest.get("version")
+        if manifest.get("schema_version") != 1 or manifest.get("model") != "pp-ocrv6-small" or not isinstance(version, str):
+            raise ValueError(f"candidate artifact manifest is unsupported: {manifest_path}")
+        return version
+    return artifact_dir.name
+
+
+def discover_candidate_artifact(artifact_root: Path) -> tuple[Path, str] | None:
+    """Find the newest complete local release artifact, if one is available."""
+    if not artifact_root.is_dir():
+        return None
+    candidates: list[tuple[Path, str]] = []
+    for artifact_dir in artifact_root.iterdir():
+        if not artifact_dir.is_dir() or not (artifact_dir / "manifest.json").is_file():
+            continue
+        try:
+            candidates.append((artifact_dir, candidate_artifact_version(artifact_dir)))
+        except ValueError:
+            continue
+    return max(candidates, key=lambda item: item[1]) if candidates else None
+
+
+def create_artifact_ocr(artifact_dir: Path) -> Any:
+    candidate_artifact_version(artifact_dir)
+    return RapidOCR(config_path=str(artifact_dir / "rapidocr.yaml"), params={"Global.use_cls": False})
+
+
+def best_rapid_candidate(result: Any) -> tuple[str | None, float | None]:
+    texts = list(result.txts or [])
+    scores = [float(score) for score in (result.scores or [])]
+    if not texts or not scores:
+        return None, None
+    index = max(range(min(len(texts), len(scores))), key=lambda item: scores[item])
+    text = str(texts[index]).strip()
+    return (text or None), scores[index]
 
 
 def canonicalize(text: str) -> str:
@@ -136,6 +189,28 @@ def _paired_lines(rapid: list[CandidateLine], vision: list[CandidateLine]) -> li
         else:
             pairs.append((rapid_line, None))
     pairs.extend((None, vision[index]) for index in sorted(unmatched))
+    return pairs
+
+
+def _paired_candidate_lines(
+    rapid: list[CandidateLine],
+    vision: list[CandidateLine],
+    teacher: list[CandidateLine],
+) -> list[tuple[CandidateLine | None, CandidateLine | None, CandidateLine | None]]:
+    pairs: list[tuple[CandidateLine | None, CandidateLine | None, CandidateLine | None]] = []
+    unmatched = set(range(len(teacher)))
+    for rapid_line, vision_line in _paired_lines(rapid, vision):
+        base_line = rapid_line or vision_line
+        teacher_index, overlap = max(
+            ((index, _iou(base_line.box, teacher[index].box)) for index in unmatched) if base_line else (),
+            key=lambda item: item[1],
+            default=(-1, 0.0),
+        )
+        teacher_line = teacher[teacher_index] if overlap >= MATCH_IOU else None
+        if teacher_line is not None:
+            unmatched.remove(teacher_index)
+        pairs.append((rapid_line, vision_line, teacher_line))
+    pairs.extend((None, None, teacher[index]) for index in sorted(unmatched))
     return pairs
 
 
@@ -238,7 +313,10 @@ def prepare_candidates(
     vision_factory: Callable[[], Any] = VisionOcr,
     crop_backend: str = "python",
     roi_config_path: Path = DEFAULT_ROI_CONFIG,
-) -> dict[str, int]:
+    teacher_model_dir: Path | None = None,
+    teacher_model_version: str | None = None,
+    teacher_ocr_factory: Callable[[], Any] | None = None,
+) -> dict[str, Any]:
     """Create editable recognition-label candidates without changing fixture files."""
     cases = load_cases(cases_path)
     if output_dir.exists():
@@ -248,6 +326,7 @@ def prepare_candidates(
 
     ocr = ocr_factory()
     vision = vision_factory()
+    teacher = teacher_ocr_factory() if teacher_ocr_factory is not None else (create_artifact_ocr(teacher_model_dir) if teacher_model_dir else None)
     rows: dict[str, list[dict[str, Any]]] = {"train": [], "holdout": []}
     rust_workspace: Path | None = None
     output_dir.mkdir(parents=True)
@@ -288,11 +367,13 @@ def prepare_candidates(
                 processed = preprocess_by_roi(roi_name, roi)
                 rapid = _rapid_lines(ocr(processed, use_cls=False))
                 vision_lines = _vision_lines(vision.recognize(processed))
-                for index, (rapid_line, vision_line) in enumerate(_paired_lines(rapid, vision_lines)):
+                teacher_lines = _rapid_lines(teacher(processed, use_cls=False)) if teacher is not None else []
+                paired_lines = _paired_candidate_lines(rapid, vision_lines, teacher_lines)
+                for index, (rapid_line, vision_line, teacher_line) in enumerate(paired_lines):
                     if rapid_line is not None and vision_line is not None:
                         box = _union_box(rapid_line.box, vision_line.box)
                     else:
-                        box = (rapid_line or vision_line).box
+                        box = (rapid_line or vision_line or teacher_line).box
                     crop = _crop_line(processed, box)
                     if crop is None:
                         continue
@@ -305,6 +386,25 @@ def prepare_candidates(
                         raise RuntimeError(f"failed to write crop: {crop_path}")
                     rapid_text = rapid_line.text if rapid_line else None
                     vision_text = vision_line.text if vision_line else None
+                    teacher_text = teacher_line.text if teacher_line else None
+                    candidate_text = rapid_text or vision_text or teacher_text
+                    current_lines = [line for line in (rapid_line, vision_line) if line is not None]
+                    teacher_agrees = (
+                        teacher_line is not None
+                        and bool(current_lines)
+                        and all(
+                            line.confidence >= TEACHER_AUTO_ACCEPT_CONFIDENCE
+                            and canonicalize(line.text) == canonicalize(teacher_line.text)
+                            for line in current_lines
+                        )
+                        and teacher_line.confidence >= TEACHER_AUTO_ACCEPT_CONFIDENCE
+                    )
+                    teacher_suggestion = (
+                        teacher_line is not None
+                        and bool(teacher_text)
+                        and teacher_line.confidence >= TEACHER_SUGGESTION_CONFIDENCE
+                        and (not candidate_text or canonicalize(candidate_text) == canonicalize(teacher_text))
+                    )
                     auto_accepted = (
                         rapid_line is not None
                         and vision_line is not None
@@ -319,12 +419,18 @@ def prepare_candidates(
                             "split": split,
                             "roi": roi_name,
                             "box": np.asarray(box, dtype=float).round(2).tolist(),
-                            "candidate_text": rapid_text or vision_text,
-                            "confidence": round(max(line.confidence for line in (rapid_line, vision_line) if line), 4),
+                            "candidate_text": candidate_text,
+                            "confidence": round(max(line.confidence for line in (rapid_line, vision_line, teacher_line) if line), 4),
                             "rapidocr_text": rapid_text,
                             "rapidocr_confidence": round(rapid_line.confidence, 4) if rapid_line else None,
                             "vision_text": vision_text,
                             "vision_confidence": round(vision_line.confidence, 4) if vision_line else None,
+                            "teacher_model_version": teacher_model_version,
+                            "teacher_text": teacher_text,
+                            "teacher_confidence": round(teacher_line.confidence, 4) if teacher_line else None,
+                            "teacher_suggestion": teacher_suggestion,
+                            "suggested_transcription": canonicalize(teacher_text) if teacher_suggestion and teacher_text else None,
+                            "teacher_auto_accept_eligible": split == "train" and not auto_accepted and teacher_agrees,
                             "crop_backend": crop_backend,
                             "raw_roi_sha256": rust_crops.get((case_id, roi_name), {}).get("sha256"),
                             "review_status": "accepted" if auto_accepted else "pending",
@@ -352,6 +458,9 @@ def prepare_candidates(
         "train_candidates": len(rows["train"]),
         "holdout_candidates": len(rows["holdout"]),
         "auto_accepted": sum(row["review_status"] == "accepted" for split_rows in rows.values() for row in split_rows),
+        "teacher_model_version": teacher_model_version,
+        "teacher_suggestions": sum(row["teacher_suggestion"] for split_rows in rows.values() for row in split_rows),
+        "teacher_auto_accept_eligible": sum(row["teacher_auto_accept_eligible"] for row in rows["train"]),
     }
 
 
@@ -361,7 +470,14 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--roi-config", type=Path, default=DEFAULT_ROI_CONFIG)
     parser.add_argument("--crop-backend", choices=("python", "rust"), default="python")
+    parser.add_argument("--teacher-artifact-dir", type=Path)
     args = parser.parse_args()
+    teacher_artifact = args.teacher_artifact_dir
+    teacher_version = candidate_artifact_version(teacher_artifact) if teacher_artifact else None
+    if teacher_artifact is None:
+        discovered = discover_candidate_artifact(ROOT / "training/.work/artifacts")
+        if discovered:
+            teacher_artifact, teacher_version = discovered
     print(
         json.dumps(
             prepare_candidates(
@@ -371,6 +487,8 @@ def main() -> None:
                 load_roi_config(args.roi_config),
                 crop_backend=args.crop_backend,
                 roi_config_path=args.roi_config,
+                teacher_model_dir=teacher_artifact,
+                teacher_model_version=teacher_version,
             ),
             ensure_ascii=False,
         )
