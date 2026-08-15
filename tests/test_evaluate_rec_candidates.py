@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from training.scripts.evaluate_rec_candidates import evaluate
@@ -96,3 +98,28 @@ def test_evaluate_reports_raw_and_normalized_accuracy_separately(tmp_path: Path)
     assert terminology["false_correction_rate"] == 0.0
     assert terminology["decisions"]["normalized"] == 1
     assert terminology["decisions"]["unchanged"] == 1
+
+
+def test_evaluate_cli_runs_standalone_with_repo_root_on_path(tmp_path: Path) -> None:
+    """Regression guard: the CLI must work as `python training/scripts/evaluate_rec_candidates.py`."""
+    labels = tmp_path / "labels"
+    review = tmp_path / "review"
+    labels.mkdir()
+    review.mkdir()
+    (labels / "holdout.txt").write_text("images/holdout/a.png\t增益\n", encoding="utf-8")
+    (review / "holdout.jsonl").write_text(
+        json.dumps({"crop": "images/holdout/a.png", "layout_version": "1280x720-v6", "roi": "left_panel", "rapidocr_text": "编益"}, ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
+    )
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, str(root / "training/scripts/evaluate_rec_candidates.py"), "--output", str(tmp_path)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    metrics = json.loads(result.stdout)
+    assert metrics["terminology"]["normalized"]["rapidocr"] == {"covered": 1, "correct": 1}
