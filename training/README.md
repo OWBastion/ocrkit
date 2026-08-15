@@ -236,8 +236,53 @@ correction rates:
 uv run python training/scripts/evaluate_rec_candidates.py
 ```
 
-## Constrained text adjudication experiment (#4)
+## Platform reviewed-snapshot import (#5)
 
+`training/importer/` is the offline importer for one finalized
+platform-reviewed dataset snapshot. The platform supplies reviewed annotation
+facts and bounded evidence access through the contract documented in
+`training/importer/CONTRACT.md`; it never generates PaddleOCR labels or
+train/holdout splits.
+
+The importer is read-only against the remote snapshot and requires no platform
+DB access or broad R2 credentials. It:
+
+1. fetches the immutable snapshot metadata and reviewed annotations;
+2. downloads only snapshot-member evidence through the bounded access path and
+   verifies every SHA-256 (missing evidence fails explicitly, nothing is
+   substituted);
+3. resumes partial imports by reusing already-verified downloads in the
+   workspace;
+4. assigns a deterministic source-level train/holdout split (rule version
+   `ocrkit-split-v1`) so crops of one screenshot can never leak across splits;
+5. derives crops with the existing Rust ROI crop/export tooling for field-level
+   annotations, and locally with the versioned layout tooling for text-line
+   boxes; platform pre-crops are copied through unchanged;
+6. materializes rec labels only from reviewed exact transcriptions (never from
+   canonical business values), reports conflicting crop/transcription pairs
+   instead of silently choosing, and validates labels with the existing
+   validator.
+
+Run:
+
+```bash
+export OCRKIT_PLATFORM_SNAPSHOT_BASE_URL=https://platform.example
+export OCRKIT_PLATFORM_SNAPSHOT_TOKEN=<token>   # never committed
+uv run python training/scripts/import_platform_snapshot.py \
+  --snapshot-id 2026-08-01-final \
+  --workspace training/.work/imports/2026-08-01-final \
+  --output datasets/labeled/rec/platform/2026-08-01-final@v3
+```
+
+The workspace caches verified downloads and is safe to reuse for resume; the
+materialized output is written once and refuses to overwrite. Provenance
+(`provenance.json`) records the snapshot identity, split rule and assignment,
+layout versions, source hashes, and the OCRKit code revision so a training run
+can be compared or reproduced. Imported production evidence is private and
+stays out of the public repository, fixture bundle, logs, and released model
+artifacts.
+
+## Constrained text adjudication experiment (#4)
 `training/adjudication/` is an offline, replayable experiment that measures
 whether a constrained text-only adjudicator reduces manual review for OCR
 terminology cases that deterministic normalization leaves unresolved.
@@ -245,9 +290,8 @@ terminology cases that deterministic normalization leaves unresolved.
 Preconditions before a real go/no-go decision:
 
 1. #3 deterministic normalization is implemented and measured (done);
-2. #5 can materialize a representative reviewed-annotation dataset from the
-   platform (not yet available; the checked-in fixture only demonstrates the
-   methodology);
+2. #5 materializes a representative reviewed-annotation dataset from the
+   platform (the importer is implemented; feed it a real finalized snapshot);
 3. the remaining unresolved population is large enough to justify evaluation.
 
 Run the experiment against a reviewed-annotations record file:
