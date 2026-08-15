@@ -1095,6 +1095,63 @@
   .training-head {
     @apply flex flex-wrap items-end justify-between gap-4;
   }
+
+  .demoted-panel {
+    @apply border-ink/10;
+  }
+  .demoted-note {
+    @apply mb-3 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-xs leading-relaxed text-ink/60;
+  }
+
+  .snapshot-layout {
+    @apply grid gap-4 lg:grid-cols-[minmax(17rem,0.7fr)_minmax(0,1.3fr)];
+  }
+  .snapshot-list {
+    @apply grid content-start gap-3;
+  }
+  .snapshot-import-form {
+    @apply grid gap-2;
+  }
+  .snapshot-env-hint {
+    @apply text-xs text-ink/45;
+  }
+  .snapshot-env-hint code {
+    @apply rounded bg-ink/5 px-1 py-0.5 font-mono text-[11px];
+  }
+  .snapshot-items {
+    @apply grid list-none gap-2 p-0;
+  }
+  .snapshot-item {
+    @apply grid w-full gap-1 rounded-lg border border-ink/10 bg-white/60 px-3 py-2 text-left transition-colors;
+  }
+  .snapshot-item:hover {
+    @apply border-ink/25;
+  }
+  .snapshot-item-current {
+    @apply border-leaf/50 bg-leaf/8;
+  }
+  .snapshot-detail {
+    @apply grid content-start gap-4;
+  }
+  .provenance-grid {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-1;
+  }
+  .annotation-preview {
+    @apply grid gap-2;
+  }
+  .annotation-preview h3 {
+    @apply text-sm font-semibold text-ink/70;
+  }
+  .annotation-preview ul {
+    @apply grid list-none gap-1.5 p-0 text-sm;
+  }
+  .annotation-preview li {
+    @apply flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-md bg-ink/4 px-2.5 py-1.5;
+  }
+  .annotation-preview code {
+    @apply font-mono text-[11px] text-ink/60;
+  }
+
   .training-head .panel-actions { @apply mt-0; }
   .training-config {
     @apply grid gap-3 rounded-[calc(var(--radius-panel)-0.15rem)] border border-ink/8 bg-paper/55 p-4 sm:grid-cols-[minmax(0,1.4fr)_8rem] sm:items-end;

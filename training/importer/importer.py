@@ -383,6 +383,10 @@ def _materialize(
                 encoding="utf-8",
             )
 
+        warnings: list[str] = []
+        if conflicts:
+            warnings.append(f"label conflicts excluded from rec labels: {len(conflicts)} crop(s)")
+
         if needs_rust:
             for layout_dir in sorted(workspace.glob(".rust-crops-*")):
                 images = layout_dir / "images"
@@ -452,6 +456,9 @@ def _materialize(
                         for source in metadata.sources
                     ],
                     "annotation_count": len(payload.annotations),
+                    "labels": {label_split: len(label_lines[label_split]) for label_split in ("train", "holdout")},
+                    "warnings": warnings,
+                    "label_conflicts": conflicts,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -479,9 +486,6 @@ def _materialize(
 
     tmp_output.rename(output)
 
-    warnings: list[str] = []
-    if conflicts:
-        warnings.append(f"label conflicts excluded from rec labels: {len(conflicts)} crop(s)")
     return ImportReport(
         snapshot_id=metadata.snapshot_id,
         snapshot_version=metadata.version,

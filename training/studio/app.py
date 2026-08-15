@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -16,6 +17,18 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from training.importer.client import (
+    HttpSnapshotClient,
+    SnapshotAuthError,
+    SnapshotContractError,
+    SnapshotNotFoundError,
+    SnapshotNotFinalizedError,
+)
+from training.importer.importer import (
+    MissingSourceError,
+    SnapshotIntegrityError,
+    import_snapshot as import_platform_snapshot,
+)
 from training.studio.core import (
     DEFAULT_WORK_ROOT,
     append_sources,
@@ -25,18 +38,23 @@ from training.studio.core import (
     export_dataset,
     finalize_dataset,
     generate_candidates,
+    list_snapshot_imports,
     refresh_vision_candidates,
     refresh_teacher_candidates,
     review_counts,
     review_rows,
     recreate_candidates,
     roi_preview_paths,
+    snapshot_annotations,
+    snapshot_import_summary,
+    snapshot_provenance,
     update_review_row,
 )
 from training.studio.r2 import StudioR2Store, r2_error_detail
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = ROOT / "training/studio/frontend/dist"
+DEFAULT_SNAPSHOT_IMPORT_ROOT = ROOT / "datasets/labeled/rec/platform"
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -60,6 +78,12 @@ class PublishStart(BaseModel):
 class RemoteSourceSelection(BaseModel):
     keys: list[str] = Field(min_length=1, max_length=200)
     holdout_ratio: float = Field(default=0.2, ge=0, lt=1)
+
+
+class SnapshotImportRequest(BaseModel):
+    snapshot_id: str = Field(..., min_length=1, max_length=256)
+    holdout_fraction: float = Field(default=0.2, ge=0, lt=1)
+    split_seed: str = Field(default="ocrkit-v1", min_length=1, max_length=64)
 
 
 def _batch_dir(work_root: Path, batch_id: str) -> Path:
@@ -100,6 +124,97 @@ def _list_batches(work_root: Path) -> list[dict[str, object]]:
 
 def _legacy_checkpoint_root(work_root: Path) -> Path:
     return (work_root.parent / "checkpoints").resolve()
+
+
+def _safe_component(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._@-]", "_", value)
+    return cleaned or "snapshot"
+
+
+def _snapshot_dir(snapshot_import_root: Path, ref: str) -> Path:
+    root = snapshot_import_root.resolve()
+    candidate = (root / ref).resolve()
+    if candidate.parent != root or not (candidate / "provenance.json").is_file():
+        raise HTTPException(status_code=404, detail="snapshot import not found")
+    return candidate
+
+
+def _snapshot_run_root(work_root: Path, ref: str) -> Path:
+    return (work_root / "snapshot-runs" / _safe_component(ref)).resolve()
+
+
+def _snapshot_resume_checkpoint(work_root: Path, run_root: Path, value: str | None) -> Path | None:
+    if value is None:
+        return None
+    if value.startswith("legacy:"):
+        legacy_root = _legacy_checkpoint_root(work_root)
+        relative = value.removeprefix("legacy:")
+        candidate = (legacy_root / relative).resolve()
+        if legacy_root not in candidate.parents or candidate.suffix:
+            raise HTTPException(status_code=422, detail="invalid legacy resume checkpoint")
+        if not _has_complete_checkpoint(candidate):
+            raise HTTPException(status_code=422, detail="legacy resume checkpoint is incomplete or no longer exists")
+        return candidate
+    relative = value.removeprefix("snapshot:")
+    candidate = (run_root / relative).resolve()
+    if run_root not in candidate.parents or candidate.suffix:
+        raise HTTPException(status_code=422, detail="invalid snapshot resume checkpoint")
+    if not _has_complete_checkpoint(candidate):
+        raise HTTPException(status_code=422, detail="snapshot resume checkpoint is incomplete or no longer exists")
+    return candidate
+
+
+def _snapshot_resume_checkpoints(work_root: Path, run_root: Path) -> list[dict[str, str]]:
+    checkpoints: list[dict[str, str]] = []
+    runs_dir = run_root / "runs"
+    if runs_dir.is_dir():
+        for params in sorted(runs_dir.glob("smoke-*/checkpoints/*.pdparams"), reverse=True):
+            checkpoint = params.with_suffix("")
+            if _has_complete_checkpoint(checkpoint):
+                relative = checkpoint.relative_to(run_root).as_posix()
+                checkpoints.append({
+                    "path": f"snapshot:{relative}",
+                    "name": f"本快照 · {checkpoint.relative_to(runs_dir).as_posix()}",
+                })
+    legacy_root = _legacy_checkpoint_root(work_root)
+    if legacy_root.is_dir():
+        for params in sorted(legacy_root.glob("*/best_accuracy.pdparams"), reverse=True):
+            checkpoint = params.with_suffix("")
+            if _has_complete_checkpoint(checkpoint):
+                relative = checkpoint.relative_to(legacy_root).as_posix()
+                checkpoints.append({
+                    "path": f"legacy:{relative}",
+                    "name": f"历史模型 · {relative}",
+                })
+    return checkpoints
+
+
+def _snapshot_training_state(work_root: Path, ref: str) -> dict[str, object]:
+    state_path = _snapshot_run_root(work_root, ref) / "runs/latest.json"
+    if not state_path.is_file():
+        return {"status": "not_started", "log": "", "log_tail": ""}
+    state: dict[str, object] = json.loads(state_path.read_text(encoding="utf-8"))
+    state_changed = _poll_training_process(state)
+    log_path = Path(str(state.get("log", "")))
+    state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-48000:] if log_path.is_file() else ""
+    if state_changed:
+        persisted = {key: value for key, value in state.items() if key != "log_tail"}
+        state_path.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return state
+
+
+def _snapshot_publication_state(work_root: Path, ref: str) -> dict[str, object]:
+    state_path = _snapshot_run_root(work_root, ref) / "publication/latest.json"
+    if not state_path.is_file():
+        return {"status": "not_started", "log": "", "log_tail": ""}
+    state: dict[str, object] = json.loads(state_path.read_text(encoding="utf-8"))
+    changed = _poll_training_process(state, "publishing")
+    log_path = Path(str(state.get("log", "")))
+    state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-48000:] if log_path.is_file() else ""
+    if changed:
+        persisted = {key: value for key, value in state.items() if key != "log_tail"}
+        state_path.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return state
 
 
 def _has_complete_checkpoint(checkpoint: Path) -> bool:
@@ -197,6 +312,10 @@ def _poll_training_process(state: dict[str, object], active_status: str = "train
         except ProcessLookupError:
             state["status"] = "completed_or_failed"
             return True
+        except PermissionError:
+            # The pid exists but is not ours to inspect; it cannot be a live Studio run.
+            state["status"] = "completed_or_failed"
+            return True
         return False
     if reaped_pid == 0:
         return False
@@ -224,11 +343,14 @@ def create_app(
     work_root: Path = DEFAULT_WORK_ROOT,
     frontend_dir: Path | None = FRONTEND_DIST,
     remote_store: StudioR2Store | None = None,
+    snapshot_import_root: Path | None = None,
 ) -> FastAPI:
     if frontend_dir is not None and not (frontend_dir / "index.html").is_file():
         raise RuntimeError(f"Studio frontend is missing: run `pnpm --dir training/studio/frontend build` ({frontend_dir})")
 
-    app = FastAPI(title="OCRKit Studio", docs_url=None, redoc_url=None)
+    snapshot_import_root = (snapshot_import_root or DEFAULT_SNAPSHOT_IMPORT_ROOT).resolve()
+
+    app = FastAPI(title="OCRKit Model Studio", docs_url=None, redoc_url=None)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -676,6 +798,134 @@ def create_app(
             persisted = {key: value for key, value in state.items() if key != "log_tail"}
             state_path.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return state
+
+    # --- Model Studio: platform snapshot imports (#5) and model lifecycle ---
+
+    @app.get("/api/snapshots")
+    def snapshots() -> list[dict[str, object]]:
+        return list_snapshot_imports(snapshot_import_root)
+
+    @app.post("/api/snapshots/import")
+    async def import_snapshot_route(request: SnapshotImportRequest) -> dict[str, object]:
+        base_url = os.environ.get("OCRKIT_PLATFORM_SNAPSHOT_BASE_URL", "").strip()
+        token = os.environ.get("OCRKIT_PLATFORM_SNAPSHOT_TOKEN", "").strip()
+        if not base_url or not token:
+            raise HTTPException(
+                status_code=503,
+                detail="平台快照未配置：需要 OCRKIT_PLATFORM_SNAPSHOT_BASE_URL 与 OCRKIT_PLATFORM_SNAPSHOT_TOKEN",
+            )
+        client = HttpSnapshotClient(base_url, token)
+        try:
+            metadata = client.fetch_snapshot(request.snapshot_id)
+        except (SnapshotAuthError, SnapshotNotFoundError, SnapshotContractError) as exc:
+            raise HTTPException(status_code=422, detail=f"无法读取平台快照：{exc}") from exc
+        ref = f"{metadata.snapshot_id}@{metadata.version}"
+        output = snapshot_import_root / ref
+        workspace = work_root / "snapshot-workspace" / _safe_component(request.snapshot_id)
+        try:
+            report = await run_in_threadpool(
+                import_platform_snapshot,
+                client=client,
+                snapshot_id=request.snapshot_id,
+                workspace=workspace,
+                output=output,
+                holdout_fraction=request.holdout_fraction,
+                split_seed=request.split_seed,
+                resume=True,
+            )
+        except (MissingSourceError, SnapshotIntegrityError, SnapshotNotFinalizedError, SnapshotContractError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"report": report.__dict__, "summary": snapshot_import_summary(output)}
+
+    @app.get("/api/snapshots/{ref}")
+    def snapshot_detail(ref: str) -> dict[str, object]:
+        import_dir = _snapshot_dir(snapshot_import_root, ref)
+        return {
+            "summary": snapshot_import_summary(import_dir),
+            "provenance": snapshot_provenance(import_dir),
+            "annotations": snapshot_annotations(import_dir),
+        }
+
+    @app.get("/api/snapshots/{ref}/annotations")
+    def snapshot_annotations_route(ref: str, limit: int = 100) -> dict[str, object]:
+        if limit < 1 or limit > 1000:
+            raise HTTPException(status_code=422, detail="limit must be between 1 and 1000")
+        import_dir = _snapshot_dir(snapshot_import_root, ref)
+        return {"annotations": snapshot_annotations(import_dir, limit)}
+
+    @app.post("/api/snapshots/{ref}/training/smoke")
+    async def start_snapshot_smoke(ref: str, request: TrainingStart | None = None) -> dict[str, object]:
+        import_dir = _snapshot_dir(snapshot_import_root, ref)
+        labels_dir = import_dir / "labels"
+        if not (labels_dir / "train.txt").is_file():
+            raise HTTPException(status_code=422, detail="materialized import has no train labels")
+        request = request or TrainingStart()
+        run_root = _snapshot_run_root(work_root, ref)
+        run_dir = run_root / "runs" / f"smoke-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        log_path = run_dir / "training.log"
+        command = [
+            str(ROOT / "training/run_rec_smoke.sh"),
+            "--labels-dir", str(labels_dir),
+            "--output-dir", str(run_dir / "checkpoints"),
+            "--epochs", str(request.epochs),
+        ]
+        resume_checkpoint = _snapshot_resume_checkpoint(work_root, run_root, request.resume_checkpoint)
+        if resume_checkpoint is not None:
+            command.extend(["--resume-checkpoint", str(resume_checkpoint)])
+        with log_path.open("ab") as log:
+            process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)  # noqa: ASYNC220 - matches batch training route
+        state: dict[str, object] = {
+            "pid": process.pid,
+            "status": "training",
+            "command": command,
+            "log": str(log_path),
+            "epochs": request.epochs,
+            "resume_checkpoint": request.resume_checkpoint,
+        }
+        payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+        (run_dir / "run.json").write_text(payload, encoding="utf-8")
+        (run_root / "runs/latest.json").write_text(payload, encoding="utf-8")
+        return state
+
+    @app.get("/api/snapshots/{ref}/training")
+    def snapshot_training_status(ref: str) -> dict[str, object]:
+        return _snapshot_training_state(work_root, ref)
+
+    @app.get("/api/snapshots/{ref}/training/checkpoints")
+    def snapshot_resume_checkpoints(ref: str) -> list[dict[str, str]]:
+        return _snapshot_resume_checkpoints(work_root, _snapshot_run_root(work_root, ref))
+
+    @app.post("/api/snapshots/{ref}/publication")
+    def publish_snapshot(ref: str, request: PublishStart) -> dict[str, object]:
+        if not request.confirmed:
+            raise HTTPException(status_code=422, detail="confirm publication before writing model artifacts to R2")
+        _snapshot_dir(snapshot_import_root, ref)
+        run_root = _snapshot_run_root(work_root, ref)
+        checkpoint = _checkpoint_from_training_state(run_root)
+        publication_root = run_root / "publication"
+        latest_path = publication_root / "latest.json"
+        if latest_path.is_file():
+            latest = json.loads(latest_path.read_text(encoding="utf-8"))
+            if latest.get("status") == "publishing":
+                raise HTTPException(status_code=409, detail="a model publication is already running")
+        run_dir = publication_root / datetime.now(UTC).strftime("release-%Y%m%d-%H%M%S")
+        run_dir.mkdir(parents=True)
+        log_path = run_dir / "release.log"
+        command = [str(ROOT / "training/release_rec_model.sh"), "--checkpoint", str(checkpoint)]
+        with log_path.open("ab") as log:
+            process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        state: dict[str, object] = {"pid": process.pid, "status": "publishing", "command": command, "log": str(log_path), "checkpoint": str(checkpoint)}
+        payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+        (run_dir / "publication.json").write_text(payload, encoding="utf-8")
+        latest_path.write_text(payload, encoding="utf-8")
+        return state
+
+    @app.get("/api/snapshots/{ref}/publication")
+    def snapshot_publication_status(ref: str) -> dict[str, object]:
+        return _snapshot_publication_state(work_root, ref)
 
     if frontend_dir is not None:
         app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="studio")

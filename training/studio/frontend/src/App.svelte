@@ -13,6 +13,27 @@
     command?: string[]
   }
   type ResumeCheckpoint = { path: string; name: string }
+  type SnapshotLabelConflict = { crop: string; transcriptions: string[]; annotation_ids: string[] }
+  type SnapshotSummary = {
+    snapshot_id: string
+    version: string
+    ref: string
+    import_dir: string
+    finalized_at?: string | null
+    imported_at?: string | null
+    code_revision?: string | null
+    split_rule_version?: string
+    split_seed?: string
+    holdout_fraction?: number
+    train_sources: number
+    holdout_sources: number
+    layout_versions: string[]
+    annotation_count: number
+    labels: { train: number; holdout: number }
+    warnings: string[]
+    label_conflicts: SnapshotLabelConflict[]
+  }
+  type SnapshotDetail = { summary: SnapshotSummary; provenance: Record<string, any>; annotations: any[] }
   type RemoteConfig = { configured: boolean; bucket: string; allowed_prefixes: string[]; max_objects?: number; max_object_bytes?: number }
   type RemoteObject = { key: string; size: number; etag?: string | null; last_modified?: string | null }
   type RemoteSortField = 'date' | 'size' | 'name'
@@ -189,6 +210,24 @@
   let toastTimer: ReturnType<typeof setTimeout> | null = null
   let lastFinalize: { train: number; holdout: number } | null = null
   let lastExportPath = ''
+  let snapshots: SnapshotSummary[] = []
+  let snapshot: SnapshotSummary | null = null
+  let snapshotDetail: SnapshotDetail | null = null
+  let snapshotIdInput = ''
+  let snapshotHoldoutFraction = 0.2
+  let snapshotImportBusy = false
+  let snapshotEpochs = 10
+  let snapshotResumeCheckpoints: ResumeCheckpoint[] = []
+  let snapshotResumeCheckpoint = ''
+  let snapshotTraining: TrainingState | null = null
+  let snapshotPublication: TrainingState | null = null
+  let snapshotPublishConfirmed = false
+  let snapshotFollowLog = true
+  let snapshotFollowPublishLog = true
+  let snapshotLogEl: HTMLPreElement | null = null
+  let snapshotPublishLogEl: HTMLPreElement | null = null
+  let snapshotUpdatedAt = ''
+  let snapshotPollTimer: ReturnType<typeof setInterval> | null = null
   const cropZoomSteps: CropZoom[] = ['auto', 1, 2, 3, 4]
   const TRAINING_POLL_MS = 2000
   const TOAST_MS = 4200
@@ -198,7 +237,8 @@
   $: selectedRatio = selected ? getEngineRatio(selected) : null
 
   const nav = [
-    ['import', '1', '导入'],
+    ['snapshots', '0', '快照'],
+    ['import', '1', '本地实验'],
     ['candidates', '2', '候选'],
     ['review', '3', '复核'],
     ['dataset', '4', '标签'],
@@ -207,9 +247,24 @@
 
   function openStep(step: (typeof nav)[number][0]) {
     if (step !== 'training') stopTrainingPoll()
+    if (step !== 'snapshots') stopSnapshotPoll()
     active = step
     if (step === 'review' && batch) void refreshReview()
     if (step === 'training' && batch) void loadTrainingStep()
+    if (step === 'snapshots') void loadSnapshotStep()
+  }
+
+  async function selectSnapshot(ref: string) {
+    snapshot = snapshots.find((item) => item.ref === ref) || null
+    snapshotDetail = null
+    if (active === 'snapshots') {
+      if (snapshot) await loadSnapshotStep()
+      else {
+        snapshotTraining = null
+        snapshotPublication = null
+        stopSnapshotPoll()
+      }
+    }
   }
 
   async function selectBatch(batchId: string) {
@@ -231,6 +286,15 @@
     if (!review || review.total === 0) return '下一步：生成候选'
     if (review.pending > 0) return `下一步：复核剩余 ${review.pending} 条`
     return '下一步：生成标签，然后可启动训练'
+  }
+
+  function flowHint() {
+    if (active !== 'snapshots') return batchHint()
+    if (!snapshots.length) return '下一步：导入一个已终态的平台数据集快照'
+    if (!snapshot) return '从左侧选择一个已导入快照'
+    if (!snapshotTraining || snapshotTraining.status === 'not_started') return '下一步：在快照 labels 上启动 Smoke 训练'
+    if (snapshotTraining.status !== 'completed') return '训练运行中，完成后可评测并发布'
+    return '下一步：评测通过后显式发布候选模型'
   }
 
   async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -1124,13 +1188,171 @@
     } catch (cause) { message(cause instanceof Error ? cause.message : '训练启动失败', true) } finally { busy = false }
   }
 
+  // --- 平台快照（Model Studio 主流程） ---
+
+  async function refreshSnapshots(selectRef?: string) {
+    snapshots = await request<SnapshotSummary[]>('/api/snapshots')
+    const ref = selectRef || snapshot?.ref
+    snapshot = snapshots.find((item) => item.ref === ref) || snapshots[0] || null
+    if (active === 'snapshots') {
+      if (snapshot) await loadSnapshotStep()
+      else {
+        snapshotDetail = null
+        snapshotTraining = null
+        snapshotPublication = null
+        stopSnapshotPoll()
+      }
+    }
+  }
+
+  async function loadSnapshotStep() {
+    if (!snapshot) return
+    snapshotDetail = await request<SnapshotDetail>(`/api/snapshots/${encodeURIComponent(snapshot.ref)}`)
+    await Promise.all([refreshSnapshotTraining({ silent: true }), refreshSnapshotCheckpoints(), refreshSnapshotPublication({ silent: true })])
+    if (snapshotTrainingIsRunning(snapshotTraining?.status)) startSnapshotPoll()
+  }
+
+  async function importSnapshot() {
+    const snapshotId = snapshotIdInput.trim()
+    if (!snapshotId) return message('输入平台快照 ID。', true)
+    snapshotImportBusy = true
+    try {
+      const result = await request<{ report: { snapshot_version: string }; summary: SnapshotSummary | null }>('/api/snapshots/import', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ snapshot_id: snapshotId, holdout_fraction: snapshotHoldoutFraction }),
+      })
+      snapshotIdInput = ''
+      message(`快照已导入（${result.summary?.ref || `${snapshotId}@${result.report.snapshot_version}`}）。`)
+      await refreshSnapshots(result.summary?.ref || undefined)
+    } catch (cause) { message(cause instanceof Error ? cause.message : '快照导入失败', true) } finally { snapshotImportBusy = false }
+  }
+
+  function stopSnapshotPoll() {
+    if (snapshotPollTimer) {
+      clearInterval(snapshotPollTimer)
+      snapshotPollTimer = null
+    }
+  }
+
+  function startSnapshotPoll() {
+    if (snapshotPollTimer || active !== 'snapshots' || !snapshot) return
+    snapshotPollTimer = setInterval(() => {
+      void refreshSnapshotTraining({ silent: true })
+      void refreshSnapshotPublication({ silent: true })
+    }, TRAINING_POLL_MS)
+  }
+
+  async function scrollSnapshotLogs() {
+    await tick()
+    if (snapshotFollowLog && snapshotLogEl) snapshotLogEl.scrollTop = snapshotLogEl.scrollHeight
+    if (snapshotFollowPublishLog && snapshotPublishLogEl) snapshotPublishLogEl.scrollTop = snapshotPublishLogEl.scrollHeight
+  }
+
+  async function refreshSnapshotTraining(options?: { silent?: boolean }) {
+    if (!snapshot) return
+    try {
+      const previousStatus = snapshotTraining?.status
+      snapshotTraining = await request<TrainingState>(`/api/snapshots/${encodeURIComponent(snapshot.ref)}/training`)
+      snapshotUpdatedAt = new Date().toLocaleTimeString()
+      if (snapshotTrainingIsRunning(snapshotTraining.status)) {
+        if (active === 'snapshots') startSnapshotPoll()
+      } else {
+        if (!snapshotPublicationIsActive()) stopSnapshotPoll()
+        if (previousStatus === 'training' && snapshotTrainingIsDone(snapshotTraining.status)) {
+          message(snapshotTraining.status === 'completed' ? 'Smoke 训练已成功结束。' : 'Smoke 训练已结束，请查看日志。')
+        }
+      }
+      await scrollSnapshotLogs()
+    } catch (cause) {
+      stopSnapshotPoll()
+      if (!options?.silent) message(cause instanceof Error ? cause.message : '获取快照训练状态失败', true)
+    }
+  }
+
+  async function refreshSnapshotPublication(options?: { silent?: boolean }) {
+    if (!snapshot) return
+    try {
+      const previous = snapshotPublication?.status
+      snapshotPublication = await request<TrainingState>(`/api/snapshots/${encodeURIComponent(snapshot.ref)}/publication`)
+      if (snapshotPublication.status === 'publishing' && active === 'snapshots') startSnapshotPoll()
+      if (snapshotPublication.status !== 'publishing' && !snapshotTrainingIsRunning(snapshotTraining?.status)) stopSnapshotPoll()
+      if (previous === 'publishing' && snapshotPublication.status && snapshotPublication.status !== 'publishing') {
+        message(snapshotPublication.status === 'completed' ? '模型已发布到 R2。' : '模型发布已结束，请查看发布日志。')
+      }
+      if (snapshotFollowPublishLog) await scrollSnapshotLogs()
+    } catch (cause) {
+      if (!options?.silent) message(cause instanceof Error ? cause.message : '获取快照发布状态失败', true)
+    }
+  }
+
+  async function refreshSnapshotCheckpoints() {
+    if (!snapshot) {
+      snapshotResumeCheckpoints = []
+      snapshotResumeCheckpoint = ''
+      return
+    }
+    snapshotResumeCheckpoints = await request<ResumeCheckpoint[]>(`/api/snapshots/${encodeURIComponent(snapshot.ref)}/training/checkpoints`)
+    if (snapshotResumeCheckpoint && !snapshotResumeCheckpoints.some((checkpoint) => checkpoint.path === snapshotResumeCheckpoint)) {
+      snapshotResumeCheckpoint = ''
+    }
+  }
+
+  async function startSnapshotTraining() {
+    if (!snapshot) return message('先选择已导入快照。', true)
+    snapshotImportBusy = true
+    try {
+      await request<TrainingState>(`/api/snapshots/${encodeURIComponent(snapshot.ref)}/training/smoke`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ resume_checkpoint: snapshotResumeCheckpoint || null, epochs: snapshotEpochs }),
+      })
+      message(snapshotResumeCheckpoint ? '已从所选 checkpoint 恢复训练，状态将自动刷新。' : 'Smoke 训练已启动，状态将自动刷新。')
+      snapshotFollowLog = true
+      await refreshSnapshotTraining()
+      startSnapshotPoll()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '快照训练启动失败', true) } finally { snapshotImportBusy = false }
+  }
+
+  async function startSnapshotPublication() {
+    if (!snapshot || !snapshotPublishConfirmed) return message('请确认已准备将新模型写入 R2。', true)
+    snapshotImportBusy = true
+    try {
+      await request<TrainingState>(`/api/snapshots/${encodeURIComponent(snapshot.ref)}/publication`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmed: true }),
+      })
+      message('模型发布已启动：将重新评测、导出、上传并下载校验。')
+      await refreshSnapshotPublication()
+      startSnapshotPoll()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '启动 R2 发布失败', true) } finally { snapshotImportBusy = false }
+  }
+
+  function snapshotTrainingIsRunning(value?: string) {
+    return value === 'training'
+  }
+
+  function snapshotTrainingIsDone(value?: string) {
+    return value === 'completed' || value === 'failed' || value === 'completed_or_failed'
+  }
+
+  function snapshotPublicationIsActive() {
+    return snapshotPublication?.status === 'publishing'
+  }
+
+  function canPublishSnapshot() {
+    return Boolean(snapshot && snapshotTraining?.status === 'completed' && snapshotPublishConfirmed && snapshotPublication?.status !== 'publishing' && !snapshotImportBusy)
+  }
+
   onMount(async () => {
     try {
-      await Promise.all([refreshBatches(), loadRemoteStatus()])
+      await Promise.all([refreshBatches(), loadRemoteStatus(), refreshSnapshots()])
     } catch { message('无法连接 Studio API。', true) }
   })
   onDestroy(() => {
     stopTrainingPoll()
+    stopSnapshotPoll()
     clearToastTimer()
   })
 </script>
@@ -1144,8 +1366,8 @@
     <div class="app-chrome">
       <header class="app-header">
         <div class="brand">
-          <h1>OCRKit Studio</h1>
-          <p class="flow-hint">{batchHint()}</p>
+          <h1>OCRKit Model Studio</h1>
+          <p class="flow-hint">{flowHint()}</p>
         </div>
         <label class="batch-picker">
           <span>批次</span>
@@ -1203,11 +1425,11 @@
 
     {#if active === 'import'}
       <section class="panel-grid">
-        <div class="panel">
+        <div class="panel demoted-panel">
           <header class="panel-head">
-            <p class="eyebrow">步骤 1</p>
-            <h2>导入截图</h2>
-            <p>选择或粘贴 PNG / JPEG / WebP。可创建新批次，或补充到当前批次；重复内容会自动去重。</p>
+            <p class="eyebrow">步骤 1 · 开发实验</p>
+            <h2>本地/合成截图实验</h2>
+            <p>生产标注真值来自「步骤 0 · 快照」导入的平台已审数据集。本步骤仅用于本地/合成开发实验，不会成为第二标注权威；本地批次可通过「标签 → 导出私有数据集」归档。</p>
           </header>
           <label class="file-pick" class:file-pick-ready={files.length > 0}>
             <input
@@ -1562,6 +1784,7 @@
       </section>
     {:else if active === 'review'}
       <section class="review-layout">
+        <p class="demoted-note">本地复核仅适用于开发实验批次。生产训练真值来自「步骤 0 · 快照」导入的平台已审标注；Studio 不再维护第二标注源，本地纠正不会自动提升为规则或数据集。</p>
         <aside class="review-list">
           <div class="filters">
             <select class="control" bind:value={split} on:change={() => refreshReview()}>
@@ -1946,6 +2169,198 @@
             </div>
           </article>
         </div>
+      </section>
+    {:else if active === 'snapshots'}
+      <section class="snapshot-layout">
+        <aside class="snapshot-list">
+          <header class="panel-head">
+            <p class="eyebrow">步骤 0 · Model Studio</p>
+            <h2>平台数据集快照</h2>
+            <p>从平台已审标注快照导入生产训练真值（#5），校验 provenance 与标签，再训练、评测并发布。</p>
+          </header>
+          <div class="snapshot-import-form">
+            <label class="field">
+              <span>快照 ID</span>
+              <input class="control" bind:value={snapshotIdInput} placeholder="例如 2026-08-01-final" />
+            </label>
+            <label class="field field-compact">
+              <span>Holdout</span>
+              <input class="control" type="number" min="0.05" max="0.5" step="0.05" bind:value={snapshotHoldoutFraction} />
+            </label>
+            <button class="button-primary" disabled={snapshotImportBusy || !snapshotIdInput.trim()} on:click={importSnapshot}>
+              {snapshotImportBusy ? '导入中…' : '导入快照'}
+            </button>
+          </div>
+          <p class="snapshot-env-hint">需配置 <code>OCRKIT_PLATFORM_SNAPSHOT_BASE_URL</code> 与 <code>OCRKIT_PLATFORM_SNAPSHOT_TOKEN</code>。</p>
+          {#if snapshots.length}
+            <ul class="snapshot-items">
+              {#each snapshots as item}
+                <li>
+                  <button
+                    type="button"
+                    class:snapshot-item-current={snapshot?.ref === item.ref}
+                    class="snapshot-item"
+                    on:click={() => void selectSnapshot(item.ref)}
+                  >
+                    <strong>{item.ref}</strong>
+                    <span class="status-meta">
+                      {item.labels.train} train / {item.labels.holdout} holdout · {item.train_sources + item.holdout_sources} 源 · {formatDate(item.imported_at)}
+                    </span>
+                    {#if item.warnings.length}
+                      <span class="status-pill status-failed">{item.warnings.length} 条警告</span>
+                    {/if}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="empty">尚未导入任何快照。</p>
+          {/if}
+        </aside>
+
+        <article class="snapshot-detail">
+          {#if !snapshot}
+            <div class="empty-detail">
+              <p class="eyebrow">步骤 0</p>
+              <h2>从左侧选择或导入快照</h2>
+              <p>导入后在此查看物化校验、provenance 与标签分布。</p>
+            </div>
+          {:else}
+            <header class="panel-head">
+              <p class="eyebrow">{snapshot.ref}</p>
+              <h2>物化与 provenance</h2>
+            </header>
+            <div class="provenance-grid">
+              <span class="status-meta">导入于 {formatDate(snapshot.imported_at)}</span>
+              <span class="status-meta">终态于 {formatDate(snapshot.finalized_at)}</span>
+              <span class="status-meta">代码修订 <code>{snapshot.code_revision || '—'}</code></span>
+              <span class="status-meta">划分规则 <code>{snapshot.split_rule_version || '—'}</code></span>
+              <span class="status-meta">版式 {snapshot.layout_versions.join(' · ')}</span>
+              <span class="status-meta">已审标注 {snapshot.annotation_count}</span>
+            </div>
+            <div class="dataset-readiness" aria-live="polite">
+              <span class="status-pill status-done">{snapshot.labels.train} train labels</span>
+              <span class="status-pill status-done">{snapshot.labels.holdout} holdout labels</span>
+              <span class="status-pill status-done">{snapshot.train_sources} train 源</span>
+              <span class="status-pill status-done">{snapshot.holdout_sources} holdout 源</span>
+              {#if snapshot.warnings.length}
+                <span class="status-pill status-failed" title={snapshot.warnings.join('\n')}>{snapshot.warnings.length} 条导入警告</span>
+              {/if}
+            </div>
+            {#if snapshot.label_conflicts.length}
+              <p class="auto-review-hint">有 {snapshot.label_conflicts.length} 个 crop 因多条不同转写被排除出 rec labels（已保留在 annotations 证据中）。</p>
+            {/if}
+            {#if snapshotDetail?.annotations?.length}
+              <section class="annotation-preview" aria-label="已审标注预览">
+                <h3>标注预览（前 {snapshotDetail.annotations.length} 条）</h3>
+                <ul>
+                  {#each snapshotDetail.annotations.slice(0, 5) as row}
+                    <li>
+                      <code>{row.annotation_id}</code>
+                      <span>OCR「{row.ocr_prediction || '—'}」→ 转写「{row.exact_transcription}」</span>
+                      <span class="status-meta">{row.crop_path}</span>
+                    </li>
+                  {/each}
+                </ul>
+              </section>
+            {/if}
+
+            <section class="training-panel">
+              <div class="training-head">
+                <header class="panel-head">
+                  <p class="eyebrow">训练</p>
+                  <h2>Smoke 训练（快照 labels）</h2>
+                  <p>直接在物化快照的已审标签上运行本地 CPU Smoke。</p>
+                </header>
+                <div class="panel-actions">
+                  <button class="button-secondary" disabled={!snapshot || snapshotImportBusy} on:click={() => refreshSnapshotTraining()}>立即刷新</button>
+                  <button class="button-primary" disabled={!snapshot || snapshotImportBusy || snapshotTrainingIsRunning(snapshotTraining?.status)} on:click={startSnapshotTraining}>
+                    {snapshotImportBusy ? '启动中…' : snapshotTrainingIsRunning(snapshotTraining?.status) ? '训练中…' : '启动训练'}
+                  </button>
+                </div>
+              </div>
+              <div class="training-config">
+                <label class="field">
+                  <span>恢复 checkpoint</span>
+                  <select class="control" bind:value={snapshotResumeCheckpoint} disabled={!snapshot || snapshotImportBusy || snapshotTrainingIsRunning(snapshotTraining?.status)}>
+                    <option value="">从 PP-OCRv6 预训练权重开始</option>
+                    {#each snapshotResumeCheckpoints as checkpoint}
+                      <option value={checkpoint.path}>{checkpoint.name}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label class="field field-compact">
+                  <span>目标 Epoch</span>
+                  <input class="control" type="number" min="1" max="100" bind:value={snapshotEpochs} disabled={!snapshot || snapshotImportBusy || snapshotTrainingIsRunning(snapshotTraining?.status)} />
+                </label>
+              </div>
+              {#if !snapshotTraining || snapshotTraining.status === 'not_started'}
+                <p class="empty">尚未启动训练。</p>
+              {:else}
+                <div class="training-status" aria-live="polite">
+                  <span class="status-pill"
+                    class:status-running={snapshotTrainingIsRunning(snapshotTraining.status)}
+                    class:status-done={snapshotTraining.status === 'completed'}
+                    class:status-failed={snapshotTraining.status === 'failed' || snapshotTraining.status === 'completed_or_failed'}
+                  >{trainingStatusLabel(snapshotTraining.status)}</span>
+                  {#if snapshotTraining.pid}<span class="status-meta">PID {snapshotTraining.pid}</span>{/if}
+                  {#if snapshotUpdatedAt}<span class="status-meta">更新于 {snapshotUpdatedAt}</span>{/if}
+                </div>
+                {#if snapshotTraining.command?.length}
+                  <div class="training-command"><span>命令</span><code title={snapshotTraining.command.join(' ')}>{snapshotTraining.command.join(' ')}</code></div>
+                {/if}
+                <section class="log-panel" aria-label="快照训练日志">
+                  <header class="log-toolbar">
+                    <span>训练日志</span>
+                    <label class="log-follow">
+                      <input type="checkbox" bind:checked={snapshotFollowLog} on:change={() => void scrollSnapshotLogs()} />
+                      跟随底部
+                    </label>
+                  </header>
+                  <pre class="log-tail" bind:this={snapshotLogEl}>{snapshotTraining.log_tail?.trimEnd() || '（暂无输出，启动后将显示在这里）'}</pre>
+                </section>
+              {/if}
+
+              <section class="publish-panel" aria-label="模型发布">
+                <div class="publish-head">
+                  <header class="panel-head">
+                    <p class="eyebrow">发布</p>
+                    <h2>发布到 R2（不可变版本）</h2>
+                    <p>仅在 Smoke 成功后可用。重新评测、导出不可变版本、上传并下载校验，不覆盖历史模型；回滚通过选择更早的 manifest/channel 完成。</p>
+                  </header>
+                  <div class="publish-status" aria-live="polite">
+                    <span class="status-pill"
+                      class:status-running={snapshotPublicationIsActive()}
+                      class:status-done={snapshotPublication?.status === 'completed'}
+                      class:status-failed={snapshotPublication?.status === 'failed' || snapshotPublication?.status === 'completed_or_failed'}
+                    >{trainingStatusLabel(snapshotPublication?.status)}</span>
+                  </div>
+                </div>
+                <label class="publish-confirm">
+                  <input type="checkbox" bind:checked={snapshotPublishConfirmed} disabled={snapshotTraining?.status !== 'completed' || snapshotPublicationIsActive()} />
+                  我已确认准备将候选模型写入 R2（需 R2 发布凭据）
+                </label>
+                <div class="panel-actions">
+                  <button class="button-primary" disabled={!canPublishSnapshot()} on:click={startSnapshotPublication}>
+                    {snapshotImportBusy ? '发布中…' : '发布候选模型'}
+                  </button>
+                </div>
+                {#if snapshotPublication?.log_tail}
+                  <section class="log-panel" aria-label="发布日志">
+                    <header class="log-toolbar">
+                      <span>发布日志</span>
+                      <label class="log-follow">
+                        <input type="checkbox" bind:checked={snapshotFollowPublishLog} on:change={() => void scrollSnapshotLogs()} />
+                        跟随底部
+                      </label>
+                    </header>
+                    <pre class="log-tail" bind:this={snapshotPublishLogEl}>{snapshotPublication.log_tail.trimEnd()}</pre>
+                  </section>
+                {/if}
+              </section>
+            </section>
+          {/if}
+        </article>
       </section>
     {:else}
       <section class="training-panel">

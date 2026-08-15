@@ -44,12 +44,14 @@ All generated training state belongs below the ignored `training/.work/`
 directory. Do not commit production screenshots, debug crops, credentials,
 checkpoints, or model binaries.
 
-## OCRKit Studio
+## Model Studio (#6)
 
-Studio is a local-only Svelte/Vite + FastAPI workbench. It does not run in the
-production API and does not publish a model without an explicit confirmation.
-The default launcher starts the API on `127.0.0.1:7860` and the Vite HMR UI on
-`127.0.0.1:5173`:
+Studio is a local-only Svelte/Vite + FastAPI **Model Studio**. It consumes
+reviewed platform dataset snapshots (#5) as the authoritative production
+training truth and owns only OCRKit model-lifecycle operations. It does not
+run in the production API and does not publish a model without an explicit
+confirmation. The default launcher starts the API on `127.0.0.1:7860` and the
+Vite HMR UI on `127.0.0.1:5173`:
 
 ```bash
 ./studio.sh
@@ -63,6 +65,56 @@ Equivalent commands are:
 ./studio.sh build               # install locked frontend deps and build only
 ./studio.sh start --port 7861  # build, then serve the static UI
 ```
+
+The Model Studio workflow is:
+
+```text
+select/import a finalized platform dataset snapshot (#5)
+→ inspect materialization/provenance and validation warnings
+→ source-level train/holdout split (ocrkit-split-v1, recorded in provenance)
+→ configure/start or continue Smoke training on the snapshot labels
+→ evaluate the candidate checkpoint
+→ publish through the existing immutable release gate
+→ rollback by selecting an earlier released manifest/channel target
+```
+
+`GET /api/snapshots` lists materialized imports; `POST /api/snapshots/import`
+imports a finalized snapshot through the #5 importer (requires
+`OCRKIT_PLATFORM_SNAPSHOT_BASE_URL` and `OCRKIT_PLATFORM_SNAPSHOT_TOKEN`);
+`GET /api/snapshots/<id>@<version>` returns provenance, label counts,
+import warnings, and materialized annotations. Training and publication reuse
+the same `run_rec_smoke.sh` / `release_rec_model.sh` scripts and immutable
+release semantics as the local workflow.
+
+### Local annotation workflow is demoted, not deleted
+
+Platform-reviewed annotations are the authoritative production training truth;
+Studio no longer maintains a competing primary review queue. The old local
+import → candidate → review → labels steps remain available in the UI for
+**developer fixtures and synthetic experiments** only, clearly labelled as
+such. Local corrections are never automatically promoted into rules or
+production datasets, and R2 screenshot browsing is no longer the primary way to
+discover labeling evidence.
+
+### Migration and archival of existing local batches
+
+Existing local batches under `training/.work/studio/batches/<id>/` are
+preserved as-is and remain reproducible:
+
+- `batch.json` records the sources, SHA-256 digests, ROI layouts, provenance
+  (R2 bucket/object key where applicable), and holdout ratio;
+- `dataset/review/*.jsonl` and `labels/*.txt` are the final reviewed state;
+- `runs/smoke-*/` and `publication/` retain checkpoints and release logs;
+- finalized exports already copied to `datasets/labeled/rec/studio/<id>/` are
+  immutable archival packages.
+
+To archive a local batch for historical reproduction, export it through
+「标签 → 导出私有数据集」or copy the batch directory to a private location;
+the exported package is self-contained (crops, labels, batch manifest,
+export.json). Do not silently delete local batches that contain unique private
+labels or checkpoints; keep them until the platform annotation pipeline has
+produced a reviewed snapshot covering the same evidence, and never commit
+`training/.work/` or production screenshots to the public repository.
 
 The Studio workflow is:
 
