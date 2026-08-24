@@ -42,21 +42,21 @@ class MultipleAchievementPanelEngine:
 
 class RunCodeEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (44, 380):
+        if image.shape[:2] == (190, 660):
             return OcrResult(text="本局代码：4821-7354-1926", confidence=0.96, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
 class LowConfidenceRunCodeEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (44, 380):
+        if image.shape[:2] == (190, 660):
             return OcrResult(text="本局代码：4821-7354-1926", confidence=0.89, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
 class AmbiguousRunCodeEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (44, 380):
+        if image.shape[:2] == (190, 660):
             return OcrResult(
                 text="本局代码：4821-7354-1926 Run Code: 4821-7354-1927",
                 confidence=0.97,

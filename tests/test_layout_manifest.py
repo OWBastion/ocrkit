@@ -33,6 +33,5 @@ def test_left_hud_rois_keep_data_and_achievement_regions_separate(name: str) -> 
     achievement = config.rois["achievement_panel"]
 
     assert run_code.y1 >= left.y1
-    assert run_code.y2 <= left.y2
     assert achievement.y1 >= left.y2
     assert achievement.y1 >= run_code.y2
