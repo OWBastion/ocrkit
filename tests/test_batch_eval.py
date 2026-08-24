@@ -100,3 +100,22 @@ def test_main_rejects_run_code_fixture_accuracy_below_gate(monkeypatch: pytest.M
 
     with pytest.raises(SystemExit, match="run-code fixture exact-match accuracy"):
         batch_eval.main()
+
+
+def test_main_only_run_code_avoids_private_corpus_evaluation(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[Path, Path, Path | None]] = []
+
+    def evaluate_stub(cases: Path, images: Path, model_config: Path | None = None) -> dict[str, object]:
+        calls.append((cases, images, model_config))
+        return {"field_accuracy": 1.0, "matched_fields": 1, "total_fields": 1}
+
+    monkeypatch.setattr(batch_eval, "evaluate", evaluate_stub)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["batch_eval.py", "--only-run-code", "--min-run-code-accuracy", "1.0"],
+    )
+
+    batch_eval.main()
+
+    assert calls == [(batch_eval.DEFAULT_RUN_CODE_CASES, batch_eval.DEFAULT_RUN_CODE_IMAGES_DIR, None)]

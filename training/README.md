@@ -509,8 +509,11 @@ uv run python scripts/batch_eval.py --min-field-accuracy 0.9604221635883905
 cargo test --manifest-path rust/Cargo.toml --workspace --locked
 ```
 
-The Python workflow runs tests and the fixture gate with the private datasets
-revision pinned by the repository submodule. The Rust workflow owns the image
+The Python pull-request workflow runs tests and the public run-code smoke
+fixtures without checking out private datasets. The manual/nightly
+`Compatibility` workflow pins the private datasets revision and runs the full
+Bastion screenshot gate, retaining its report and log as an artifact. The model
+release script runs the full gate again before publishing a candidate. The Rust workflow owns the image
 CLI tests and lint. The Docker GHCR workflow intentionally ignores
 `training/**`, `scripts/**`, `tests/**`, `rust/**`, and `datasets/**` changes;
 training and model publication remain separate from the production image
