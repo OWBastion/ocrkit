@@ -1,0 +1,92 @@
+name: Compatibility
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          token: ${{ github.token }}
+
+      - name: Checkout private OCR fixtures
+        uses: actions/checkout@v7
+        with:
+          repository: OWBastion/ocrkit-datasets
+          token: ${{ secrets.OCRKIT_DATASETS_TOKEN }}
+          path: datasets
+          fetch-depth: 0
+
+      - name: Pin OCR fixtures revision
+        run: |
+          dataset_commit="$(git rev-parse HEAD:datasets)"
+          git -C datasets checkout --detach "$dataset_commit"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install test dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Run full Bastion screenshot compatibility gate
+        id: compatibility
+        shell: bash
+        run: |
+          set +e
+          mkdir -p training/.work
+          uv run python scripts/compatibility_gate.py \
+            --report training/.work/compatibility-report.json \
+            > training/.work/compatibility.log 2>&1
+          status=$?
+          {
+            echo "### Bastion screenshot compatibility gate"
+            if [[ -f training/.work/compatibility-report.json ]]; then
+              uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("training/.work/compatibility-report.json").read_text())
+          failures = report.get("failures", [])
+          print(f"- status: {'PASS' if report.get('ok') else 'FAIL'}")
+          print(f"- failures: {len(failures)}")
+          for failure in failures[:20]:
+              print(f"- {failure}")
+          PY
+            else
+              echo "- report was not produced"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          tail -n 80 training/.work/compatibility.log
+          exit "$status"
+
+      - name: Upload compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-evidence
+          path: |
+            training/.work/compatibility-report.json
+            training/.work/compatibility.log
+          if-no-files-found: warn

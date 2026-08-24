@@ -27,6 +27,7 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
     total_fields = 0
     matched_fields = 0
     field_counts: dict[str, dict[str, int]] = {}
+    field_metrics: dict[str, dict[str, int]] = {}
     elapsed_ms: list[float] = []
     results: list[dict[str, object]] = []
 
@@ -52,13 +53,16 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
         actual = response.data.model_dump() if response.data else {}
         expected = case["expected"]
         matched = sum(actual.get(name) == value for name, value in expected.items())
-        total_fields += len(expected)
-        matched_fields += matched
-        for name, expected_value in expected.items():
+        for name, value in expected.items():
             counts = field_counts.setdefault(name, {"matched": 0, "total": 0})
             counts["total"] += 1
-            if actual.get(name) == expected_value:
+            if actual.get(name) == value:
                 counts["matched"] += 1
+            metric = field_metrics.setdefault(name, {"matched": 0, "total": 0})
+            metric["total"] += 1
+            metric["matched"] += actual.get(name) == value
+        total_fields += len(expected)
+        matched_fields += matched
         elapsed_ms.append(elapsed)
         results.append(
             {
@@ -87,6 +91,10 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
         "matched_fields": matched_fields,
         "total_fields": total_fields,
         "field_counts": field_counts,
+        "field_metrics": {
+            name: {**metric, "accuracy": metric["matched"] / metric["total"] if metric["total"] else 0.0}
+            for name, metric in sorted(field_metrics.items())
+        },
         "mean_elapsed_ms": round(sum(elapsed_ms) / len(elapsed_ms), 2) if elapsed_ms else 0.0,
         "p95_elapsed_ms": round(ordered[p95_index], 2) if ordered else 0.0,
         "results": results,
@@ -103,14 +111,23 @@ def main() -> None:
     parser.add_argument("--report", type=Path)
     parser.add_argument("--min-field-accuracy", type=float)
     parser.add_argument("--min-run-code-accuracy", type=float, default=1.0)
+    parser.add_argument(
+        "--only-run-code",
+        action="store_true",
+        help="evaluate only the public run-code fixtures once, without the private challenge corpus",
+    )
     args = parser.parse_args()
-    result = evaluate(args.cases, args.images_dir, args.model_config)
-    run_code_result = evaluate(args.run_code_cases, args.run_code_images_dir, args.model_config)
-    result["run_code"] = run_code_result
+    if args.only_run_code:
+        result = evaluate(args.run_code_cases, args.run_code_images_dir, args.model_config)
+        run_code_result = result
+    else:
+        result = evaluate(args.cases, args.images_dir, args.model_config)
+        run_code_result = evaluate(args.run_code_cases, args.run_code_images_dir, args.model_config)
+        result["run_code"] = run_code_result
     if args.report is not None:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    if args.min_field_accuracy is not None and result["field_accuracy"] < args.min_field_accuracy:
+    if not args.only_run_code and args.min_field_accuracy is not None and result["field_accuracy"] < args.min_field_accuracy:
         raise SystemExit(
             f"fixture field accuracy {result['field_accuracy']:.6f} is below {args.min_field_accuracy:.6f}"
         )

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -73,6 +74,15 @@ class TrainingStart(BaseModel):
 
 class PublishStart(BaseModel):
     confirmed: bool = False
+
+
+class ReleaseAction(BaseModel):
+    confirmed: bool = False
+
+
+class RollbackAction(BaseModel):
+    confirmed: bool = False
+    manifest_key: str = Field(..., min_length=1, max_length=256)
 
 
 class RemoteSourceSelection(BaseModel):
@@ -351,6 +361,59 @@ def create_app(
     snapshot_import_root = (snapshot_import_root or DEFAULT_SNAPSHOT_IMPORT_ROOT).resolve()
 
     app = FastAPI(title="OCRKit Model Studio", docs_url=None, redoc_url=None)
+
+    def _release_config() -> tuple[str, str, str]:
+        bucket = os.environ.get("OCRKIT_R2_DEFAULT_BUCKET", "").strip()
+        endpoint = os.environ.get("OCRKIT_R2_ENDPOINT_URL", "").strip()
+        access_key = os.environ.get("OCRKIT_R2_ACCESS_KEY_ID", "").strip()
+        secret_key = os.environ.get("OCRKIT_R2_SECRET_ACCESS_KEY", "").strip()
+        candidate_channel = os.environ.get(
+            "OCRKIT_MODEL_CANDIDATE_CHANNEL_KEY", "models/pp-ocrv6-small/channels/candidate.json"
+        ).strip()
+        stable_channel = os.environ.get(
+            "OCRKIT_MODEL_RELEASE_CHANNEL_KEY", "models/pp-ocrv6-small/channels/stable.json"
+        ).strip()
+        if not bucket or not endpoint or not access_key or not secret_key:
+            raise HTTPException(status_code=503, detail="模型发布未配置完整 R2 凭据")
+        return bucket, candidate_channel, stable_channel
+
+    def _run_release_action(script_name: str, *extra: str) -> dict[str, object]:
+        bucket, candidate_channel, stable_channel = _release_config()
+        command = [
+            os.fspath(ROOT / ".venv/bin/python") if (ROOT / ".venv/bin/python").is_file() else sys.executable,
+            str(ROOT / "training/scripts" / script_name),
+            "--bucket", bucket,
+            "--candidate-channel", candidate_channel,
+            "--stable-channel", stable_channel,
+            *extra,
+        ]
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or f"{script_name} failed"
+            raise HTTPException(status_code=422, detail=detail)
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=502, detail=f"{script_name} returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail=f"{script_name} returned an invalid response")
+        return payload
+
+    @app.get("/api/model-release/compare")
+    def compare_model_release() -> dict[str, object]:
+        return _run_release_action("compare_model_channels.py")
+
+    @app.post("/api/model-release/promote")
+    def promote_model_release(request: ReleaseAction) -> dict[str, object]:
+        if not request.confirmed:
+            raise HTTPException(status_code=422, detail="确认候选证据后才能晋级 stable")
+        return _run_release_action("promote_model_channel.py")
+
+    @app.post("/api/model-release/rollback")
+    def rollback_model_release(request: RollbackAction) -> dict[str, object]:
+        if not request.confirmed:
+            raise HTTPException(status_code=422, detail="确认历史 manifest 后才能回滚 stable")
+        return _run_release_action("rollback_model_channel.py", "--manifest-key", request.manifest_key)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -758,7 +821,12 @@ def create_app(
         run_dir = publication_root / datetime.now(UTC).strftime("release-%Y%m%d-%H%M%S")
         run_dir.mkdir(parents=True)
         log_path = run_dir / "release.log"
-        command = [str(ROOT / "training/release_rec_model.sh"), "--checkpoint", str(checkpoint)]
+        command = [str(ROOT / "training/release_rec_model.sh")]
+        command.extend([
+            "--holdout-labels", str(batch_dir / "dataset/labels/holdout.txt"),
+            "--holdout-images-root", str(batch_dir / "dataset"),
+            "--provenance", str(batch_dir / "batch.json"), "--checkpoint", str(checkpoint),
+        ])
         with log_path.open("ab") as log:
             process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         state: dict[str, object] = {"pid": process.pid, "status": "publishing", "command": command, "log": str(log_path), "checkpoint": str(checkpoint)}
@@ -902,7 +970,7 @@ def create_app(
     def publish_snapshot(ref: str, request: PublishStart) -> dict[str, object]:
         if not request.confirmed:
             raise HTTPException(status_code=422, detail="confirm publication before writing model artifacts to R2")
-        _snapshot_dir(snapshot_import_root, ref)
+        import_dir = _snapshot_dir(snapshot_import_root, ref)
         run_root = _snapshot_run_root(work_root, ref)
         checkpoint = _checkpoint_from_training_state(run_root)
         publication_root = run_root / "publication"
@@ -914,7 +982,12 @@ def create_app(
         run_dir = publication_root / datetime.now(UTC).strftime("release-%Y%m%d-%H%M%S")
         run_dir.mkdir(parents=True)
         log_path = run_dir / "release.log"
-        command = [str(ROOT / "training/release_rec_model.sh"), "--checkpoint", str(checkpoint)]
+        command = [str(ROOT / "training/release_rec_model.sh")]
+        command.extend([
+            "--holdout-labels", str(import_dir / "labels/holdout.txt"),
+            "--holdout-images-root", str(import_dir),
+            "--provenance", str(import_dir / "provenance.json"), "--checkpoint", str(checkpoint),
+        ])
         with log_path.open("ab") as log:
             process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         state: dict[str, object] = {"pid": process.pid, "status": "publishing", "command": command, "log": str(log_path), "checkpoint": str(checkpoint)}

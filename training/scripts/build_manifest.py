@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("--artifact-dir", required=True, type=Path)
     parser.add_argument("--version", required=True)
     parser.add_argument("--prefix", default=MODEL_OBJECT_PREFIX)
+    parser.add_argument("--evidence", type=Path)
     args = parser.parse_args()
 
     if not VERSION_RE.fullmatch(args.version):
@@ -56,6 +57,13 @@ def main() -> None:
         "version": args.version,
         "files": files,
     }
+    if args.evidence is not None:
+        if not args.evidence.is_file():
+            raise SystemExit(f"release evidence does not exist: {args.evidence}")
+        evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
+        if not isinstance(evidence, dict) or evidence.get("schema_version") != 1:
+            raise SystemExit("release evidence has an unsupported schema")
+        manifest["release_evidence"] = evidence
     destination = args.artifact_dir / "manifest.json"
     destination.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(destination)

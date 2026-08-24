@@ -74,8 +74,9 @@ select/import a finalized platform dataset snapshot (#5)
 → source-level train/holdout split (ocrkit-split-v1, recorded in provenance)
 → configure/start or continue Smoke training on the snapshot labels
 → evaluate the candidate checkpoint
-→ publish through the existing immutable release gate
-→ rollback by selecting an earlier released manifest/channel target
+→ publish an immutable candidate through the existing release gate
+→ compare candidate evidence with the current stable manifest
+→ explicitly promote to stable, or rollback by selecting an earlier verified manifest
 ```
 
 `GET /api/snapshots` lists materialized imports; `POST /api/snapshots/import`
@@ -442,17 +443,23 @@ batch checkpoint explicitly; this is also available from the command line:
 ```bash
 ./training/release_rec_model.sh \
   --checkpoint training/.work/studio/batches/<batch-id>/runs/<run>/checkpoints/best_accuracy \
-  --release-channel models/pp-ocrv6-small/channels/stable.json
+  --holdout-labels training/.work/studio/batches/<batch-id>/dataset/labels/holdout.txt \
+  --holdout-images-root training/.work/studio/batches/<batch-id>/dataset \
+  --provenance training/.work/studio/batches/<batch-id>/batch.json \
+  --release-channel models/pp-ocrv6-small/channels/candidate.json
 ```
 
 The release command generates an unused UTC version, runs the shared fixture
-gate and `uv run pytest -q`, builds a content-hashed manifest, refuses existing
-objects, uploads an immutable version under
+gate and `uv run pytest -q`, records release evidence, builds a content-hashed
+manifest, refuses existing objects, uploads an immutable version under
 `models/pp-ocrv6-small/<version>/`, downloads and verifies the publication with
-RapidOCR, then updates the requested release channel. A production container
-configured with `OCRKIT_MODEL_RELEASE_CHANNEL_KEY` adopts the channel target
-after restart or recreation; a release never overwrites an older model
-version.
+RapidOCR, then updates only
+`models/pp-ocrv6-small/channels/candidate.json`. It evaluates the isolated
+holdout crops at the same `364/379` gate, records the holdout result and
+provenance in the immutable manifest, and refuses a direct stable
+channel write. The Studio or the explicit commands below compare the candidate
+with stable before promotion; missing or failing evidence keeps promotion
+closed.
 
 ## Manual artifact operations
 
@@ -469,16 +476,26 @@ uv run python training/scripts/upload_artifacts.py \
 uv run python training/scripts/verify_published_artifact.py \
   --bucket "$OCRKIT_R2_DEFAULT_BUCKET" \
   --manifest-key models/pp-ocrv6-small/<version>/manifest.json
+uv run python training/scripts/compare_model_channels.py \
+  --bucket "$OCRKIT_R2_DEFAULT_BUCKET" \
+  --report training/.work/model-comparison.json
+uv run python training/scripts/promote_model_channel.py \
+  --bucket "$OCRKIT_R2_DEFAULT_BUCKET"
+uv run python training/scripts/rollback_model_channel.py \
+  --bucket "$OCRKIT_R2_DEFAULT_BUCKET" \
+  --manifest-key models/pp-ocrv6-small/<previous-version>/manifest.json
 ```
 
 `build_manifest.py` fixes the model namespace and records SHA-256 and size for
-all four files. Uploads are immutable and must use a new version. Publish a
-channel only after download and RapidOCR verification:
+all four files, plus the release evidence supplied by the candidate workflow.
+Uploads are immutable and must use a new version. Candidate publication is
+separate from stable selection; promotion records stable-channel history so
+rollback can select a previously verified manifest without retraining.
 
 ```bash
 uv run python training/scripts/publish_model_channel.py \
   --bucket "$OCRKIT_R2_DEFAULT_BUCKET" \
-  --channel-key models/pp-ocrv6-small/channels/stable.json \
+  --channel-key models/pp-ocrv6-small/channels/candidate.json \
   --manifest-key models/pp-ocrv6-small/<version>/manifest.json
 ```
 
@@ -492,8 +509,11 @@ uv run python scripts/batch_eval.py --min-field-accuracy 0.9604221635883905
 cargo test --manifest-path rust/Cargo.toml --workspace --locked
 ```
 
-The Python workflow runs tests and the fixture gate with the private datasets
-revision pinned by the repository submodule. The Rust workflow owns the image
+The Python pull-request workflow runs tests and the public run-code smoke
+fixtures without checking out private datasets. The manual/nightly
+`Compatibility` workflow pins the private datasets revision and runs the full
+Bastion screenshot gate, retaining its report and log as an artifact. The model
+release script runs the full gate again before publishing a candidate. The Rust workflow owns the image
 CLI tests and lint. The Docker GHCR workflow intentionally ignores
 `training/**`, `scripts/**`, `tests/**`, `rust/**`, and `datasets/**` changes;
 training and model publication remain separate from the production image

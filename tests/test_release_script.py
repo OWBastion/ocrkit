@@ -43,3 +43,6 @@ def test_release_accepts_an_explicit_studio_checkpoint() -> None:
     assert "--checkpoint" in text
     assert "publish_model_channel.py" in text
     assert "--release-channel" in text
+    assert "candidate.json" in text
+    assert "stable channel requires explicit promotion" in text
+    assert "compatibility_gate.py" in text

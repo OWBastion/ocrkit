@@ -12,6 +12,7 @@ import boto3
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.model_artifacts.constants import MODEL_OBJECT_PREFIX
+from app.model_artifacts.release import validate_channel_key
 
 
 def main() -> None:
@@ -20,9 +21,10 @@ def main() -> None:
     parser.add_argument("--channel-key", required=True)
     parser.add_argument("--manifest-key", required=True)
     args = parser.parse_args()
-    channel_prefix = f"{MODEL_OBJECT_PREFIX}/channels/"
-    if not args.channel_key.startswith(channel_prefix) or not args.channel_key.endswith(".json"):
-        raise SystemExit("release channel key is invalid")
+    try:
+        validate_channel_key(args.channel_key)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not args.manifest_key.startswith(f"{MODEL_OBJECT_PREFIX}/") or not args.manifest_key.endswith("/manifest.json"):
         raise SystemExit("model manifest key is invalid")
     client = boto3.client(

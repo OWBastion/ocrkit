@@ -11,9 +11,9 @@ Its R2 credential is read-only and may access only the OCRKit model bucket plus
 The production Compose file defaults
 `OCRKIT_MODEL_RELEASE_CHANNEL_KEY` to `models/pp-ocrv6-small/channels/stable.json`. Keep
 `OCRKIT_MODEL_MANIFEST_KEY` only as an optional legacy rollback target; the channel takes
-precedence when both are set. After a verified Studio publication updates the channel, recreate
-the OCRKit container to download and verify the selected model before serving traffic. No
-per-release server environment edit is required.
+precedence when both are set. After a verified Studio candidate is explicitly promoted (or a rollback
+selects a prior verified manifest), recreate the OCRKit container to download and verify the selected
+model before serving traffic. No per-release server environment edit is required.
 
 After deployment, verify `https://ocr.owbastion.com/health` anonymously. Recognition
 endpoints require `Authorization: Bearer <OCRKIT_API_TOKEN>` and are called only by the

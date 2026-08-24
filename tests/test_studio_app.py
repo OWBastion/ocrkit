@@ -49,6 +49,20 @@ def test_studio_api_serves_local_frontend_and_rejects_unknown_batch(tmp_path: Pa
     assert client.get("/").text == "<main>Studio</main>"
 
 
+def test_studio_model_promotion_requires_explicit_confirmation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    monkeypatch.setenv("OCRKIT_R2_DEFAULT_BUCKET", "models")
+    monkeypatch.setenv("OCRKIT_R2_ENDPOINT_URL", "https://example.invalid")
+    client = TestClient(create_app(tmp_path / "work", frontend))
+
+    response = client.post("/api/model-release/promote", json={"confirmed": False})
+
+    assert response.status_code == 422
+    assert "确认候选证据" in response.json()["detail"]
+
+
 def test_studio_api_imports_image_into_private_batch(tmp_path: Path) -> None:
     frontend = tmp_path / "frontend"
     frontend.mkdir()

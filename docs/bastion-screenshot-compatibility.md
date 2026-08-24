@@ -23,6 +23,10 @@ and compressed/scaled evidence. The private released-settlement fixture set
 supplies the full current critical-field and 16:10 coverage without putting
 player screenshots in this repository.
 
-The same command is intended for model evaluation and candidate promotion.
+The same command is intended for model evaluation and candidate promotion. The
+full private-corpus gate runs through the manual/nightly `Compatibility` GitHub
+Actions workflow and in the model release script; ordinary pull requests run
+only the public run-code smoke evaluation so that they do not repeat the full
+OCR corpus.
 Production rollout must use the promoted immutable manifest and must not treat
 this local/CI gate as proof of the platform submission or grant path.
