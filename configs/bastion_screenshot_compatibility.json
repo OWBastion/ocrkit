@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "producer_contract": {
+    "repository": "OWBastion/Bastion",
+    "revision": "settlement-hud-v1",
+    "minimum_released_version": "v26.0811.1"
+  },
+  "supported_producer_revisions": [
+    {"revision": "settlement-hud-v1", "minimum_released_version": "v26.0811.1"},
+    {"revision": "settlement-hud-pre-run-code", "retained_for": "historical regression baseline"}
+  ],
+  "supported_layouts": [
+    {"layout_version": "1280x720-v6", "aspect_ratio": "16:9"},
+    {"layout_version": "1280x800-v1", "aspect_ratio": "16:10"}
+  ],
+  "critical_fields": [
+    "challenge_completed",
+    "viewer_player",
+    "map_name",
+    "difficulty",
+    "version",
+    "duration_seconds",
+    "deaths",
+    "skips",
+    "run_code",
+    "achievement_title"
+  ],
+  "fixture_sets": [
+    {
+      "id": "historical-settlement",
+      "producer_revision": "settlement-hud-pre-run-code",
+      "cases": "datasets/fixtures/challenge/cases.json",
+      "images": "datasets/fixtures/challenge",
+      "required": true,
+      "baseline_only": true,
+      "critical_fields": [
+        "challenge_completed",
+        "viewer_player",
+        "map_name",
+        "difficulty",
+        "version",
+        "duration_seconds",
+        "deaths",
+        "skips"
+      ],
+      "required_layouts": ["1280x720-v6"]
+    },
+    {
+      "id": "run-code-fail-closed",
+      "producer_revision": "settlement-hud-v1",
+      "cases": "tests/fixtures/run_code/cases.json",
+      "images": "tests/fixtures/run_code",
+      "required": true,
+      "critical_fields": ["run_code"],
+      "required_layouts": ["1280x720-v6", "1280x800-v1"]
+    }
+  ]
+}
