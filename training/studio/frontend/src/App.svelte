@@ -12,6 +12,14 @@
     log_tail?: string
     command?: string[]
   }
+  type ReleaseHistoryEntry = { manifest_key?: string; action?: string; verified_at?: string | null }
+  type ReleaseComparison = {
+    eligible: boolean
+    reasons: string[]
+    candidate: { version?: string; manifest_key?: string; channel_key?: string }
+    stable: { version?: string; manifest_key?: string; channel_key?: string; history?: ReleaseHistoryEntry[] }
+    comparison?: { field_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null }; run_code_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null } }
+  }
   type ResumeCheckpoint = { path: string; name: string }
   type SnapshotLabelConflict = { crop: string; transcriptions: string[]; annotation_ids: string[] }
   type SnapshotSummary = {
@@ -179,6 +187,10 @@
   let active = 'import'
   let training: TrainingState | null = null
   let publication: TrainingState | null = null
+  let releaseComparison: ReleaseComparison | null = null
+  let releaseConfirmed = false
+  let rollbackManifest = ''
+  let releaseBusy = false
   let publishConfirmed = false
   let resumeCheckpoints: ResumeCheckpoint[] = []
   let resumeCheckpoint = ''
@@ -1124,7 +1136,7 @@
   }
 
   async function loadTrainingStep() {
-    await Promise.all([refreshTraining(), refreshResumeCheckpoints(), refreshPublication()])
+    await Promise.all([refreshTraining(), refreshResumeCheckpoints(), refreshPublication(), refreshReleaseComparison({ silent: true })])
     if (trainingIsRunning(training?.status)) startTrainingPoll()
   }
 
@@ -1138,11 +1150,44 @@
       // Surface completion even during silent polling so operators see the outcome.
       if (previous === 'publishing' && publication.status && publication.status !== 'publishing') {
         message(publication.status === 'completed' ? '模型已发布到 R2。' : '模型发布已结束，请查看发布日志。')
+        void refreshReleaseComparison({ silent: true })
       }
       if (followPublishLog) await scrollLogToBottom()
     } catch (cause) {
       if (!options?.silent) message(cause instanceof Error ? cause.message : '获取发布状态失败', true)
     }
+  }
+
+  async function refreshReleaseComparison(options?: { silent?: boolean }) {
+    try {
+      releaseComparison = await request<ReleaseComparison>('/api/model-release/compare')
+      const history = releaseComparison.stable.history || []
+      if (rollbackManifest && !history.some((entry) => entry.manifest_key === rollbackManifest)) rollbackManifest = ''
+    } catch (cause) {
+      if (!options?.silent) message(cause instanceof Error ? cause.message : '获取模型比较结果失败', true)
+    }
+  }
+
+  async function promoteStable() {
+    if (!releaseConfirmed) return message('请确认候选证据后再晋级 stable。', true)
+    releaseBusy = true
+    try {
+      await request('/api/model-release/promote', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmed: true }) })
+      releaseConfirmed = false
+      message('候选已显式晋级 stable；生产容器需按现有部署流程重启。')
+      await refreshReleaseComparison()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '模型晋级失败', true) } finally { releaseBusy = false }
+  }
+
+  async function rollbackStable() {
+    if (!rollbackManifest) return message('请选择一个历史 verified manifest。', true)
+    releaseBusy = true
+    try {
+      await request('/api/model-release/rollback', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmed: true, manifest_key: rollbackManifest }) })
+      message('stable 已回指历史 verified manifest；生产容器需按现有部署流程重启。')
+      rollbackManifest = ''
+      await refreshReleaseComparison()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '模型回滚失败', true) } finally { releaseBusy = false }
   }
 
   async function startPublication() {
@@ -1208,7 +1253,7 @@
   async function loadSnapshotStep() {
     if (!snapshot) return
     snapshotDetail = await request<SnapshotDetail>(`/api/snapshots/${encodeURIComponent(snapshot.ref)}`)
-    await Promise.all([refreshSnapshotTraining({ silent: true }), refreshSnapshotCheckpoints(), refreshSnapshotPublication({ silent: true })])
+    await Promise.all([refreshSnapshotTraining({ silent: true }), refreshSnapshotCheckpoints(), refreshSnapshotPublication({ silent: true }), refreshReleaseComparison({ silent: true })])
     if (snapshotTrainingIsRunning(snapshotTraining?.status)) startSnapshotPoll()
   }
 
@@ -1279,6 +1324,7 @@
       if (snapshotPublication.status !== 'publishing' && !snapshotTrainingIsRunning(snapshotTraining?.status)) stopSnapshotPoll()
       if (previous === 'publishing' && snapshotPublication.status && snapshotPublication.status !== 'publishing') {
         message(snapshotPublication.status === 'completed' ? '模型已发布到 R2。' : '模型发布已结束，请查看发布日志。')
+        void refreshReleaseComparison({ silent: true })
       }
       if (snapshotFollowPublishLog) await scrollSnapshotLogs()
     } catch (cause) {
@@ -2509,6 +2555,55 @@
         </section>
       </section>
     {/if}
+    <section class="publish-panel release-decision-panel" aria-label="候选与 stable 决策">
+      <div class="publish-head">
+        <header class="panel-head">
+          <p class="eyebrow">模型决策</p>
+          <h2>候选 → stable</h2>
+          <p>候选发布只写入 candidate channel；只有比较报告和远端 artifact 校验都通过后，显式操作才会更新 stable。</p>
+        </header>
+        <div class="panel-actions">
+          <button class="button-secondary" disabled={releaseBusy} on:click={() => refreshReleaseComparison()}>比较候选与 stable</button>
+        </div>
+      </div>
+      {#if !releaseComparison}
+        <p class="empty">尚未读取模型 channel；配置 R2 后刷新比较。</p>
+      {:else}
+        <div class="training-command release-manifests">
+          <span>候选</span><code>{releaseComparison.candidate.version || '未知'} · {releaseComparison.candidate.manifest_key || '无 manifest'}</code>
+          <span>stable</span><code>{releaseComparison.stable.version || '未知'} · {releaseComparison.stable.manifest_key || '无 manifest'}</code>
+        </div>
+        {#if releaseComparison.comparison?.field_accuracy}
+          <p class="config-note">fixture field accuracy：候选 {releaseComparison.comparison.field_accuracy.candidate ?? '—'}，stable {releaseComparison.comparison.field_accuracy.stable ?? '—'}，delta {releaseComparison.comparison.field_accuracy.delta ?? '—'}。</p>
+        {/if}
+        {#if releaseComparison.eligible}
+          <p class="status-meta status-live">候选证据完整，可执行显式晋级。</p>
+        {:else}
+          <ul class="config-note release-reasons">
+            {#each releaseComparison.reasons as reason}<li>{reason}</li>{/each}
+          </ul>
+        {/if}
+        <div class="panel-actions release-actions">
+          <label class="confirm-row">
+            <input type="checkbox" bind:checked={releaseConfirmed} disabled={!releaseComparison.eligible || releaseBusy} />
+            <span><strong>确认晋级候选到 stable</strong><small>仅改变 stable channel 选择，不修改任何已发布 artifact。</small></span>
+          </label>
+          <button class="button-primary" disabled={!releaseComparison.eligible || !releaseConfirmed || releaseBusy} on:click={promoteStable}>显式晋级 stable</button>
+        </div>
+        <div class="panel-actions release-actions">
+          <label class="field">
+            <span>回滚到历史 verified manifest</span>
+            <select class="control" bind:value={rollbackManifest} disabled={releaseBusy}>
+              <option value="">选择历史 manifest</option>
+              {#each (releaseComparison.stable.history || []) as entry}
+                {#if entry.manifest_key}<option value={entry.manifest_key}>{entry.manifest_key}</option>{/if}
+              {/each}
+            </select>
+          </label>
+          <button class="button-secondary" disabled={!rollbackManifest || releaseBusy} on:click={rollbackStable}>回滚 stable</button>
+        </div>
+      {/if}
+    </section>
     </div>
   </div>
 

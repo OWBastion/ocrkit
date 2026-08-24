@@ -198,9 +198,10 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Studio updates the stable channel after a fully verified publication. Restart or recreate the OCRKit
-container to adopt a newly published or rolled-back channel target. The old environment-variable flow
-remains available for initial migration:
+Studio publishes a candidate channel after a fully verified publication; compare and explicitly promote
+that candidate before the stable channel changes. Restart or recreate the OCRKit container to adopt a
+newly promoted or rolled-back channel target. The old environment-variable flow remains available for
+initial migration:
 
 ```bash
 docker compose up -d --force-recreate
