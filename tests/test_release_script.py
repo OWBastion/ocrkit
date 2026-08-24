@@ -45,3 +45,4 @@ def test_release_accepts_an_explicit_studio_checkpoint() -> None:
     assert "--release-channel" in text
     assert "candidate.json" in text
     assert "stable channel requires explicit promotion" in text
+    assert "compatibility_gate.py" in text

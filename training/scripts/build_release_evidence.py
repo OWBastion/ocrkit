@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--fixture-report", required=True, type=Path)
     parser.add_argument("--holdout-report", type=Path)
     parser.add_argument("--provenance", type=Path)
+    parser.add_argument("--compatibility-report", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -35,6 +36,11 @@ def main() -> None:
     if args.provenance is not None:
         provenance_payload = _read_json(args.provenance, "release provenance")
         provenance = {"status": "recorded", "source": provenance_payload}
+    compatibility = _read_json(args.compatibility_report, "Bastion screenshot compatibility report")
+    if not isinstance(compatibility, dict) or compatibility.get("schema_version") != 1:
+        raise SystemExit("Bastion screenshot compatibility report has an unsupported schema")
+    if compatibility.get("ok") is not True:
+        raise SystemExit("Bastion screenshot compatibility gate did not pass")
 
     evidence = {
         "schema_version": 1,
@@ -44,6 +50,7 @@ def main() -> None:
         },
         "full_test_suite": {"status": "passed"},
         "provenance": provenance,
+        "compatibility": {"status": "passed", "report": compatibility},
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

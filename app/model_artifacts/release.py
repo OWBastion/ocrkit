@@ -90,6 +90,7 @@ def compare_manifests(
         "holdout": _status(holdout) == "passed",
         "full_test_suite": _status(candidate_evidence.get("full_test_suite")) == "passed",
         "provenance": _status(candidate_evidence.get("provenance")) == "recorded",
+        "compatibility": _status(candidate_evidence.get("compatibility")) == "passed",
     }
     reasons = [f"missing or failing {name} evidence" for name, passed in checks.items() if not passed]
     fixture_accuracy = _metric(fixture, "field_accuracy")

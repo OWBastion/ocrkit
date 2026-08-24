@@ -63,6 +63,7 @@ def _evidence() -> dict[str, object]:
         },
         "full_test_suite": {"status": "passed"},
         "provenance": {"status": "recorded", "source": {"snapshot": "s1@v1"}},
+        "compatibility": {"status": "passed", "report": {"schema_version": 1, "ok": True}},
     }
 
 

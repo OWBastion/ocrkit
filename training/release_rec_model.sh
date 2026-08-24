@@ -124,7 +124,13 @@ if [[ "${test_status}" -ne 0 ]]; then
   printf 'full test suite failed; see %s\n' "${test_report}" >&2
   exit "${test_status}"
 fi
-evidence_args=(--fixture-report "${artifact_dir}/fixture_report.json" --output "${artifact_dir}/release_evidence.json")
+compatibility_report="${artifact_dir}/compatibility_report.json"
+uv run python scripts/compatibility_gate.py --report "${compatibility_report}"
+evidence_args=(
+  --fixture-report "${artifact_dir}/fixture_report.json"
+  --compatibility-report "${compatibility_report}"
+  --output "${artifact_dir}/release_evidence.json"
+)
 if [[ -n "${holdout_report}" ]]; then
   evidence_args+=(--holdout-report "${holdout_report}")
 fi
