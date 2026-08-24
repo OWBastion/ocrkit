@@ -13,15 +13,15 @@ rois:
 
   run_code_panel:
     x1: 30
-    y1: 198
-    x2: 220
-    y2: 220
+    y1: 145
+    x2: 360
+    y2: 240
 
   run_code_right_panel:
     x1: 1060
-    y1: 88
+    y1: 80
     x2: 1240
-    y2: 106
+    y2: 125
 
   achievement_panel:
     x1: 20
