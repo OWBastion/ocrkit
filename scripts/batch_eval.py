@@ -26,6 +26,7 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
         context.ocr_engine = RapidOcrEngine(config_path=model_config)
     total_fields = 0
     matched_fields = 0
+    field_counts: dict[str, dict[str, int]] = {}
     elapsed_ms: list[float] = []
     results: list[dict[str, object]] = []
 
@@ -53,12 +54,27 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
         matched = sum(actual.get(name) == value for name, value in expected.items())
         total_fields += len(expected)
         matched_fields += matched
+        for name, expected_value in expected.items():
+            counts = field_counts.setdefault(name, {"matched": 0, "total": 0})
+            counts["total"] += 1
+            if actual.get(name) == expected_value:
+                counts["matched"] += 1
         elapsed_ms.append(elapsed)
         results.append(
             {
                 "id": case["id"],
                 "matched_fields": matched,
                 "total_fields": len(expected),
+                "fields": {
+                    name: {
+                        "expected": expected_value,
+                        "actual": actual.get(name),
+                        "matched": actual.get(name) == expected_value,
+                    }
+                    for name, expected_value in expected.items()
+                },
+                "layout_version": getattr(response, "layout_version", context.layout_version),
+                "quality_warnings": list(getattr(getattr(response, "quality", None), "warnings", [])),
                 "elapsed_ms": round(elapsed, 2),
             }
         )
@@ -70,6 +86,7 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
         "field_accuracy": matched_fields / total_fields if total_fields else 0.0,
         "matched_fields": matched_fields,
         "total_fields": total_fields,
+        "field_counts": field_counts,
         "mean_elapsed_ms": round(sum(elapsed_ms) / len(elapsed_ms), 2) if elapsed_ms else 0.0,
         "p95_elapsed_ms": round(ordered[p95_index], 2) if ordered else 0.0,
         "results": results,

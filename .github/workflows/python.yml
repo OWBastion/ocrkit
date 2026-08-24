@@ -72,3 +72,6 @@ jobs:
 
       - name: Run OCR fixture evaluation
         run: uv run python scripts/batch_eval.py --min-field-accuracy 0.9604221635883905
+
+      - name: Run Bastion screenshot compatibility gate
+        run: uv run python scripts/compatibility_gate.py --report training/.work/compatibility-report.json
