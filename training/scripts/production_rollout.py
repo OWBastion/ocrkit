@@ -18,6 +18,8 @@ import boto3
 
 bucket = os.environ["OCRKIT_R2_DEFAULT_BUCKET"]
 channel_key = os.getenv("OCRKIT_MODEL_RELEASE_CHANNEL_KEY") or "models/pp-ocrv6-small/channels/stable.json"
+if channel_key != "models/pp-ocrv6-small/channels/stable.json":
+    raise RuntimeError("production rollout requires the stable model channel")
 client = boto3.client(
     "s3",
     endpoint_url=os.environ["OCRKIT_R2_ENDPOINT_URL"],
@@ -102,6 +104,8 @@ def validate_target(target: dict[str, Any]) -> dict[str, str]:
         raise RuntimeError("stable channel target is incomplete")
     if not target["manifest_key"].startswith("models/pp-ocrv6-small/"):
         raise RuntimeError("stable manifest is outside the OCRKit model prefix")
+    if target["channel_key"] != "models/pp-ocrv6-small/channels/stable.json":
+        raise RuntimeError("production rollout requires the stable model channel")
     return {name: str(target[name]) for name in required}
 
 

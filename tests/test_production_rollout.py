@@ -22,6 +22,9 @@ def test_target_requires_immutable_manifest_identity() -> None:
     with pytest.raises(RuntimeError, match="outside"):
         validate_target({**target, "manifest_key": "other/model/manifest.json"})
 
+    with pytest.raises(RuntimeError, match="stable model channel"):
+        validate_target({**target, "channel_key": "models/pp-ocrv6-small/channels/candidate.json"})
+
 
 def test_health_must_match_stable_target() -> None:
     target = {
