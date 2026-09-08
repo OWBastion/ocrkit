@@ -67,7 +67,7 @@ cd "${paddleocr_dir}"
   Global.use_gpu=False \
   "Global.epoch_num=${epoch_num}" \
   Global.save_model_dir="${output_dir}" \
-  Global.save_epoch_step=1 \
+  Global.save_epoch_step="$((epoch_num + 1))" \
   Global.eval_batch_step='[0, 1]' \
   "${model_init_args[@]}" \
   Global.character_dict_path="${paddleocr_dir}/ppocr/utils/dict/ppocrv6_dict.txt" \
@@ -82,8 +82,10 @@ cd "${paddleocr_dir}"
   Eval.loader.batch_size_per_card=8 \
   Eval.loader.num_workers=0
 
-evaluation_dir="${work_dir}/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
 cd "${root_dir}"
+"${python_bin}" "${root_dir}/training/scripts/prune_rec_checkpoints.py" "${output_dir}"
+
+evaluation_dir="${work_dir}/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
 "${root_dir}/training/evaluate_rec_checkpoint.sh" \
   "${output_dir}/best_accuracy" \
   "${evaluation_dir}"

@@ -399,7 +399,13 @@ Prepare the offline environment once, then run the CPU recognition Smoke:
 `run_rec_smoke.sh` accepts `--labels-dir`, `--output-dir`, `--epochs` (the
 target total epoch), and `--resume-checkpoint` (a checkpoint base path without
 `.pdparams`, `.pdopt`, or `.states`). It validates both label files, fine-tunes
-recognition only, and leaves checkpoints under `training/.work/`.
+recognition only, and leaves `latest` plus `best_accuracy` under
+`training/.work/`. Per-epoch `iter_epoch_*` dumps and PaddleOCR's duplicate
+`best_model/` copy are pruned after training. To reclaim space from older runs:
+
+```bash
+uv run python training/scripts/prune_rec_checkpoints.py --root training/.work
+```
 
 Training and release use the same evaluator,
 `training/evaluate_rec_checkpoint.sh`. For a checkpoint it:
