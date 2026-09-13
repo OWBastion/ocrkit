@@ -31,14 +31,17 @@ For substantive work:
 
 ## Recognition invariants
 
+- OCRKit is for known Bastion screenshot layouts, not a generic full-screen OCR or free-form visual-understanding product.
 - Prefer deterministic image/layout handling, ROI extraction, parsing, and validation before introducing or expanding model complexity when they can solve the measured failure.
+- Train or fine-tune models only when measured evidence shows deterministic preprocessing/parsing is insufficient for the target field/layout.
+- Production inference must not depend on Apple-only APIs. Keep training-only dependencies out of the production runtime, and do not make a large multimodal model the primary recognition path without an explicit architecture decision.
 - A low-confidence, incomplete, ambiguous, or explicitly unsupported result is preferable to a confidently fabricated value.
 - Recognition output must expose evidence quality/confidence/status sufficiently for the platform to make its own business decision; OCRKit must not encode approval/grant conclusions.
 - Do not hard-code a particular screenshot's expected values into production parsers or recognition logic.
 - New or changed layout/field support needs representative regression evidence and must preserve supported behavior unless a deprecation/change is explicitly approved.
-- Production inference and offline training concerns remain separable. Training-only dependencies or data must not leak into the production path without an explicit architecture decision.
+- Breaking recognition-response changes require an explicit versioned/compatible migration plan with affected consumers; do not silently repurpose existing fields.
 - Released model artifacts are immutable/versioned and must be verifiable before use; changing a mutable release pointer/channel must not rewrite previously released artifacts.
-- Recognition requests and external/object-store interactions must have bounded resource behavior appropriate to image size, timeout, concurrency, and memory risk.
+- Recognition requests should be retry-safe and external/object-store interactions must have bounded resource behavior appropriate to image size, timeout, concurrency, and memory risk.
 - The service remains stateless with respect to platform business data; a verified local model cache is not a business source of truth.
 
 ## Privacy and data safety
