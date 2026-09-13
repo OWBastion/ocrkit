@@ -1,291 +1,69 @@
-# AGENTS.md
-
-> Ecosystem contract version: `1.0`
-> Repository: `OWBastion/ocrkit`
-> Role: stateless screenshot-recognition service and OCR model lifecycle
+# OCRKit Agent Guide
 
-## 1. Mission
+OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. Workspace guidance owns shared engineering policy; this file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, and local validation.
 
-OCRKit extracts structured fields from known Bastion Escape 3 screenshot layouts.
+## Repository role
 
-It is not a generic OCR product and not an achievement-review engine. Its output is evidence used by `owbastion.com`, which owns business rules and final decisions.
+OCRKit extracts structured evidence from known Bastion screenshot layouts. It owns image validation/normalization, ROI extraction and preprocessing, OCR invocation, field parsing/normalization, field confidence/warnings, recognition API behavior, and OCR model artifact/training/evaluation workflows.
 
-The service should identify fields such as:
-
-- challenge completion state;
-- hero progress;
-- player name;
-- deaths and skips;
-- elapsed time;
-- map and difficulty;
-- game version;
-- supported mode or layout identifiers when visible.
-
-The goal is to extract specific HUD fields from known screenshot layouts, including:
-
-- top-left challenge progress and statistics;
-- center completion banner;
-- top-right map, difficulty, and version information;
-- optional bottom-left hero/status information.
-
-The system should return structured JSON suitable for a Web API, automation pipeline, or leaderboard service. OCRKit provides evidence; it does not make leaderboard, approval, or title decisions.
-
-## 2. Ecosystem Position
-
-| Repository | Ownership |
-| --- | --- |
-| `OWBastion/Bastion` | Released game definitions and screenshot HUD contract |
-| `OWBastion/owbastion.com` | OCR orchestration, review, corrections, training feedback |
-| `OWBastion/qqbot` | QQ user entry and notifications |
-| `OWBastion/ocrkit` | Recognition, parsing, confidence, model publication |
+`OWBastion/owbastion.com` owns screenshot submission state, identity/business rules, challenge matching, review, corrections/adoption, and final grants. `OWBastion/Bastion` owns game behavior and the game-side HUD/content that produces screenshot evidence. `OWBastion/qqbot` owns QQ channel behavior.
 
-OCRKit must not know whether a player deserves a title.
+OCRKit must not decide whether a player deserves a title, whether a submission should be approved, or whether OCR evidence should cause a grant. Add extracted facts as evidence, not business conclusions.
 
-## 3. Hard Responsibility Boundary
+## Start here
 
-OCRKit owns:
+For substantive work:
 
-- image decoding and validation;
-- layout normalization and ROI extraction;
-- image preprocessing;
-- OCR engine invocation;
-- tolerant field parsing and normalization;
-- field-level confidence and warnings;
-- model artifact loading, verification, and rollback;
-- offline dataset preparation, training, evaluation, and release gates;
-- stable recognition API contracts.
+1. Read the linked Issue and `README.md`, then inspect the smallest relevant source, configuration, tests/fixtures, and specialist documentation.
+2. Resolve current API shapes, supported layouts, model versions/channels, thresholds, and deployment details from their current authoritative source; do not use this root guide as a mutable inventory.
+3. Compare the Issue contract, current recognition/API contract, and implementation reality. Report material mismatches instead of inventing a new business rule, layout contract, or cross-service behavior.
+4. Verify recognition behavior against evidence independent from the implementation being changed, including ambiguous/unsupported/low-quality paths where relevant.
 
-OCRKit does not own:
+## Risk routing
 
-- QQ identity or player-account binding;
-- screenshot-submission state;
-- challenge definitions or title rules;
-- automatic approval policy;
-- administrator review UI;
-- title grants or GitHub PR creation;
-- public leaderboards or player progression.
+- Current API routes, response fields, configuration, and runtime behavior: `README.md`, API/schema source, and contract tests.
+- Screenshot layouts, ROIs, normalization, preprocessing, and quality detection: current `configs/`, image/layout source, manifests, and representative fixtures.
+- Field parsing, aliases, confidence/status/warning behavior: parser/recognition source plus focused fixtures/tests.
+- Model artifacts, training, evaluation, publication, or rollback: `training/README.md`, model-related scripts/source, manifests, and release workflows.
+- Rust image-preflight tooling: `rust/README.md`, Rust source/tests, and layout-manifest generation checks.
+- R2/object access, private screenshots, debug crops, credentials, or retention: current storage/config source and deployment/runtime documentation; privacy is a blocking correctness requirement.
+- Platform/Bastion contract changes: inspect the owning repository contract as needed and integrate OCRKit separately rather than duplicating authority here.
 
-## 4. Recognition Principles
+## Recognition invariants
 
-Prefer deterministic image processing, ROI cropping, field parsing, and validation over model training.
+- OCRKit is for known Bastion screenshot layouts, not a generic full-screen OCR or free-form visual-understanding product.
+- Prefer deterministic image/layout handling, ROI extraction, parsing, and validation before introducing or expanding model complexity when they can solve the measured failure.
+- Train or fine-tune models only when measured evidence shows deterministic preprocessing/parsing is insufficient for the target field/layout.
+- Production inference must not depend on Apple-only APIs. Keep training-only dependencies out of the production runtime, and do not make a large multimodal model the primary recognition path without an explicit architecture decision.
+- A low-confidence, incomplete, ambiguous, or explicitly unsupported result is preferable to a confidently fabricated value.
+- Recognition output must expose evidence quality/confidence/status sufficiently for the platform to make its own business decision; OCRKit must not encode approval/grant conclusions.
+- Do not hard-code a particular screenshot's expected values into production parsers or recognition logic.
+- New or changed layout/field support needs representative regression evidence and must preserve supported behavior unless a deprecation/change is explicitly approved.
+- Breaking recognition-response changes require an explicit versioned/compatible migration plan with affected consumers; do not silently repurpose existing fields.
+- Released model artifacts are immutable/versioned and must be verifiable before use; changing a mutable release pointer/channel must not rewrite previously released artifacts.
+- Recognition requests should be retry-safe and external/object-store interactions must have bounded resource behavior appropriate to image size, timeout, concurrency, and memory risk.
+- The service remains stateless with respect to platform business data; a verified local model cache is not a business source of truth.
 
-Train or fine-tune models only after measured evidence shows the existing OCR, preprocessing, and parsing pipeline is insufficient.
+## Privacy and data safety
 
-1. Keep production inference independent of Apple-only APIs.
-2. Keep PaddleOCR training dependencies out of the production image.
-3. Do not use large multimodal models in the primary production path without an explicit architecture decision.
-4. Never hardcode expected fixture values into parsers.
-5. A low-confidence or incomplete result is preferable to a confidently wrong fabricated value.
+Treat player screenshots, OCR debug crops, private object keys/URLs, credentials, and production evidence as private data.
 
-The expected processing pipeline is:
+Never commit production screenshots or copied private payloads to the public repository. Do not log image bytes, signed/private URLs, credentials, or unrelated personal data. Training or fixture promotion from production/reviewer evidence requires explicit approval, provenance, and the appropriate privacy/retention handling; production evidence is not automatically training data.
 
-```text
-image upload
-→ normalize image size
-→ crop configured ROIs
-→ preprocess each ROI
-→ OCR each ROI
-→ parse fields with tolerant rules
-→ normalize and validate fields
-→ return structured JSON
-```
+Object-mode recognition must restrict reads to explicitly allowed storage boundaries and reject traversal/unexpected locations. Browser/client-facing surfaces must not receive storage credentials.
 
-## 5. Non-Goals
+## Verification
 
-- Do not build a generic OCR system.
-- Do not OCR the entire screenshot and then infer fields from all detected text.
-- Do not use Core ML.
-- Do not design the system around Apple-only deployment.
-- Do not hardcode a single screenshot's values into the parser.
-- Do not use large multimodal LLMs for the production recognition path unless explicitly requested.
-- Do not introduce custom model training without measuring the deterministic pipeline first.
+Recognition expectations require an independent basis such as reviewed fixture truth, reproducible visible screenshot evidence, an accepted API/layout contract, or a real regression with provenance. Do not change an expected value merely because the new implementation emits it.
 
-## 6. API Contract
+Important changes should cover both successful recognition and relevant failure/uncertainty paths: unsupported/cropped/low-quality inputs, missing or conflicting fields, parsing ambiguity, object/model failures, and schema compatibility as applicable.
 
-Every successful response should be traceable. The target response envelope should include:
+Material parser/layout/API/model-selection or confidence behavior changes should receive an independent attempt to falsify the implementation. Where practical, remove/invert the key parsing/validation behavior and confirm the targeted fixture or contract check fails again.
 
-```json
-{
-  "schema_version": "1",
-  "request_id": "...",
-  "engine": "rapidocr",
-  "model_version": "...",
-  "layout_version": "...",
-  "ok": true,
-  "data": {},
-  "fields": {},
-  "warnings": [],
-  "quality": {}
-}
-```
+Do not add test-only production APIs, hooks, or architecture layers solely to make internal behavior observable.
 
-Each critical field should expose, directly or through the `fields` object:
+## Local validation
 
-- parsed value;
-- confidence;
-- source ROI;
-- normalization or alias applied;
-- missing, ambiguous, or conflict state where relevant.
+Use current repository documentation and scripts as the command source of truth. Run focused recognition/parser/layout tests first, then the broader Python test/lint/type/build gates required by the change. When Rust preflight code/layout manifests are touched, run the documented Rust/layout checks. When training/model publication behavior is touched, follow `training/README.md` and the relevant release/evaluation workflow rather than inferring a process from this file.
 
-Do not make business decisions such as `eligible_for_title` or `approve_submission` part of the OCR response.
-
-Breaking response changes require a new schema version and coordinated consumer migration.
-
-## 7. Object Storage Contract
-
-Production object-mode recognition may read only explicitly allowed private R2 objects.
-
-Maintain namespace separation:
-
-```text
-uploads/                         user screenshot evidence
-models/pp-ocrv6-small/<version>/ versioned model artifacts
-```
-
-Rules:
-
-- reject traversal and unexpected prefixes;
-- use bucket allow-lists;
-- enforce image size, MIME, decode, and timeout limits;
-- never expose R2 credentials or signed object URLs in responses or logs;
-- model artifacts are immutable and content-addressed by manifest hashes;
-- user screenshots must not be bundled into service images or model releases.
-
-## 8. Layout and Image Quality
-
-Do not blindly convert every image into a valid result. Recognition should detect and report:
-
-- unsupported aspect ratio;
-- likely crop or missing HUD regions;
-- image too small or excessively compressed;
-- unexpected layout version;
-- conflicting completion indicators;
-- fields outside plausible ranges;
-- missing version, map, difficulty, or player identity.
-
-New layout support must be versioned and regression-tested. Preserve old supported layouts unless a documented deprecation is approved.
-
-## 9. Model Lifecycle
-
-Model releases must be immutable and versioned.
-
-Required release flow:
-
-```text
-reviewed labels
-→ training or fine-tuning
-→ isolated holdout evaluation
-→ end-to-end fixture evaluation
-→ minimum field-accuracy gate
-→ full test suite
-→ export inference artifacts
-→ build manifest with hashes
-→ upload under a new version prefix
-→ download and checksum verification
-→ RapidOCR load verification
-→ controlled deployment
-```
-
-Never overwrite a released model prefix. Rollback must require only selecting an earlier manifest.
-
-Training data, fixtures, and production evidence have different purposes:
-
-- training set: reviewed examples used for optimization;
-- holdout set: isolated examples not used for training decisions;
-- fixture regression set: stable service-level cases;
-- production evidence: private user data, not automatically a training sample.
-
-A reviewer correction from `owbastion.com` becomes training data only after explicit approval and provenance recording.
-
-## 10. Evaluation Standard
-
-Do not optimize only aggregate character accuracy. Track at minimum:
-
-- exact match per field;
-- all-critical-fields-correct rate;
-- false-positive completion rate;
-- map and difficulty accuracy;
-- player-name accuracy;
-- numeric-field accuracy;
-- unsupported-layout rejection quality;
-- latency percentiles;
-- memory usage;
-- error rate by screenshot resolution and source.
-
-For an approval workflow, false confident positives are higher risk than missing values. Release gates should reflect this asymmetry.
-
-## 11. Privacy and Retention
-
-- Treat all player screenshots and OCR debug crops as private data.
-- Do not commit production screenshots to the public repository.
-- Do not retain user images inside application logs.
-- Debug responses must be restricted to trusted service callers or non-production environments.
-- Training exports must remove unrelated metadata and preserve submission provenance separately.
-- Respect deletion or retention policies defined by the platform.
-
-## 12. Reliability and Operations
-
-- Recognition requests must be retry-safe.
-- The service should remain stateless except for a verified local model cache.
-- Health output must include engine, application version, and loaded model version.
-- Startup must fail when an explicitly configured model manifest is missing, incomplete, or checksum-invalid.
-- Network and object-store timeouts must be bounded.
-- Concurrency must be limited to prevent memory exhaustion.
-- Logs must include request/correlation IDs but not image bytes or private URLs.
-
-## 13. Code Organization
-
-Keep explicit modules for:
-
-```text
-app/api/               HTTP schemas and routing
-app/image/             decoding, normalization, ROI, preprocessing
-app/ocr/               engine adapters
-app/parser/            field-specific parsers
-app/model_artifacts/   manifest and cache validation
-app/storage/           object-store adapters
-training/              offline-only model workflows
-tests/                 unit, contract, fixture, and integration tests
-```
-
-Write simple, explicit Python:
-
-- prefer small pure functions for parsers and normalizers;
-- avoid hidden global state;
-- avoid hardcoded ROI coordinates in parser code;
-- avoid mixing OCR logic, image preprocessing, and field parsing in one function;
-- use type hints for public functions;
-- use Pydantic models for API input and output schemas.
-
-## 14. Cross-Repository Change Rules
-
-When Bastion changes HUD layout, labels, map aliases, or version formatting:
-
-- update layout/parser configuration;
-- add representative fixtures;
-- preserve compatibility where possible;
-- coordinate the new output schema with `owbastion.com`;
-- document the minimum compatible game version.
-
-When the platform requests a new extracted field:
-
-- confirm it is visibly and reliably present;
-- add it as OCR evidence, not a business conclusion;
-- version contracts when required;
-- define confidence and warning behavior;
-- add tests before production use.
-
-## 15. Definition of Done
-
-An OCRKit change is complete when:
-
-- responsibility remains recognition-only;
-- API compatibility is preserved or versioned;
-- field confidence and warning behavior are defined;
-- new layouts or fields have regression fixtures;
-- production and training dependencies remain separated;
-- privacy boundaries are preserved;
-- model artifacts are reproducible and immutable;
-- tests and evaluation gates pass;
-- rollback is documented;
-- the consuming platform impact is identified.
+Deployment, model publication, R2 writes, production recognition checks, and other external writes are separate from local validation and require the appropriate explicit authorization/configuration.
