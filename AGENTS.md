@@ -1,6 +1,6 @@
 # OCRKit Agent Guide
 
-OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. Workspace guidance owns shared engineering policy; this file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, delivery, and local validation. Keep mutable model/layout/version inventories in their live sources rather than here.
+OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. Workspace guidance owns shared engineering policy; this file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, delivery constraints, and local validation. Keep mutable model/layout/version inventories in their live sources rather than here.
 
 ## Repository role
 
@@ -22,15 +22,9 @@ For substantive work:
 4. Implement the smallest complete coherent change and verify recognition behavior against evidence independent from the implementation, including ambiguous/unsupported/low-quality paths where relevant.
 5. Re-evaluate the requested goal after verification and continue until it is delivered or a concrete blocker remains.
 
-## Authorization and delivery
+## Repository delivery constraints
 
-- Diagnosis/planning/review requests authorize inspection and reporting/review actions, not unrelated implementation.
-- Implementation/fix requests authorize in-scope local edits and non-destructive validation without another approval pause.
-- Unless local-only work was requested, implementation is complete only after the task branch is pushed and its PR is opened or updated.
-- PR review requests authorize leaving findings or approval directly on the PR. Review the full relevant diff in one pass where practical rather than drip-feeding minor comments.
-- Review-fix work is complete only after verified fixes are pushed, affected threads are handled, and the PR is handed back for review.
-- Never push implementation commits directly to the default branch unless explicitly authorized.
-- Merge, deployment, model publication/channel changes, R2/production writes, destructive actions, secrets changes, or scope expansion remain separate authorization boundaries.
+Implementation/fix work normally uses a non-default branch and PR unless explicitly local-only. PR review results belong on the PR rather than only in chat, and review-fix work includes thread/re-review handoff. Never push implementation commits directly to the default branch. Merge, deployment, model publication/channel changes, R2/production writes, destructive actions, secrets changes, and material scope expansion remain separate authorization boundaries.
 
 ## Risk routing
 
