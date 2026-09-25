@@ -183,21 +183,25 @@ current crops without replacing human decisions.
 ### Import screenshots from R2
 
 R2 access is used only by the local Studio backend. The browser receives no R2
-credentials or object URLs. Configure a read-only key and a narrow allowlist:
+credentials or object URLs. This import is for a separate non-production
+training bucket; do not use the platform evidence bucket. Configure a
+read-only key scoped to the training bucket and a narrow prefix allowlist:
 
 ```bash
 export OCRKIT_R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
 export OCRKIT_R2_ACCESS_KEY_ID=<read-only-access-key>
 export OCRKIT_R2_SECRET_ACCESS_KEY=<read-only-secret>
-export OCRKIT_STUDIO_R2_BUCKET=owbastion-codes-evidence
+export OCRKIT_STUDIO_R2_BUCKET=ocrkit-training-staging
 export OCRKIT_STUDIO_R2_ALLOWED_PREFIXES=uploads/
 ```
 
 Studio lists only the allowed prefixes, accepts supported image types, limits
 imports to 200 objects per page and 25 MiB per object by default, deduplicates
 by SHA-256, and records the private bucket/key provenance in `batch.json`.
-Remote screenshots are copied into the ignored local batch and still require
-candidate review.
+Remote images are copied into the ignored local batch and still require
+candidate review. Platform submission screenshots are available to training
+only through the finalized reviewed-snapshot importer below, which limits reads
+to eligible snapshot members.
 
 ### Export and continue a batch
 

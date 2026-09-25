@@ -118,15 +118,15 @@ Configure these environment variables to enable `by-object` endpoint:
 - `OCRKIT_R2_ALLOWED_BUCKETS` (comma-separated whitelist)
 - `OCRKIT_R2_READ_TIMEOUT_SECONDS` (default: `10`)
 
-For platform evidence, the caller must provide `bucket` explicitly in the
-`by-object` request. Add the platform evidence bucket to
-`OCRKIT_R2_ALLOWED_BUCKETS`; do not point `OCRKIT_R2_DEFAULT_BUCKET` at the
-platform bucket when it is reserved for OCRKit models or other service-owned
-objects.
+Production OCRKit storage access is limited to its model bucket. The platform
+Worker reads the exact authorized submission attachment and sends the image to
+`POST /api/v1/ocr/challenge`; it does not send an object key or grant OCRKit
+access to the platform evidence bucket. Do not add the platform evidence bucket
+to `OCRKIT_R2_ALLOWED_BUCKETS`.
 
-The local OCRKit Studio can use the same read-only R2 credential set to import
-screenshot sources without a platform API token. Configure the
-Studio-only bucket and prefix allowlist:
+The local OCRKit Studio can optionally import sources from a separate
+non-production training bucket. Configure the Studio bucket and prefix
+allowlist with a read-only key scoped to that bucket:
 
 - `OCRKIT_STUDIO_R2_BUCKET`
 - `OCRKIT_STUDIO_R2_ALLOWED_PREFIXES` (comma-separated, for example `uploads/`)
@@ -135,9 +135,11 @@ Studio-only bucket and prefix allowlist:
 
 These settings affect only the local Studio API. Credentials stay server-side;
 the browser receives object metadata and the selected images are copied into
-the private ignored Studio batch. Use a dedicated R2 access key with read-only
-permission scoped to this bucket and prefix. Studio never lists or reads the
-production model prefix through this import path.
+the private ignored Studio batch. Do not point the Studio import at the platform
+evidence bucket. Platform screenshots can enter training only through the
+finalized, reviewed snapshot importer, which limits reads to eligible snapshot
+members. Studio never lists or reads the production model prefix through this
+import path.
 
 ## OCR Engine and Model Artifacts
 
