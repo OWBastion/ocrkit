@@ -5,10 +5,8 @@ Use a GHCR image pinned by digest. Configure a Cloudflare Tunnel public hostname
 `ocr.owbastion.com` whose service is `http://ocrkit:8000`; do not publish a host port.
 
 The deployment `.env` is derived from `.env.production.example` and must remain on the host.
-Its read-only R2 credential may access only the OCRKit model bucket.
-Platform screenshot evidence is sent to the multipart recognition endpoint by
-the authorized platform Worker; OCRKit does not read the platform evidence
-bucket. `OCRKIT_ALLOW_DEBUG` is forced off in production.
+Its R2 credential is read-only and may access only the OCRKit model bucket plus
+`owbastion-codes-evidence`. `OCRKIT_ALLOW_DEBUG` is forced off in production.
 
 The production Compose file defaults
 `OCRKIT_MODEL_RELEASE_CHANNEL_KEY` to `models/pp-ocrv6-small/channels/stable.json`. Keep
