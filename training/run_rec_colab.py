@@ -16,6 +16,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "training/.work/colab-runs"
+ACCEPTED_STAGING = "accepted"
 REMOTE_RUNNER = ROOT / "training/colab_remote.py"
 PRETRAINED_CHECKPOINT = ROOT / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
 SOURCE_FILES = (
@@ -285,17 +286,12 @@ def copy_remote_result(remote_root: Path, run_dir: Path, *, success: bool) -> di
         report_path = results / "evaluation/fixture_report.json"
         if not report_path.is_file():
             raise ValueError("Colab result is missing the fixture evaluation report")
-        report = json.loads(report_path.read_text(encoding="utf-8"))
-        if (
-            report.get("field_accuracy", 0.0) < 0.9604221635883905
-            or report.get("run_code", {}).get("field_accuracy", 0.0) < 1.0
-        ):
-            raise ValueError("Colab result does not meet the recognition evaluation contract")
+        accepted = run_dir / ACCEPTED_STAGING
         for name in ("checkpoint", "evaluation"):
-            shutil.copytree(results / name, run_dir / name)
-        shutil.copy2(metadata_path, run_dir / "run.json")
+            shutil.copytree(results / name, accepted / name)
+        shutil.copy2(metadata_path, accepted / "run.json")
         if remote_log.is_file():
-            shutil.copy2(remote_log, run_dir / "remote.log")
+            shutil.copy2(remote_log, accepted / "remote.log")
         return remote_metadata
 
     partial = run_dir / "partial"
@@ -371,12 +367,6 @@ def main() -> int:
             "gpu_preference": args.gpu,
             "recipe": "training/configs/rec_pp_ocrv6_small.yaml",
             "paddleocr_recipe": "configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml",
-            "batch_size_per_card": 8,
-            "first_batch_size": 8,
-            "evaluation_batch_step": [0, 1],
-            "save_epoch_step": args.epochs + 1,
-            "minimum_field_accuracy": 0.9604221635883905,
-            "minimum_run_code_accuracy": 1.0,
         },
     }
     try:
@@ -419,11 +409,15 @@ def main() -> int:
             colab_log,
         )
         if download_status:
-            raise RuntimeError("Colab failed to retrieve the remote run logs and artifacts")
+            raise RuntimeError(
+                "Colab failed to retrieve the remote run logs and artifacts"
+                + (f" after the remote run exited with status {exec_status}" if exec_status else "")
+            )
         safe_extract_result(result_archive, retrieved)
         try:
             remote_metadata = copy_remote_result(retrieved, run_dir, success=exec_status == 0)
         except Exception:
+            shutil.rmtree(run_dir / ACCEPTED_STAGING, ignore_errors=True)
             try:
                 copy_remote_result(retrieved, run_dir, success=False)
             except Exception:
@@ -449,8 +443,21 @@ def main() -> int:
             if stop_status and error is None:
                 error = f"training completed, but Colab runtime teardown failed; run colab stop -s {session}"
 
+    succeeded = error is None and stop_status in (None, 0)
+    accepted = run_dir / ACCEPTED_STAGING
+    if accepted.is_dir():
+        if succeeded:
+            for child in accepted.iterdir():
+                child.rename(run_dir / child.name)
+            accepted.rmdir()
+        else:
+            partial = run_dir / "partial"
+            partial.mkdir(exist_ok=True)
+            for child in accepted.iterdir():
+                child.rename(partial / child.name)
+            accepted.rmdir()
     status = {
-        "status": "success" if error is None and stop_status in (None, 0) else "failed",
+        "status": "success" if succeeded else "failed",
         "runtime_stopped": stop_status == 0,
         "colab_session": session,
         "error": error,

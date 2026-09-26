@@ -83,7 +83,7 @@ fi
 
 cd "${paddleocr_dir}"
 "${python_bin}" tools/train.py -c "${config_path}" -o \
-  Global.use_gpu="$use_gpu" \
+  "Global.use_gpu=${use_gpu}" \
   "Global.epoch_num=${epoch_num}" \
   Global.save_model_dir="${output_dir}" \
   Global.save_epoch_step="$((epoch_num + 1))" \
@@ -104,8 +104,8 @@ cd "${paddleocr_dir}"
 cd "${root_dir}"
 "${python_bin}" "${root_dir}/training/scripts/prune_rec_checkpoints.py" "${output_dir}"
 
-if [[ -z "$evaluation_dir" ]]; then
-  evaluation_dir="$work_dir/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
+if [[ -z "${evaluation_dir}" ]]; then
+  evaluation_dir="${work_dir}/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
 fi
 "${root_dir}/training/evaluate_rec_checkpoint.sh" \
   "${output_dir}/best_accuracy" \
