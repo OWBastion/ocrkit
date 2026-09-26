@@ -17,6 +17,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "training/.work/colab-runs"
 ACCEPTED_STAGING = "accepted"
+PADDLE_WHEEL = {
+    "url": "https://cdn.owbastion.codes/ocrkit/wheels/cu129/paddlepaddle_gpu-3.3.1-cp312-cp312-linux_x86_64.whl",
+    "sha256": "03fc5211183ba20ef71e63a35e589fd386a8805c1011c3a409a0e5b118be4668",
+}
 PART_BYTES = 32 * 1024 * 1024
 REMOTE_RUNNER = ROOT / "training/colab_remote.py"
 PRETRAINED_CHECKPOINT = ROOT / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
@@ -412,6 +416,7 @@ def main() -> int:
             "source_name": checkpoint_path.name,
             "sha256": sha256(checkpoint_path),
         },
+        "paddle_wheel_mirror": PADDLE_WHEEL,
         "training": {
             "epochs": args.epochs,
             "device": "cuda",

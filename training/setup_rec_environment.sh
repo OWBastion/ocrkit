@@ -67,7 +67,20 @@ if [[ "${device}" == cuda ]]; then
 fi
 
 "${python_bin}" -m pip install --upgrade pip
-"${python_bin}" -m pip install "${paddle_package}" -i "${paddle_index}"
+if [[ "${device}" == cuda && "${paddle_index}" == */cu129/ && -n "${OCRKIT_PADDLE_WHEEL_URL:-}" && -n "${OCRKIT_PADDLE_WHEEL_SHA256:-}" ]]; then
+  # Optional mirror of the official cu129 wheel for runtimes far from the official CDN.
+  mkdir -p "${work_dir}/wheels"
+  wheel_path="${work_dir}/wheels/${OCRKIT_PADDLE_WHEEL_URL##*/}"
+  curl -L --fail --retry 3 -o "${wheel_path}" "${OCRKIT_PADDLE_WHEEL_URL}"
+  wheel_sha256="$("${python_bin}" -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "${wheel_path}")"
+  if [[ "${wheel_sha256}" != "${OCRKIT_PADDLE_WHEEL_SHA256}" ]]; then
+    printf 'mirrored PaddlePaddle wheel failed checksum verification: %s\n' "${wheel_path}" >&2
+    exit 1
+  fi
+  "${python_bin}" -m pip install "${wheel_path}"
+else
+  "${python_bin}" -m pip install "${paddle_package}" -i "${paddle_index}"
+fi
 "${python_bin}" -m pip install -r "${paddleocr_dir}/requirements.txt"
 "${python_bin}" -m pip install "paddle2onnx==2.1.0"
 

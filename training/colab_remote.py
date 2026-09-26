@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -193,9 +194,15 @@ def main() -> int:
                     cwd=REPO,
                     log=log,
                 )
+                mirror = request["run"]["paddle_wheel_mirror"]
                 run_logged(
                     ["bash", "training/setup_rec_environment.sh", "--device", "cuda"],
                     cwd=REPO,
+                    env={
+                        **os.environ,
+                        "OCRKIT_PADDLE_WHEEL_URL": mirror["url"],
+                        "OCRKIT_PADDLE_WHEEL_SHA256": mirror["sha256"],
+                    },
                     log=log,
                 )
 

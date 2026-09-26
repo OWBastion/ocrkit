@@ -458,6 +458,11 @@ training; an unavailable or unsupported GPU request fails without falling back
 to CPU. `--timeout-seconds` (default 6 hours) bounds the remote run; the Colab
 CLI's own `exec` default of 30 seconds is always overridden. The local CPU command remains `./training/run_rec_smoke.sh`.
 
+The 2.9 GB `paddlepaddle-gpu` wheel is slow to fetch from the official
+CDN outside China, so the runner installs a checksummed mirror of the official
+cu129 build (`PADDLE_WHEEL` in `run_rec_colab.py`) when the runtime selects the
+cu129 index, and otherwise falls back to the official index.
+
 The runner transfers only the selected train/holdout labels and referenced
 crops, available review/snapshot provenance files, the base recognition
 checkpoint, OCRKit training/evaluation code, and the fixture images needed by
