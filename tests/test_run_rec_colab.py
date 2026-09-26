@@ -81,6 +81,8 @@ def test_success_keeps_verified_artifacts_and_stops_runtime(colab_run) -> None:
 
     assert run_rec_colab.main() == 0
 
+    exec_command = next(command for command in calls if command[1] == "exec")
+    assert float(exec_command[exec_command.index("--timeout") + 1]) == 6 * 3600
     run_dir = only_run(runs)
     assert (run_dir / "checkpoint/best_accuracy.pdparams").is_file()
     assert (run_dir / "evaluation/fixture_report.json").is_file()

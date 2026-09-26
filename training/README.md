@@ -455,7 +455,8 @@ uv run python training/run_rec_colab.py \
 `--gpu` is a Colab allocation preference (default `L4`), not a model or
 training requirement. PaddlePaddle's CUDA runtime and device are checked before
 training; an unavailable or unsupported GPU request fails without falling back
-to CPU. The local CPU command remains `./training/run_rec_smoke.sh`.
+to CPU. `--timeout-seconds` (default 6 hours) bounds the remote run; the Colab
+CLI's own `exec` default of 30 seconds is always overridden. The local CPU command remains `./training/run_rec_smoke.sh`.
 
 The runner transfers only the selected train/holdout labels and referenced
 crops, available review/snapshot provenance files, the base recognition

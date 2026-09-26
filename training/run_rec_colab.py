@@ -260,7 +260,8 @@ def copy_remote_result(remote_root: Path, run_dir: Path, *, success: bool) -> di
     remote_log = results / "remote.log"
     if success:
         if remote_metadata is None or remote_metadata.get("status") != "success":
-            raise ValueError("Colab did not return successful run metadata")
+            remote_error = (remote_metadata or {}).get("error", "no run metadata")
+            raise ValueError(f"Colab run did not succeed: {remote_error}")
         for name in ("checkpoint", "evaluation"):
             if not (results / name).is_dir():
                 raise ValueError(f"Colab did not return the {name} artifacts")
@@ -313,6 +314,7 @@ def main() -> int:
     parser.add_argument("--pretrained-checkpoint", type=Path, default=PRETRAINED_CHECKPOINT)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--gpu", default="L4", help="Colab GPU preference; no accelerator fallback is attempted")
+    parser.add_argument("--timeout-seconds", type=float, default=6 * 3600, help="Upper bound for the remote training and evaluation run")
     args = parser.parse_args()
     if args.epochs < 1:
         parser.error("--epochs must be a positive integer")
@@ -401,7 +403,7 @@ def main() -> int:
         if upload_status:
             raise RuntimeError("Colab failed to stage OCRKit training inputs")
         exec_status = stream_colab(
-            [colab, "exec", "-s", session, "-f", str(REMOTE_RUNNER)],
+            [colab, "exec", "-s", session, "--timeout", str(args.timeout_seconds), "-f", str(REMOTE_RUNNER)],
             colab_log,
         )
         download_status = stream_colab(
