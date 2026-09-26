@@ -24,7 +24,6 @@ REPO = COLAB_ROOT / "repo"
 DATASET = COLAB_ROOT / "dataset"
 RESULTS = COLAB_ROOT / "results"
 CHECKPOINTS = RESULTS / "checkpoint"
-EVALUATION = RESULTS / "evaluation"
 RUN_METADATA = RESULTS / "run.json"
 REMOTE_LOG = RESULTS / "remote.log"
 
@@ -112,7 +111,7 @@ def verify_inputs(request: dict[str, Any], root: Path) -> None:
 
 def output_files() -> list[dict[str, Any]]:
     records = []
-    for directory in (CHECKPOINTS, EVALUATION):
+    for directory in (CHECKPOINTS,):
         if not directory.is_dir():
             continue
         for path in sorted(directory.rglob("*")):
@@ -155,9 +154,8 @@ def write_result_archive() -> None:
         for path in (RUN_METADATA, REMOTE_LOG):
             if path.is_file():
                 archive.add(path, arcname=path.relative_to(COLAB_ROOT))
-        for directory in (CHECKPOINTS, EVALUATION):
-            if directory.is_dir():
-                archive.add(directory, arcname=directory.relative_to(COLAB_ROOT))
+        if CHECKPOINTS.is_dir():
+            archive.add(CHECKPOINTS, arcname=CHECKPOINTS.relative_to(COLAB_ROOT))
     split_result_archive()
 
 
@@ -189,11 +187,6 @@ def main() -> int:
                         cwd=COLAB_ROOT,
                         log=log,
                     )
-                run_logged(
-                    ["uv", "sync", "--locked", "--no-dev", "--python", sys.executable],
-                    cwd=REPO,
-                    log=log,
-                )
                 mirror = request["run"]["paddle_wheel_mirror"]
                 run_logged(
                     ["bash", "training/setup_rec_environment.sh", "--device", "cuda"],
@@ -229,23 +222,16 @@ def main() -> int:
                         str(DATASET),
                         "--output-dir",
                         str(CHECKPOINTS),
-                        "--evaluation-dir",
-                        str(EVALUATION),
                         "--epochs",
                         epochs,
                         "--device",
                         "cuda",
+                        "--train-only",
                     ],
                     cwd=REPO,
                     log=log,
                 )
                 best_checkpoint = CHECKPOINTS / "best_accuracy.pdparams"
-                report_path = EVALUATION / "fixture_report.json"
-                if not best_checkpoint.is_file() or best_checkpoint.stat().st_size == 0:
-                    raise RuntimeError("training did not produce the best-accuracy recognition checkpoint")
-                if not report_path.is_file():
-                    raise RuntimeError("checkpoint evaluation did not produce fixture_report.json")
-                evaluation_report = json.loads(report_path.read_text(encoding="utf-8"))
                 paddleocr_revision = subprocess.run(
                     ["git", "-C", str(REPO / "training/.work/PaddleOCR"), "rev-parse", "HEAD"],
                     check=True,
@@ -260,11 +246,6 @@ def main() -> int:
                             "python": sys.version,
                             "paddle": paddle_info,
                             "paddleocr_revision": paddleocr_revision,
-                        },
-                        "evaluation": {
-                            "report": "evaluation/fixture_report.json",
-                            "field_accuracy": evaluation_report.get("field_accuracy"),
-                            "run_code_accuracy": evaluation_report.get("run_code", {}).get("field_accuracy"),
                         },
                         "outputs": output_files(),
                     }

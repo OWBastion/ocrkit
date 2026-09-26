@@ -16,7 +16,6 @@ SESSION_STOP = "stop"
 def build_result_archive(path: Path, *, status: str = "success") -> None:
     files = {
         "results/checkpoint/best_accuracy.pdparams": b"weights",
-        "results/evaluation/fixture_report.json": b'{"field_accuracy": 0.99}',
         "results/remote.log": b"log",
     }
     outputs = [
@@ -26,7 +25,7 @@ def build_result_archive(path: Path, *, status: str = "success") -> None:
             "sha256": hashlib.sha256(data).hexdigest(),
         }
         for name, data in files.items()
-        if not name.endswith("remote.log")
+        if name.startswith("results/checkpoint/")
     ]
     files["results/run.json"] = json.dumps({"status": status, "outputs": outputs}).encode()
     with tarfile.open(path, "w:gz") as archive:
@@ -46,10 +45,17 @@ def colab_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     checkpoint.write_bytes(b"base")
     runs = tmp_path / "runs"
     calls: list[list[str]] = []
-    behavior = {"exec_status": 0, "result_status": "success", "stop_status": 0}
+    behavior = {"exec_status": 0, "result_status": "success", "stop_status": 0, "eval_status": 0}
 
     def fake_stream(command: list[str], _log: Path) -> int:
         calls.append(command)
+        if command[0].endswith("evaluate_rec_checkpoint.sh"):
+            if behavior["eval_status"]:
+                return behavior["eval_status"]
+            output = Path(command[-1])
+            output.mkdir(parents=True)
+            (output / "fixture_report.json").write_text('{"field_accuracy": 0.99, "run_code": {"field_accuracy": 1.0}}')
+            return 0
         verb = command[1]
         if verb == "exec":
             return behavior["exec_status"]
@@ -89,7 +95,7 @@ def colab_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         archive.write_bytes(b"input-archive")
 
     monkeypatch.setattr(run_rec_colab, "stage_inputs", fake_stage)
-    monkeypatch.setattr(run_rec_colab, "stream_colab", fake_stream)
+    monkeypatch.setattr(run_rec_colab, "stream_command", fake_stream)
     monkeypatch.setattr(
         sys, "argv", ["run_rec_colab.py", "--labels-dir", str(labels), "--pretrained-checkpoint", str(checkpoint)]
     )
@@ -116,8 +122,11 @@ def test_success_keeps_verified_artifacts_and_stops_runtime(colab_run) -> None:
     run_dir = only_run(runs)
     assert (run_dir / "checkpoint/best_accuracy.pdparams").is_file()
     assert (run_dir / "evaluation/fixture_report.json").is_file()
+    assert json.loads((run_dir / "run.json").read_text())["evaluation"]["field_accuracy"] == 0.99
     assert json.loads((run_dir / "status.json").read_text())["runtime_stopped"] is True
-    assert calls[-1][1] == SESSION_STOP
+    stop_index = next(i for i, command in enumerate(calls) if command[1] == SESSION_STOP)
+    evaluation_index = next(i for i, command in enumerate(calls) if command[0].endswith("evaluate_rec_checkpoint.sh"))
+    assert stop_index < evaluation_index
     assert not (run_dir / "accepted").exists()
 
 
@@ -135,6 +144,20 @@ def test_training_failure_keeps_partial_output_and_stops_runtime(colab_run) -> N
     assert json.loads((run_dir / "status.json").read_text())["status"] == "failed"
 
 
+def test_local_evaluation_failure_demotes_checkpoint_to_partial(colab_run) -> None:
+    runs, calls, behavior = colab_run
+    behavior["eval_status"] = 1
+
+    assert run_rec_colab.main() == 1
+
+    run_dir = only_run(runs)
+    assert not (run_dir / "checkpoint").exists()
+    assert not (run_dir / "run.json").exists()
+    assert (run_dir / "partial/checkpoint/best_accuracy.pdparams").is_file()
+    assert "local checkpoint evaluation failed" in json.loads((run_dir / "status.json").read_text())["error"]
+    assert json.loads((run_dir / "status.json").read_text())["runtime_stopped"] is True
+
+
 def test_teardown_failure_demotes_accepted_artifacts_to_partial(colab_run) -> None:
     runs, _, behavior = colab_run
     behavior["stop_status"] = 1
@@ -149,12 +172,12 @@ def test_teardown_failure_demotes_accepted_artifacts_to_partial(colab_run) -> No
 
 def test_provisioning_failure_stops_runtime_and_uploads_nothing(colab_run) -> None:
     runs, calls, _ = colab_run
-    original = run_rec_colab.stream_colab
-    run_rec_colab.stream_colab = lambda command, log: 1 if command[1] == "new" else original(command, log)
+    original = run_rec_colab.stream_command
+    run_rec_colab.stream_command = lambda command, log: 1 if command[1] == "new" else original(command, log)
     try:
         assert run_rec_colab.main() == 1
     finally:
-        run_rec_colab.stream_colab = original
+        run_rec_colab.stream_command = original
 
     assert [command[1] for command in calls] == [SESSION_STOP]
     assert not (only_run(runs) / "checkpoint").exists()

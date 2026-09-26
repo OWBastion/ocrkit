@@ -25,20 +25,12 @@ PART_BYTES = 32 * 1024 * 1024
 REMOTE_RUNNER = ROOT / "training/colab_remote.py"
 PRETRAINED_CHECKPOINT = ROOT / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
 SOURCE_FILES = (
-    "pyproject.toml",
-    "uv.lock",
-    "scripts/batch_eval.py",
     "training/bootstrap.sh",
     "training/setup_rec_environment.sh",
     "training/run_rec_smoke.sh",
-    "training/evaluate_rec_checkpoint.sh",
     "training/configs/rec_pp_ocrv6_small.yaml",
-    "training/configs/pp_ocrv6_small_det.lock.json",
-    "training/scripts/prepare_detector.py",
-    "training/scripts/prepare_rapidocr_config.py",
     "training/scripts/prune_rec_checkpoints.py",
     "training/scripts/validate_annotations.py",
-    "training/colab_remote.py",
 )
 
 
@@ -102,21 +94,6 @@ def validate_labels(label_path: Path) -> tuple[int, list[str]]:
     return sample_count, images
 
 
-def add_fixture_set(files: dict[str, tuple[Path, str]], relative_cases: str) -> None:
-    cases_path = ROOT / relative_cases
-    add_file(files, f"repo/{relative_cases}", cases_path, "evaluation-fixture")
-    cases = json.loads(cases_path.read_text(encoding="utf-8"))
-    for case in cases:
-        image_path = safe_relative(case["image"])
-        source = cases_path.parent / image_path
-        add_file(
-            files,
-            f"repo/{cases_path.parent.relative_to(ROOT).as_posix()}/{image_path.as_posix()}",
-            source,
-            "evaluation-fixture",
-        )
-
-
 def git_metadata(path: Path) -> tuple[str | None, bool]:
     revision = subprocess.run(
         ["git", "-C", str(path), "rev-parse", "HEAD"],
@@ -153,14 +130,8 @@ def read_dataset_provenance(dataset_root: Path) -> dict[str, Any]:
 
 
 def source_files(root: Path, files: dict[str, tuple[Path, str]]) -> None:
-    for directory in ("app", "configs"):
-        for path in sorted((root / directory).rglob("*")):
-            if path.is_file() and not path.is_symlink() and "__pycache__" not in path.parts:
-                add_file(files, f"repo/{path.relative_to(root).as_posix()}", path, "ocrkit-source")
     for relative in SOURCE_FILES:
         add_file(files, f"repo/{relative}", root / relative, "ocrkit-source")
-    add_fixture_set(files, "datasets/fixtures/challenge/cases.json")
-    add_fixture_set(files, "tests/fixtures/run_code/cases.json")
 
 
 def stage_inputs(
@@ -221,7 +192,7 @@ def stage_inputs(
         archive.add(request_path, arcname="request.json", recursive=False)
 
 
-def stream_colab(command: list[str], log_path: Path) -> int:
+def stream_command(command: list[str], log_path: Path) -> int:
     with log_path.open("a", encoding="utf-8") as log:
         rendered = shlex.join(command)
         print(f"$ {rendered}", flush=True)
@@ -255,7 +226,7 @@ def upload_archive(colab: str, session: str, archive: Path, run_dir: Path, log_p
             for index, chunk in enumerate(iter(lambda: stream.read(PART_BYTES), b"")):
                 part = parts_dir / f"part{index:04d}"
                 part.write_bytes(chunk)
-                status = stream_colab(
+                status = stream_command(
                     [colab, "upload", "-s", session, str(part), f"/content/ocrkit-input.part{index:04d}"],
                     log_path,
                 )
@@ -272,7 +243,7 @@ def download_archive(colab: str, session: str, destination: Path, run_dir: Path,
     parts_dir.mkdir()
     try:
         index_path = parts_dir / "index.json"
-        status = stream_colab(
+        status = stream_command(
             [colab, "download", "-s", session, "/content/ocrkit-result.index.json", str(index_path)], log_path
         )
         if status:
@@ -280,7 +251,7 @@ def download_archive(colab: str, session: str, destination: Path, run_dir: Path,
         with destination.open("wb") as result:
             for record in json.loads(index_path.read_text(encoding="utf-8"))["parts"]:
                 part = parts_dir / safe_relative(record["name"])
-                status = stream_colab(
+                status = stream_command(
                     [colab, "download", "-s", session, f"/content/{record['name']}", str(part)], log_path
                 )
                 if status:
@@ -315,18 +286,13 @@ def copy_remote_result(remote_root: Path, run_dir: Path, *, success: bool) -> di
         if remote_metadata is None or remote_metadata.get("status") != "success":
             remote_error = (remote_metadata or {}).get("error", "no run metadata")
             raise ValueError(f"Colab run did not succeed: {remote_error}")
-        for name in ("checkpoint", "evaluation"):
-            if not (results / name).is_dir():
-                raise ValueError(f"Colab did not return the {name} artifacts")
+        if not (results / "checkpoint").is_dir():
+            raise ValueError("Colab did not return the checkpoint artifacts")
         output_records = remote_metadata.get("outputs")
-        required_outputs = {
-            "checkpoint/best_accuracy.pdparams",
-            "evaluation/fixture_report.json",
-        }
-        if not isinstance(output_records, list) or not required_outputs.issubset(
-            {record.get("path") for record in output_records}
-        ):
-            raise ValueError("Colab did not checksum the required checkpoint and evaluation report")
+        if not isinstance(output_records, list) or "checkpoint/best_accuracy.pdparams" not in {
+            record.get("path") for record in output_records
+        }:
+            raise ValueError("Colab did not checksum the best-accuracy checkpoint")
         for record in output_records:
             output = results / safe_relative(record["path"])
             if (
@@ -335,14 +301,8 @@ def copy_remote_result(remote_root: Path, run_dir: Path, *, success: bool) -> di
                 or sha256(output) != record["sha256"]
             ):
                 raise ValueError(f"Colab result failed checksum verification: {record['path']}")
-        if not (results / "checkpoint/best_accuracy.pdparams").is_file():
-            raise ValueError("Colab result is missing the best-accuracy checkpoint")
-        report_path = results / "evaluation/fixture_report.json"
-        if not report_path.is_file():
-            raise ValueError("Colab result is missing the fixture evaluation report")
         accepted = run_dir / ACCEPTED_STAGING
-        for name in ("checkpoint", "evaluation"):
-            shutil.copytree(results / name, accepted / name)
+        shutil.copytree(results / "checkpoint", accepted / "checkpoint")
         shutil.copy2(metadata_path, accepted / "run.json")
         if remote_log.is_file():
             shutil.copy2(remote_log, accepted / "remote.log")
@@ -350,10 +310,8 @@ def copy_remote_result(remote_root: Path, run_dir: Path, *, success: bool) -> di
 
     partial = run_dir / "partial"
     partial.mkdir(exist_ok=True)
-    for name in ("checkpoint", "evaluation"):
-        source = results / name
-        if source.is_dir():
-            shutil.copytree(source, partial / name)
+    if (results / "checkpoint").is_dir():
+        shutil.copytree(results / "checkpoint", partial / "checkpoint")
     if metadata_path.is_file():
         shutil.copy2(metadata_path, partial / "run.json")
     if remote_log.is_file():
@@ -361,13 +319,37 @@ def copy_remote_result(remote_root: Path, run_dir: Path, *, success: bool) -> di
     return remote_metadata or {}
 
 
+def evaluate_locally(accepted: Path, log_path: Path) -> None:
+    """Run the existing local evaluation contract on the retrieved checkpoint."""
+    evaluation = accepted / "evaluation"
+    status = stream_command(
+        [
+            str(ROOT / "training/evaluate_rec_checkpoint.sh"),
+            str((accepted / "checkpoint/best_accuracy").resolve()),
+            str(evaluation.resolve()),
+        ],
+        log_path,
+    )
+    if status:
+        raise RuntimeError(f"local checkpoint evaluation failed with exit status {status}")
+    report = json.loads((evaluation / "fixture_report.json").read_text(encoding="utf-8"))
+    metadata = json.loads((accepted / "run.json").read_text(encoding="utf-8"))
+    metadata["evaluation"] = {
+        "location": "local",
+        "report": "evaluation/fixture_report.json",
+        "field_accuracy": report.get("field_accuracy"),
+        "run_code_accuracy": report.get("run_code", {}).get("field_accuracy"),
+    }
+    (accepted / "run.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the OCRKit recognition training and evaluation workflow on Colab GPU.")
+    parser = argparse.ArgumentParser(description="Train the OCRKit recognition model on a Colab GPU, then evaluate it locally.")
     parser.add_argument("--labels-dir", type=Path, default=ROOT / "datasets/labeled/rec")
     parser.add_argument("--pretrained-checkpoint", type=Path, default=PRETRAINED_CHECKPOINT)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--gpu", default="T4", help="Colab GPU preference; no accelerator fallback is attempted")
-    parser.add_argument("--timeout-seconds", type=float, default=6 * 3600, help="Upper bound for the remote training and evaluation run")
+    parser.add_argument("--timeout-seconds", type=float, default=6 * 3600, help="Upper bound for the remote training run")
     args = parser.parse_args()
     if args.epochs < 1:
         parser.error("--epochs must be a positive integer")
@@ -444,7 +426,7 @@ def main() -> int:
 
     try:
         session_attempted = True
-        provision_status = stream_colab([colab, "new", "-s", session, "--gpu", args.gpu], colab_log)
+        provision_status = stream_command([colab, "new", "-s", session, "--gpu", args.gpu], colab_log)
         if provision_status:
             raise RuntimeError(
                 f"Colab could not provision the requested GPU {args.gpu}; no fallback accelerator was selected."
@@ -453,7 +435,7 @@ def main() -> int:
         input_archive.unlink(missing_ok=True)
         if upload_status:
             raise RuntimeError("Colab failed to stage OCRKit training inputs")
-        exec_status = stream_colab(
+        exec_status = stream_command(
             [colab, "exec", "-s", session, "--timeout", str(args.timeout_seconds), "-f", str(REMOTE_RUNNER)],
             colab_log,
         )
@@ -474,9 +456,9 @@ def main() -> int:
                 pass
             raise
         if exec_status:
-            raise RuntimeError(f"Colab training or evaluation failed with exit status {exec_status}.")
+            raise RuntimeError(f"Colab training failed with exit status {exec_status}.")
         if remote_metadata.get("status") != "success":
-            raise RuntimeError("Colab training or evaluation did not return a successful status.")
+            raise RuntimeError("Colab training did not return a successful status.")
     except KeyboardInterrupt:
         error = "Colab run interrupted by the operator."
     except Exception as exc:
@@ -485,7 +467,7 @@ def main() -> int:
         input_archive.unlink(missing_ok=True)
         if session_attempted:
             try:
-                stop_status = stream_colab([colab, "stop", "-s", session], colab_log)
+                stop_status = stream_command([colab, "stop", "-s", session], colab_log)
             except Exception as exc:
                 stop_status = -1
                 stop_error = f"Colab runtime teardown command failed: {type(exc).__name__}: {exc}"
@@ -493,8 +475,15 @@ def main() -> int:
             if stop_status and error is None:
                 error = f"training completed, but Colab runtime teardown failed; run colab stop -s {session}"
 
-    succeeded = error is None and stop_status in (None, 0)
     accepted = run_dir / ACCEPTED_STAGING
+    if error is None and stop_status in (None, 0) and accepted.is_dir():
+        try:
+            evaluate_locally(accepted, colab_log)
+        except KeyboardInterrupt:
+            error = "Local checkpoint evaluation interrupted by the operator."
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+    succeeded = error is None and stop_status in (None, 0)
     if accepted.is_dir():
         if succeeded:
             for child in accepted.iterdir():
@@ -520,7 +509,7 @@ def main() -> int:
         print(f"Colab OCRKit run failed: {error or 'runtime did not stop successfully'}", file=sys.stderr)
         print(f"Local run logs and any partial outputs: {run_dir}", file=sys.stderr)
         return 1
-    print(f"Colab OCRKit run completed. Checkpoint, evaluation, provenance, and logs: {run_dir}")
+    print(f"Colab OCRKit run completed. Checkpoint, local evaluation, provenance, and logs: {run_dir}")
     return 0
 
 

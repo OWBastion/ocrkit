@@ -399,8 +399,8 @@ Prepare the offline environment once, then run the CPU recognition Smoke:
 `run_rec_smoke.sh` accepts `--labels-dir`, `--output-dir`, `--epochs` (the
 target total epoch), and `--resume-checkpoint` (a checkpoint base path without
 `.pdparams`, `.pdopt`, or `.states`). `--device cpu|cuda` selects PaddleOCR's
-device and defaults to `cpu`; `--evaluation-dir` selects the evaluation output
-directory. It validates both label files, fine-tunes recognition only, and
+device and defaults to `cpu`; `--train-only` stops after training and pruning
+without running the evaluation. It validates both label files, fine-tunes recognition only, and
 leaves `latest` plus `best_accuracy` under `training/.work/`. Per-epoch
 `iter_epoch_*` dumps and PaddleOCR's duplicate `best_model/` copy are pruned
 after training. To reclaim space from older runs:
@@ -436,7 +436,7 @@ The first CLI request can prompt for Google OAuth authentication in the
 terminal. The CLI keeps those credentials locally; OCRKit does not send
 platform, R2, or release credentials to Colab.
 
-Start training and the existing checkpoint evaluation with one command:
+Train on Colab and evaluate the retrieved checkpoint locally with one command:
 
 ```bash
 uv run python training/run_rec_colab.py
@@ -463,19 +463,26 @@ CDN outside China, so the runner installs a checksummed mirror of the official
 cu129 build (`PADDLE_WHEEL` in `run_rec_colab.py`) when the runtime selects the
 cu129 index, and otherwise falls back to the official index.
 
+Only training runs on Colab. CUDA builds of PaddlePaddle export `nn.Linear` as
+`linear_v2`, which `paddle2onnx` cannot convert, so the runner retrieves the
+checkpoint, stops the runtime, and then runs the unchanged
+`training/evaluate_rec_checkpoint.sh` on your machine (the local training
+environment from `setup_rec_environment.sh` is required). The run only
+succeeds if that evaluation passes the same gate as a local run.
+
 The runner transfers only the selected train/holdout labels and referenced
 crops, available review/snapshot provenance files, the base recognition
-checkpoint, OCRKit training/evaluation code, and the fixture images needed by
-the existing evaluation. It records source revisions, input checksums, the
-effective training configuration, PaddleOCR revision, allocated GPU details,
-checkpoint, and evaluation report in the returned `run.json`.
+checkpoint, and the training scripts. It records source revisions, input
+checksums, the effective training configuration, PaddleOCR revision, allocated
+GPU details, checkpoint checksums, and the local evaluation summary in the
+returned `run.json`.
 
 Checkpoints, `fixture_report.json`, provenance, the remote training log, the
 Colab CLI log, and `status.json` are stored below the ignored
 `training/.work/colab-runs/<run-id>/` directory. A successful run does not
 publish a candidate or change the stable model channel. Provisioning,
-staging, training, evaluation, retrieval, and handled failures all stop the
-Colab runtime after it has been allocated. Failed runs keep diagnostics and
+staging, training, retrieval, and handled failures all stop the Colab runtime
+after it has been allocated; it is stopped before the local evaluation starts. Failed runs keep diagnostics and
 any partial output under `partial/`; if teardown itself fails, `status.json`
 includes the named `colab stop` command to release that session.
 

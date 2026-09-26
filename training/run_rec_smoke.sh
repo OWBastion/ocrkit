@@ -11,7 +11,7 @@ output_dir="${work_dir}/checkpoints/rec_pp_ocrv6_small"
 epoch_num=10
 resume_checkpoint=""
 device=cpu
-evaluation_dir=""
+train_only=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,12 +35,12 @@ while [[ $# -gt 0 ]]; do
       device="$2"
       shift 2
       ;;
-    --evaluation-dir)
-      evaluation_dir="$2"
-      shift 2
+    --train-only)
+      train_only=true
+      shift
       ;;
     *)
-      printf 'usage: %s [--labels-dir <directory>] [--output-dir <directory>] [--epochs <total>] [--resume-checkpoint <path>] [--device cpu|cuda] [--evaluation-dir <directory>]\n' "$0" >&2
+      printf 'usage: %s [--labels-dir <directory>] [--output-dir <directory>] [--epochs <total>] [--resume-checkpoint <path>] [--device cpu|cuda] [--train-only]\n' "$0" >&2
       exit 2
       ;;
   esac
@@ -104,9 +104,11 @@ cd "${paddleocr_dir}"
 cd "${root_dir}"
 "${python_bin}" "${root_dir}/training/scripts/prune_rec_checkpoints.py" "${output_dir}"
 
-if [[ -z "${evaluation_dir}" ]]; then
-  evaluation_dir="${work_dir}/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
+if [[ "${train_only}" == true ]]; then
+  exit 0
 fi
+
+evaluation_dir="${work_dir}/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
 "${root_dir}/training/evaluate_rec_checkpoint.sh" \
   "${output_dir}/best_accuracy" \
   "${evaluation_dir}"

@@ -36,7 +36,6 @@ uv run python training/scripts/prepare_detector.py \
 
 cd "${paddleocr_dir}"
 "${training_python}" tools/export_model.py -c "${config_path}" -o \
-  Global.use_gpu=False \
   Global.pretrained_model="${checkpoint}" \
   Global.save_inference_dir="${artifact_dir}/paddle_rec" \
   Global.character_dict_path="${paddleocr_dir}/ppocr/utils/dict/ppocrv6_dict.txt"
