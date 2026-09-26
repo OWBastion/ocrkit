@@ -20,7 +20,12 @@ if [[ ! -x "${venv_dir}/bin/python" ]]; then
     printf 'Python 3.12 or OCRKIT_TRAINING_PYTHON is required to create the training environment.\n' >&2
     exit 1
   fi
-  "${python_bootstrap}" -m venv "${venv_dir}"
+  if [[ -n "${OCRKIT_TRAINING_PYTHON:-}" ]]; then
+    # Managed runtimes such as Colab ship without python3-venv/ensurepip.
+    uv venv --seed --python "${python_bootstrap}" "${venv_dir}"
+  else
+    "${python_bootstrap}" -m venv "${venv_dir}"
+  fi
 fi
 
 printf 'Training environment: %s\n' "${venv_dir}"

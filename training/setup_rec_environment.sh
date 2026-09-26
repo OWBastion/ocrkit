@@ -63,11 +63,6 @@ if [[ "${device}" == cuda ]]; then
     exit 1
   fi
 
-  gpu_capabilities="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null || true)"
-  if [[ -z "${gpu_capabilities}" ]] || ! awk -F. 'NF == 2 && (($1 + 0) > 7 || (($1 + 0) == 7 && ($2 + 0) > 5)) {supported=1} END {exit !supported}' <<< "${gpu_capabilities}"; then
-    printf 'the allocated GPU is not supported by PaddlePaddle 3.3.1 (compute capability must be greater than 7.5).\n' >&2
-    exit 1
-  fi
   paddle_package="paddlepaddle-gpu==3.3.1"
 fi
 

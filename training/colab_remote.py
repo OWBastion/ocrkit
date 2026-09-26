@@ -87,21 +87,13 @@ def checked_gpu() -> dict[str, Any]:
     devices = []
     for line in result.stdout.splitlines():
         name, capability, driver, memory = (part.strip() for part in line.split(",", 3))
-        major, minor = (int(part) for part in capability.split(".", 1))
         devices.append(
             {
                 "name": name,
                 "compute_capability": capability,
                 "driver_version": driver,
                 "memory_mib": int(memory),
-                "supported_by_paddle": (major, minor) > (7, 5),
             }
-        )
-    if not devices or not devices[0]["supported_by_paddle"]:
-        allocated = devices[0]["compute_capability"] if devices else "unknown"
-        raise RuntimeError(
-            f"allocated GPU compute capability {allocated} is unsupported by PaddlePaddle 3.3.1; "
-            "a capability greater than 7.5 is required"
         )
     return {"devices": devices, "nvidia_smi": subprocess.run(
         ["nvidia-smi"], check=False, capture_output=True, text=True

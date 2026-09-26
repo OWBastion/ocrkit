@@ -313,7 +313,7 @@ def main() -> int:
     parser.add_argument("--labels-dir", type=Path, default=ROOT / "datasets/labeled/rec")
     parser.add_argument("--pretrained-checkpoint", type=Path, default=PRETRAINED_CHECKPOINT)
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--gpu", default="L4", help="Colab GPU preference; no accelerator fallback is attempted")
+    parser.add_argument("--gpu", default="T4", help="Colab GPU preference; no accelerator fallback is attempted")
     parser.add_argument("--timeout-seconds", type=float, default=6 * 3600, help="Upper bound for the remote training and evaluation run")
     args = parser.parse_args()
     if args.epochs < 1:

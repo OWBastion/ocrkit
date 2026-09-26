@@ -448,11 +448,11 @@ platform snapshot, select that snapshot's output directory explicitly:
 ```bash
 uv run python training/run_rec_colab.py \
   --labels-dir datasets/labeled/rec/platform/<snapshot-id>@<version> \
-  --gpu L4 \
+  --gpu T4 \
   --epochs 10
 ```
 
-`--gpu` is a Colab allocation preference (default `L4`), not a model or
+`--gpu` is a Colab allocation preference (default `T4`), not a model or
 training requirement. PaddlePaddle's CUDA runtime and device are checked before
 training; an unavailable or unsupported GPU request fails without falling back
 to CPU. `--timeout-seconds` (default 6 hours) bounds the remote run; the Colab
