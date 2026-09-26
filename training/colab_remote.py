@@ -220,7 +220,7 @@ def main() -> int:
                 if not paddle_info["cuda"] or paddle_info["device"] != "gpu:0":
                     raise RuntimeError("PaddlePaddle did not select the allocated CUDA device")
 
-                epochs = str(request["run"]["epochs"])
+                epochs = str(request["run"]["training"]["epochs"])
                 run_logged(
                     [
                         "bash",

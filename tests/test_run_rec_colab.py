@@ -84,7 +84,11 @@ def colab_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(run_rec_colab.shutil, "which", lambda _name: "colab")
     monkeypatch.setattr(run_rec_colab, "validate_labels", lambda _path: (1, ["a.png"]))
     monkeypatch.setattr(run_rec_colab, "PART_BYTES", 4)
-    monkeypatch.setattr(run_rec_colab, "stage_inputs", lambda archive, *_a: archive.write_bytes(b"input-archive"))
+    def fake_stage(archive: Path, run_request: dict, *_rest) -> None:
+        behavior["run_request"] = run_request
+        archive.write_bytes(b"input-archive")
+
+    monkeypatch.setattr(run_rec_colab, "stage_inputs", fake_stage)
     monkeypatch.setattr(run_rec_colab, "stream_colab", fake_stream)
     monkeypatch.setattr(
         sys, "argv", ["run_rec_colab.py", "--labels-dir", str(labels), "--pretrained-checkpoint", str(checkpoint)]
@@ -98,10 +102,13 @@ def only_run(runs: Path) -> Path:
 
 
 def test_success_keeps_verified_artifacts_and_stops_runtime(colab_run) -> None:
-    runs, calls, _ = colab_run
+    runs, calls, behavior = colab_run
 
     assert run_rec_colab.main() == 0
 
+    request = behavior["run_request"]
+    assert request["training"]["epochs"] == 10
+    assert set(request["paddle_wheel_mirror"]) == {"url", "sha256"}
     uploads = [command[-1] for command in calls if command[1] == "upload"]
     assert uploads == [f"/content/ocrkit-input.part{i:04d}" for i in range(4)]
     exec_command = next(command for command in calls if command[1] == "exec")
