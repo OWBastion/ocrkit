@@ -15,7 +15,12 @@ printf 'PaddleOCR checkout: %s\n' "${paddleocr_dir}"
 
 venv_dir="${work_dir}/venv"
 if [[ ! -x "${venv_dir}/bin/python" ]]; then
-  python3.12 -m venv "${venv_dir}"
+  python_bootstrap="${OCRKIT_TRAINING_PYTHON:-python3.12}"
+  if ! command -v "${python_bootstrap}" >/dev/null; then
+    printf 'Python 3.12 or OCRKIT_TRAINING_PYTHON is required to create the training environment.\n' >&2
+    exit 1
+  fi
+  "${python_bootstrap}" -m venv "${venv_dir}"
 fi
 
 printf 'Training environment: %s\n' "${venv_dir}"
