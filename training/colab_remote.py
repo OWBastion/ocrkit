@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shlex
 import shutil
 import subprocess
@@ -194,12 +193,9 @@ def main() -> int:
                     cwd=REPO,
                     log=log,
                 )
-                environment = os.environ.copy()
-                environment["OCRKIT_TRAINING_PYTHON"] = sys.executable
                 run_logged(
                     ["bash", "training/setup_rec_environment.sh", "--device", "cuda"],
                     cwd=REPO,
-                    env=environment,
                     log=log,
                 )
 

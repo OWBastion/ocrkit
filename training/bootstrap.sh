@@ -15,16 +15,14 @@ printf 'PaddleOCR checkout: %s\n' "${paddleocr_dir}"
 
 venv_dir="${work_dir}/venv"
 if [[ ! -x "${venv_dir}/bin/python" ]]; then
-  python_bootstrap="${OCRKIT_TRAINING_PYTHON:-python3.12}"
-  if ! command -v "${python_bootstrap}" >/dev/null; then
-    printf 'Python 3.12 or OCRKIT_TRAINING_PYTHON is required to create the training environment.\n' >&2
-    exit 1
-  fi
-  if [[ -n "${OCRKIT_TRAINING_PYTHON:-}" ]]; then
-    # Managed runtimes such as Colab ship without python3-venv/ensurepip.
-    uv venv --seed --python "${python_bootstrap}" "${venv_dir}"
+  if command -v python3.12 >/dev/null; then
+    python3.12 -m venv "${venv_dir}"
+  elif command -v uv >/dev/null; then
+    # Managed runtimes such as Colab have neither python3.12 nor python3-venv.
+    uv venv --seed --python 3.12 "${venv_dir}"
   else
-    "${python_bootstrap}" -m venv "${venv_dir}"
+    printf 'Python 3.12 or uv is required to create the training environment.\n' >&2
+    exit 1
   fi
 fi
 
