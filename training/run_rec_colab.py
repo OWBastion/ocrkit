@@ -17,6 +17,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "training/.work/colab-runs"
 ACCEPTED_STAGING = "accepted"
+PART_BYTES = 32 * 1024 * 1024
 REMOTE_RUNNER = ROOT / "training/colab_remote.py"
 PRETRAINED_CHECKPOINT = ROOT / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
 SOURCE_FILES = (
@@ -241,6 +242,54 @@ def stream_colab(command: list[str], log_path: Path) -> int:
             return process.wait()
 
 
+def upload_archive(colab: str, session: str, archive: Path, run_dir: Path, log_path: Path) -> int:
+    """Colab uploads are single JSON requests, so send the archive in bounded parts."""
+    parts_dir = run_dir / "input-parts"
+    parts_dir.mkdir()
+    try:
+        with archive.open("rb") as stream:
+            for index, chunk in enumerate(iter(lambda: stream.read(PART_BYTES), b"")):
+                part = parts_dir / f"part{index:04d}"
+                part.write_bytes(chunk)
+                status = stream_colab(
+                    [colab, "upload", "-s", session, str(part), f"/content/ocrkit-input.part{index:04d}"],
+                    log_path,
+                )
+                part.unlink()
+                if status:
+                    return status
+        return 0
+    finally:
+        shutil.rmtree(parts_dir, ignore_errors=True)
+
+
+def download_archive(colab: str, session: str, destination: Path, run_dir: Path, log_path: Path) -> int:
+    parts_dir = run_dir / "result-parts"
+    parts_dir.mkdir()
+    try:
+        index_path = parts_dir / "index.json"
+        status = stream_colab(
+            [colab, "download", "-s", session, "/content/ocrkit-result.index.json", str(index_path)], log_path
+        )
+        if status:
+            return status
+        with destination.open("wb") as result:
+            for record in json.loads(index_path.read_text(encoding="utf-8"))["parts"]:
+                part = parts_dir / safe_relative(record["name"])
+                status = stream_colab(
+                    [colab, "download", "-s", session, f"/content/{record['name']}", str(part)], log_path
+                )
+                if status:
+                    return status
+                if sha256(part) != record["sha256"]:
+                    raise ValueError(f"Colab result part failed checksum verification: {record['name']}")
+                result.write(part.read_bytes())
+                part.unlink()
+        return 0
+    finally:
+        shutil.rmtree(parts_dir, ignore_errors=True)
+
+
 def safe_extract_result(archive_path: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     root = destination.resolve()
@@ -395,10 +444,7 @@ def main() -> int:
             raise RuntimeError(
                 f"Colab could not provision the requested GPU {args.gpu}; no fallback accelerator was selected."
             )
-        upload_status = stream_colab(
-            [colab, "upload", "-s", session, str(input_archive), "/content/ocrkit-input.tar.gz"],
-            colab_log,
-        )
+        upload_status = upload_archive(colab, session, input_archive, run_dir, colab_log)
         input_archive.unlink(missing_ok=True)
         if upload_status:
             raise RuntimeError("Colab failed to stage OCRKit training inputs")
@@ -406,10 +452,7 @@ def main() -> int:
             [colab, "exec", "-s", session, "--timeout", str(args.timeout_seconds), "-f", str(REMOTE_RUNNER)],
             colab_log,
         )
-        download_status = stream_colab(
-            [colab, "download", "-s", session, "/content/ocrkit-result.tar.gz", str(result_archive)],
-            colab_log,
-        )
+        download_status = download_archive(colab, session, result_archive, run_dir, colab_log)
         if download_status:
             raise RuntimeError(
                 "Colab failed to retrieve the remote run logs and artifacts"

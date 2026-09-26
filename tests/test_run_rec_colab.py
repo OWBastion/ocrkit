@@ -54,7 +54,27 @@ def colab_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         if verb == "exec":
             return behavior["exec_status"]
         if verb == "download":
-            build_result_archive(Path(command[-1]), status=behavior["result_status"])
+            remote, local = command[-2], Path(command[-1])
+            if "remote_result" not in behavior:
+                archive = local.parent / "remote-result.tar.gz"
+                build_result_archive(archive, status=behavior["result_status"])
+                behavior["remote_result"] = archive.read_bytes()
+                archive.unlink()
+            data = behavior["remote_result"]
+            parts = [data[i : i + 2000] for i in range(0, len(data), 2000)]
+            if remote.endswith("index.json"):
+                local.write_text(
+                    json.dumps(
+                        {
+                            "parts": [
+                                {"name": f"ocrkit-result.part{i:04d}", "sha256": hashlib.sha256(part).hexdigest()}
+                                for i, part in enumerate(parts)
+                            ]
+                        }
+                    )
+                )
+            else:
+                local.write_bytes(parts[int(remote.rsplit("part", 1)[1])])
             return 0
         if verb == SESSION_STOP:
             return behavior["stop_status"]
@@ -63,7 +83,8 @@ def colab_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(run_rec_colab, "RUNS", runs)
     monkeypatch.setattr(run_rec_colab.shutil, "which", lambda _name: "colab")
     monkeypatch.setattr(run_rec_colab, "validate_labels", lambda _path: (1, ["a.png"]))
-    monkeypatch.setattr(run_rec_colab, "stage_inputs", lambda archive, *_a: archive.write_bytes(b"input"))
+    monkeypatch.setattr(run_rec_colab, "PART_BYTES", 4)
+    monkeypatch.setattr(run_rec_colab, "stage_inputs", lambda archive, *_a: archive.write_bytes(b"input-archive"))
     monkeypatch.setattr(run_rec_colab, "stream_colab", fake_stream)
     monkeypatch.setattr(
         sys, "argv", ["run_rec_colab.py", "--labels-dir", str(labels), "--pretrained-checkpoint", str(checkpoint)]
@@ -81,6 +102,8 @@ def test_success_keeps_verified_artifacts_and_stops_runtime(colab_run) -> None:
 
     assert run_rec_colab.main() == 0
 
+    uploads = [command[-1] for command in calls if command[1] == "upload"]
+    assert uploads == [f"/content/ocrkit-input.part{i:04d}" for i in range(4)]
     exec_command = next(command for command in calls if command[1] == "exec")
     assert float(exec_command[exec_command.index("--timeout") + 1]) == 6 * 3600
     run_dir = only_run(runs)
@@ -143,3 +166,25 @@ def test_tampered_result_is_rejected(tmp_path: Path) -> None:
         run_rec_colab.copy_remote_result(remote, run_dir, success=True)
 
     assert not (run_dir / "accepted").exists()
+
+
+def test_remote_parts_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from training import colab_remote
+
+    monkeypatch.setattr(colab_remote, "CONTENT", tmp_path)
+    monkeypatch.setattr(colab_remote, "INPUT_ARCHIVE", tmp_path / "in.tar.gz")
+    monkeypatch.setattr(colab_remote, "RESULT_ARCHIVE", tmp_path / "out.tar.gz")
+    monkeypatch.setattr(colab_remote, "RESULT_INDEX", tmp_path / "out.index.json")
+    monkeypatch.setattr(colab_remote, "PART_BYTES", 3)
+    payload = b"0123456789"
+    for index in range(2):
+        (tmp_path / f"ocrkit-input.part{index:04d}").write_bytes(payload[index * 5 : index * 5 + 5])
+    colab_remote.join_input_parts()
+    assert (tmp_path / "in.tar.gz").read_bytes() == payload
+    assert not list(tmp_path.glob("ocrkit-input.part*"))
+
+    (tmp_path / "out.tar.gz").write_bytes(payload)
+    colab_remote.split_result_archive()
+    index = json.loads((tmp_path / "out.index.json").read_text())
+    assert b"".join((tmp_path / part["name"]).read_bytes() for part in index["parts"]) == payload
+    assert len(index["parts"]) == 4

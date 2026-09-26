@@ -15,8 +15,11 @@ from pathlib import Path
 from typing import Any
 
 COLAB_ROOT = Path("/content/ocrkit-colab")
-INPUT_ARCHIVE = Path("/content/ocrkit-input.tar.gz")
-RESULT_ARCHIVE = Path("/content/ocrkit-result.tar.gz")
+CONTENT = Path("/content")
+INPUT_ARCHIVE = CONTENT / "ocrkit-input.tar.gz"
+RESULT_ARCHIVE = CONTENT / "ocrkit-result.tar.gz"
+RESULT_INDEX = CONTENT / "ocrkit-result.index.json"
+PART_BYTES = 32 * 1024 * 1024
 REPO = COLAB_ROOT / "repo"
 DATASET = COLAB_ROOT / "dataset"
 RESULTS = COLAB_ROOT / "results"
@@ -124,6 +127,28 @@ def output_files() -> list[dict[str, Any]]:
     return records
 
 
+def join_input_parts() -> None:
+    parts = sorted(CONTENT.glob("ocrkit-input.part*"))
+    if not parts:
+        raise RuntimeError("OCRKit input parts were not uploaded to the Colab runtime")
+    with INPUT_ARCHIVE.open("wb") as archive:
+        for part in parts:
+            archive.write(part.read_bytes())
+            part.unlink()
+
+
+def split_result_archive() -> None:
+    for stale in (*CONTENT.glob("ocrkit-result.part*"), RESULT_INDEX):
+        stale.unlink(missing_ok=True)
+    parts = []
+    with RESULT_ARCHIVE.open("rb") as archive:
+        for index, chunk in enumerate(iter(lambda: archive.read(PART_BYTES), b"")):
+            name = f"ocrkit-result.part{index:04d}"
+            (CONTENT / name).write_bytes(chunk)
+            parts.append({"name": name, "sha256": hashlib.sha256(chunk).hexdigest()})
+    RESULT_INDEX.write_text(json.dumps({"parts": parts}), encoding="utf-8")
+
+
 def write_result_archive() -> None:
     RESULT_ARCHIVE.unlink(missing_ok=True)
     with tarfile.open(RESULT_ARCHIVE, "w:gz") as archive:
@@ -133,6 +158,7 @@ def write_result_archive() -> None:
         for directory in (CHECKPOINTS, EVALUATION):
             if directory.is_dir():
                 archive.add(directory, arcname=directory.relative_to(COLAB_ROOT))
+    split_result_archive()
 
 
 def main() -> int:
@@ -145,8 +171,7 @@ def main() -> int:
     try:
         with REMOTE_LOG.open("w", encoding="utf-8") as log:
             try:
-                if not INPUT_ARCHIVE.is_file():
-                    raise RuntimeError("OCRKit input archive was not uploaded to the Colab runtime")
+                join_input_parts()
                 COLAB_ROOT.mkdir(parents=True, exist_ok=True)
                 safe_extract(INPUT_ARCHIVE, COLAB_ROOT)
                 request_path = COLAB_ROOT / "request.json"
