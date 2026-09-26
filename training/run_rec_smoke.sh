@@ -10,6 +10,8 @@ config_path="${paddleocr_dir}/configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml"
 output_dir="${work_dir}/checkpoints/rec_pp_ocrv6_small"
 epoch_num=10
 resume_checkpoint=""
+device=cpu
+evaluation_dir=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,12 +31,29 @@ while [[ $# -gt 0 ]]; do
       resume_checkpoint="$2"
       shift 2
       ;;
+    --device)
+      device="$2"
+      shift 2
+      ;;
+    --evaluation-dir)
+      evaluation_dir="$2"
+      shift 2
+      ;;
     *)
-      printf 'usage: %s [--labels-dir <directory>] [--output-dir <directory>] [--epochs <total>] [--resume-checkpoint <path>]\n' "$0" >&2
+      printf 'usage: %s [--labels-dir <directory>] [--output-dir <directory>] [--epochs <total>] [--resume-checkpoint <path>] [--device cpu|cuda] [--evaluation-dir <directory>]\n' "$0" >&2
       exit 2
       ;;
   esac
 done
+
+case "$device" in
+  cpu) use_gpu=False ;;
+  cuda) use_gpu=True ;;
+  *)
+    printf 'device must be cpu or cuda\n' >&2
+    exit 2
+    ;;
+esac
 
 if ! [[ "${epoch_num}" =~ ^[1-9][0-9]*$ ]]; then
   printf 'epochs must be a positive integer\n' >&2
@@ -64,7 +83,7 @@ fi
 
 cd "${paddleocr_dir}"
 "${python_bin}" tools/train.py -c "${config_path}" -o \
-  Global.use_gpu=False \
+  "Global.use_gpu=${use_gpu}" \
   "Global.epoch_num=${epoch_num}" \
   Global.save_model_dir="${output_dir}" \
   Global.save_epoch_step="$((epoch_num + 1))" \
@@ -85,7 +104,9 @@ cd "${paddleocr_dir}"
 cd "${root_dir}"
 "${python_bin}" "${root_dir}/training/scripts/prune_rec_checkpoints.py" "${output_dir}"
 
-evaluation_dir="${work_dir}/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
+if [[ -z "${evaluation_dir}" ]]; then
+  evaluation_dir="${work_dir}/evaluations/rec_pp_ocrv6_small/$(date -u +%Y.%m.%d-%H%M%S)-$$"
+fi
 "${root_dir}/training/evaluate_rec_checkpoint.sh" \
   "${output_dir}/best_accuracy" \
   "${evaluation_dir}"
