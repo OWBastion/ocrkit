@@ -122,6 +122,12 @@ def poll_kernel_status(kaggle: str, kernel_id: str, timeout_seconds: float, log_
         with log_path.open("a", encoding="utf-8") as log:
             log.write(f"$ {kaggle} kernels status {kernel_id}\n{result.stdout}{result.stderr}\n")
         last_output = (result.stdout + result.stderr).lower()
+        if result.returncode:
+            # The status *check* itself failed (a transient CLI/network error asking Kaggle, e.g.
+            # a dropped TLS connection) — not a verdict on the kernel, so keep polling instead of
+            # matching "error" text that belongs to the transport failure, not the kernel run.
+            time.sleep(STATUS_POLL_SECONDS)
+            continue
         if "error" in last_output or "cancel" in last_output:
             return "error"
         if "complete" in last_output:

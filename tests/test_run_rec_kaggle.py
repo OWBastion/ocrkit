@@ -240,6 +240,27 @@ def test_poll_kernel_status_raises_on_timeout(monkeypatch: pytest.MonkeyPatch, t
         run_rec_kaggle.poll_kernel_status("kaggle", "owner/slug", 0.01, tmp_path / "log")
 
 
+def test_poll_kernel_status_retries_a_transient_cli_error_instead_of_reporting_kernel_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A dropped TLS connection asking Kaggle for status is not a verdict on the kernel itself."""
+    monkeypatch.setattr(run_rec_kaggle, "STATUS_POLL_SECONDS", 0)
+    responses = iter(
+        [
+            SimpleNamespace(returncode=0, stdout='has status "KernelWorkerStatus.QUEUED"\n', stderr=""),
+            SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="HTTPSConnectionPool: SSLError(SSLEOFError(8, 'EOF occurred in violation of protocol'))\n",
+            ),
+            SimpleNamespace(returncode=0, stdout='has status "KernelWorkerStatus.COMPLETE"\n', stderr=""),
+        ]
+    )
+    monkeypatch.setattr(run_rec_kaggle, "capture_command", lambda _c: next(responses))
+
+    assert run_rec_kaggle.poll_kernel_status("kaggle", "owner/slug", 10, tmp_path / "log") == "complete"
+
+
 def test_username_resolved_from_kaggle_json_when_env_is_unset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
     monkeypatch.setenv("KAGGLE_CONFIG_DIR", str(tmp_path))
