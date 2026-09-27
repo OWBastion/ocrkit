@@ -14,10 +14,14 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
-from app.core.config import settings
-from app.storage.r2_client import ObjectNotFoundError, R2ObjectStore
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    # Running this file directly (python training/run_rec_colab.py) puts training/, not the
+    # repo root, on sys.path; the repo's own `app` package needs the root added explicitly.
+    sys.path.insert(0, str(ROOT))
+
+from app.core.config import settings  # noqa: E402
+from app.storage.r2_client import ObjectNotFoundError, R2ObjectStore  # noqa: E402
 RUNS = ROOT / "training/.work/colab-runs"
 ACCEPTED_STAGING = "accepted"
 PADDLE_WHEEL = {
