@@ -24,6 +24,7 @@ REPO = COLAB_ROOT / "repo"
 DATASET = COLAB_ROOT / "dataset"
 RESULTS = COLAB_ROOT / "results"
 CHECKPOINTS = RESULTS / "checkpoint"
+RETURNED_CHECKPOINT_FILES = ("best_accuracy.pdparams", "config.yml", "train.log")
 RUN_METADATA = RESULTS / "run.json"
 REMOTE_LOG = RESULTS / "remote.log"
 
@@ -111,18 +112,16 @@ def verify_inputs(request: dict[str, Any], root: Path) -> None:
 
 def output_files() -> list[dict[str, Any]]:
     records = []
-    for directory in (CHECKPOINTS,):
-        if not directory.is_dir():
-            continue
-        for path in sorted(directory.rglob("*")):
-            if path.is_file():
-                records.append(
-                    {
-                        "path": path.relative_to(RESULTS).as_posix(),
-                        "size_bytes": path.stat().st_size,
-                        "sha256": sha256(path),
-                    }
-                )
+    for name in RETURNED_CHECKPOINT_FILES:
+        path = CHECKPOINTS / name
+        if path.is_file():
+            records.append(
+                {
+                    "path": path.relative_to(RESULTS).as_posix(),
+                    "size_bytes": path.stat().st_size,
+                    "sha256": sha256(path),
+                }
+            )
     return records
 
 
@@ -154,8 +153,9 @@ def write_result_archive() -> None:
         for path in (RUN_METADATA, REMOTE_LOG):
             if path.is_file():
                 archive.add(path, arcname=path.relative_to(COLAB_ROOT))
-        if CHECKPOINTS.is_dir():
-            archive.add(CHECKPOINTS, arcname=CHECKPOINTS.relative_to(COLAB_ROOT))
+        for name in RETURNED_CHECKPOINT_FILES:
+            if (CHECKPOINTS / name).is_file():
+                archive.add(CHECKPOINTS / name, arcname=(CHECKPOINTS / name).relative_to(COLAB_ROOT))
     split_result_archive()
 
 

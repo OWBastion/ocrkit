@@ -218,3 +218,17 @@ def test_remote_parts_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     index = json.loads((tmp_path / "out.index.json").read_text())
     assert b"".join((tmp_path / part["name"]).read_bytes() for part in index["parts"]) == payload
     assert len(index["parts"]) == 4
+
+
+def test_transfer_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    statuses = iter([1, 1, 0])
+    attempts: list[list[str]] = []
+
+    def flaky(command: list[str], _log: Path) -> int:
+        attempts.append(command)
+        return next(statuses)
+
+    monkeypatch.setattr(run_rec_colab, "stream_command", flaky)
+
+    assert run_rec_colab.transfer_with_retry(["colab", "download"], tmp_path / "log") == 0
+    assert len(attempts) == 3

@@ -217,6 +217,15 @@ def stream_command(command: list[str], log_path: Path) -> int:
             return process.wait()
 
 
+def transfer_with_retry(command: list[str], log_path: Path, attempts: int = 3) -> int:
+    status = 1
+    for _ in range(attempts):
+        status = stream_command(command, log_path)
+        if not status:
+            break
+    return status
+
+
 def upload_archive(colab: str, session: str, archive: Path, run_dir: Path, log_path: Path) -> int:
     """Colab uploads are single JSON requests, so send the archive in bounded parts."""
     parts_dir = run_dir / "input-parts"
@@ -226,7 +235,7 @@ def upload_archive(colab: str, session: str, archive: Path, run_dir: Path, log_p
             for index, chunk in enumerate(iter(lambda: stream.read(PART_BYTES), b"")):
                 part = parts_dir / f"part{index:04d}"
                 part.write_bytes(chunk)
-                status = stream_command(
+                status = transfer_with_retry(
                     [colab, "upload", "-s", session, str(part), f"/content/ocrkit-input.part{index:04d}"],
                     log_path,
                 )
@@ -243,7 +252,7 @@ def download_archive(colab: str, session: str, destination: Path, run_dir: Path,
     parts_dir.mkdir()
     try:
         index_path = parts_dir / "index.json"
-        status = stream_command(
+        status = transfer_with_retry(
             [colab, "download", "-s", session, "/content/ocrkit-result.index.json", str(index_path)], log_path
         )
         if status:
@@ -251,7 +260,7 @@ def download_archive(colab: str, session: str, destination: Path, run_dir: Path,
         with destination.open("wb") as result:
             for record in json.loads(index_path.read_text(encoding="utf-8"))["parts"]:
                 part = parts_dir / safe_relative(record["name"])
-                status = stream_command(
+                status = transfer_with_retry(
                     [colab, "download", "-s", session, f"/content/{record['name']}", str(part)], log_path
                 )
                 if status:
