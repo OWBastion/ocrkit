@@ -531,6 +531,14 @@ uv tool install kaggle
 kaggle auth login
 ```
 
+Kaggle also requires the account itself to be **phone-verified** before any
+kernel can have internet access at all, regardless of `enable_internet` in
+the pushed kernel metadata; without it, a kernel's network requests fail with
+a DNS resolution error. Verify once at
+[kaggle.com](https://www.kaggle.com) → account Settings → Phone Verification
+(or from a Notebook's Settings → Internet toggle, which links to the same
+verification flow) before running this backend.
+
 The runner also requires `OCRKIT_R2_ENDPOINT_URL`, `OCRKIT_R2_ACCESS_KEY_ID`,
 `OCRKIT_R2_SECRET_ACCESS_KEY`, and `OCRKIT_R2_DEFAULT_BUCKET` (see
 `.env.model.example`): both the input archive and the trained checkpoint
