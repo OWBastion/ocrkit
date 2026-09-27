@@ -31,7 +31,7 @@ from training.remote_gpu_common import (  # noqa: E402
     require_r2_store,
     retrieve_checkpoint,
     sha256,
-    stage_inputs,
+    stage_input_directory,
     stream_command,
     validate_labels,
 )
@@ -39,9 +39,6 @@ from training.remote_gpu_common import (  # noqa: E402
 RUNS = ROOT / "training/.work/kaggle-runs"
 R2_KEY_PREFIX = "kaggle-runs"
 REMOTE_WORKER = ROOT / "training/kaggle_remote.py"
-# Kaggle auto-extracts recognized archive extensions on dataset mount; kaggle_remote.py looks for
-# this exact (non-archive-looking) name, so it must match INPUT_ARCHIVE_NAME there.
-INPUT_ARCHIVE_NAME = "ocrkit-input.pkg"
 STATUS_POLL_SECONDS = 20
 DATASET_READY_POLL_SECONDS = 5
 DATASET_READY_MAX_ATTEMPTS = 30
@@ -81,17 +78,33 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def create_input_dataset(kaggle: str, dataset_id: str, archive: Path, run_dir: Path, log_path: Path) -> int:
-    """A private, run-scoped Kaggle Dataset stages the same input archive Colab uploads directly."""
+def create_input_dataset(
+    kaggle: str,
+    dataset_id: str,
+    run_request: dict[str, Any],
+    dataset_root: Path,
+    checkpoint_path: Path | None,
+    train_images: list[str],
+    holdout_images: list[str],
+    run_dir: Path,
+    log_path: Path,
+) -> int:
+    """A private, run-scoped Kaggle Dataset stages the same files Colab uploads as a single blob.
+
+    Staged as a plain directory tree, not an archive: Kaggle auto-extracts recognized archive
+    formats by content on mount, so an uploaded tar.gz would never survive as a file to find.
+    """
     package_dir = run_dir / "dataset-package"
     package_dir.mkdir()
-    shutil.copyfile(archive, package_dir / INPUT_ARCHIVE_NAME)
+    stage_input_directory(package_dir, run_request, dataset_root, checkpoint_path, train_images, holdout_images)
     write_json(
         package_dir / "dataset-metadata.json",
         {"id": dataset_id, "title": dataset_id.split("/", 1)[1], "licenses": [{"name": "unknown"}]},
     )
     # `datasets create` defaults to private; passing -u/--public would be a privacy regression.
-    status = stream_command([kaggle, "datasets", "create", "-p", str(package_dir), "-r", "zip"], log_path)
+    # `-r skip` uploads the directory tree as-is instead of zipping subdirectories, so nothing
+    # needs archive extraction on either side of the transfer.
+    status = stream_command([kaggle, "datasets", "create", "-p", str(package_dir), "-r", "skip"], log_path)
     if status:
         return status
     # The exact "ready"/processing status text is not stabilized across kaggle-api releases, so this
@@ -198,7 +211,6 @@ def main() -> int:
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + f"-{os.getpid():x}"
     run_dir = RUNS / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
-    input_archive = run_dir / INPUT_ARCHIVE_NAME
     kaggle_log = run_dir / "kaggle.log"
 
     source_revision, source_dirty = git_metadata(ROOT)
@@ -244,13 +256,6 @@ def main() -> int:
             "paddleocr_recipe": "configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml",
         },
     }
-    try:
-        stage_inputs(input_archive, run_request, dataset_root, checkpoint_path, train_images, holdout_images)
-    except Exception as exc:
-        input_archive.unlink(missing_ok=True)
-        write_json(run_dir / "status.json", {"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
-        raise
-
     # Kaggle datasets and kernels share one per-account slug namespace: reusing the same slug for
     # both makes `kernels push` 409 (SaveKernel Conflict) against the just-created dataset.
     run_slug = run_id.lower()
@@ -262,8 +267,9 @@ def main() -> int:
     cleanup_status: int | None = None
 
     try:
-        dataset_status = create_input_dataset(kaggle, dataset_id, input_archive, run_dir, kaggle_log)
-        input_archive.unlink(missing_ok=True)
+        dataset_status = create_input_dataset(
+            kaggle, dataset_id, run_request, dataset_root, checkpoint_path, train_images, holdout_images, run_dir, kaggle_log
+        )
         if dataset_status:
             raise RuntimeError("Kaggle failed to stage the private OCRKit input dataset")
         dataset_created = True
@@ -284,7 +290,6 @@ def main() -> int:
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
     finally:
-        input_archive.unlink(missing_ok=True)
         if dataset_created:
             try:
                 cleanup_status = delete_input_dataset(kaggle, dataset_id, kaggle_log)

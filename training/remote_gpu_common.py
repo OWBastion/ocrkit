@@ -178,20 +178,13 @@ def source_files(root: Path, files: dict[str, tuple[Path, str]]) -> None:
         add_file(files, f"repo/{relative}", root / relative, "ocrkit-source")
 
 
-def stage_inputs(
-    archive_path: Path,
-    run_request: dict[str, Any],
+def _collect_stage_files(
     dataset_root: Path,
     checkpoint_path: Path | None,
     train_images: list[str],
     holdout_images: list[str],
-) -> None:
-    """Build the one input archive (+ request.json) every backend stages identically.
-
-    The archive layout and `request.json` contract are shared so a backend's remote worker
-    script can reuse the same extraction/verification code regardless of how the bytes got
-    there (chunked CLI upload for Colab, a private dataset file for Kaggle).
-    """
+) -> dict[str, tuple[Path, str]]:
+    """Every backend stages this identical set of files; only the transport differs."""
     files: dict[str, tuple[Path, str]] = {}
     source_files(ROOT, files)
 
@@ -224,23 +217,61 @@ def stage_inputs(
             checkpoint_path,
             "base-recognition-checkpoint",
         )
+    return files
 
-    records = []
+
+def _stage_records(files: dict[str, tuple[Path, str]]) -> list[dict[str, Any]]:
+    return [
+        {"path": path, "kind": kind, "size_bytes": source.stat().st_size, "sha256": sha256(source)}
+        for path, (source, kind) in sorted(files.items())
+    ]
+
+
+def stage_inputs(
+    archive_path: Path,
+    run_request: dict[str, Any],
+    dataset_root: Path,
+    checkpoint_path: Path | None,
+    train_images: list[str],
+    holdout_images: list[str],
+) -> None:
+    """Colab: the staged files as one input archive (+ request.json), sent through the CLI's
+    chunked upload. The `request.json` contract is shared with `stage_input_directory` so a
+    backend's remote worker script can reuse the same verification code either way.
+    """
+    files = _collect_stage_files(dataset_root, checkpoint_path, train_images, holdout_images)
+    records = _stage_records(files)
     with tarfile.open(archive_path, "w:gz") as archive:
-        for path, (source, kind) in sorted(files.items()):
+        for path, (source, _kind) in sorted(files.items()):
             archive.add(source, arcname=path, recursive=False)
-            records.append(
-                {
-                    "path": path,
-                    "kind": kind,
-                    "size_bytes": source.stat().st_size,
-                    "sha256": sha256(source),
-                }
-            )
         request = {"run": run_request, "input_files": records}
         request_path = archive_path.parent / "request.json"
         request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         archive.add(request_path, arcname="request.json", recursive=False)
+
+
+def stage_input_directory(
+    destination: Path,
+    run_request: dict[str, Any],
+    dataset_root: Path,
+    checkpoint_path: Path | None,
+    train_images: list[str],
+    holdout_images: list[str],
+) -> None:
+    """Kaggle: the same staged files as plain copies under `destination`, not an archive.
+
+    Kaggle Datasets keep an uploaded directory tree natively and, unlike Colab's single-blob
+    CLI upload, auto-extract any archive format (zip/gz/tar.gz/tgz) by content on mount — so a
+    tar.gz staged here would never survive as a file for the remote worker to find.
+    """
+    files = _collect_stage_files(dataset_root, checkpoint_path, train_images, holdout_images)
+    records = _stage_records(files)
+    for path, (source, _kind) in files.items():
+        target = destination / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    request = {"run": run_request, "input_files": records}
+    (destination / "request.json").write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def stream_command(command: list[str], log_path: Path) -> int:

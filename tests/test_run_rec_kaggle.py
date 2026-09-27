@@ -127,11 +127,11 @@ def kaggle_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(run_rec_kaggle, "DATASET_READY_POLL_SECONDS", 0)
     monkeypatch.setenv("KAGGLE_USERNAME", "ocrkit-operator")
 
-    def fake_stage(archive: Path, run_request: dict, *_rest) -> None:
+    def fake_stage(destination: Path, run_request: dict, *_rest) -> None:
         behavior["run_request"] = run_request
-        archive.write_bytes(b"input-archive")
+        (destination / "request.json").write_text(json.dumps({"run": run_request}), encoding="utf-8")
 
-    monkeypatch.setattr(run_rec_kaggle, "stage_inputs", fake_stage)
+    monkeypatch.setattr(run_rec_kaggle, "stage_input_directory", fake_stage)
     monkeypatch.setattr(run_rec_kaggle, "stream_command", fake_stream)
     monkeypatch.setattr(run_rec_kaggle, "capture_command", fake_capture)
     monkeypatch.setattr(
@@ -286,24 +286,24 @@ def test_username_resolved_from_oauth_credentials_json_when_no_kaggle_json(
     assert run_rec_kaggle.resolve_kaggle_username(parser) == "from-oauth"
 
 
-def test_remote_locate_input_archive_requires_exactly_one_attached_dataset(
+def test_remote_locate_input_directory_requires_exactly_one_attached_dataset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from training import kaggle_remote
 
     monkeypatch.setattr(kaggle_remote, "INPUT_ROOT", tmp_path)
-    archive_name = kaggle_remote.INPUT_ARCHIVE_NAME
+    marker_name = kaggle_remote.INPUT_MARKER_NAME
     with pytest.raises(RuntimeError, match="was not attached"):
-        kaggle_remote.locate_input_archive()
+        kaggle_remote.locate_input_directory()
 
     (tmp_path / "dataset-one").mkdir()
-    (tmp_path / "dataset-one" / archive_name).write_bytes(b"a")
-    assert kaggle_remote.locate_input_archive() == tmp_path / "dataset-one" / archive_name
+    (tmp_path / "dataset-one" / marker_name).write_bytes(b"a")
+    assert kaggle_remote.locate_input_directory() == tmp_path / "dataset-one"
 
     (tmp_path / "dataset-two").mkdir()
-    (tmp_path / "dataset-two" / archive_name).write_bytes(b"b")
+    (tmp_path / "dataset-two" / marker_name).write_bytes(b"b")
     with pytest.raises(RuntimeError, match="exactly one"):
-        kaggle_remote.locate_input_archive()
+        kaggle_remote.locate_input_directory()
 
 
 def test_remote_upload_checkpoint_raises_on_transport_failure(tmp_path: Path) -> None:

@@ -13,7 +13,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tarfile
 import time
 import traceback
 import urllib.request
@@ -31,10 +30,9 @@ RUN_METADATA = RESULTS / "run.json"
 REMOTE_LOG = RESULTS / "remote.log"
 BASE_CHECKPOINT_PATH = REPO / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
 INPUT_ROOT = Path("/kaggle/input")
-# Kaggle auto-extracts recognized archive extensions (.zip, .gz, .tar.gz, .tgz, ...) when a
-# dataset is mounted, so a plain "ocrkit-input.tar.gz" never survives as a file to extract here.
-# The bytes are still a real gzip+tar stream; only the name avoids that extension sniffing.
-INPUT_ARCHIVE_NAME = "ocrkit-input.pkg"
+# `request.json` sits at the root of the staged input tree (see stage_input_directory in
+# training/remote_gpu_common.py) and uniquely identifies the run's mounted dataset.
+INPUT_MARKER_NAME = "request.json"
 
 
 def sha256(path: Path) -> str:
@@ -45,25 +43,19 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def safe_extract(archive_path: Path, destination: Path) -> None:
-    root = destination.resolve()
-    with tarfile.open(archive_path, "r:gz") as archive:
-        members = archive.getmembers()
-        for member in members:
-            target = (destination / member.name).resolve()
-            if not target.is_relative_to(root) or not (member.isfile() or member.isdir()):
-                raise RuntimeError("Kaggle input archive contains an unsupported path or file type")
-        archive.extractall(destination)
+def locate_input_directory() -> Path:
+    """The run's private input dataset is the only dataset attached to this kernel.
 
-
-def locate_input_archive() -> Path:
-    """The run's private input dataset is the only dataset attached to this kernel."""
-    matches = sorted(INPUT_ROOT.glob(f"*/{INPUT_ARCHIVE_NAME}"))
+    Kaggle Datasets keep an uploaded directory tree natively (and auto-extract any archive
+    format by content on mount), so the staged files arrive as plain files under
+    /kaggle/input/<dataset-slug>/ rather than as a single blob to extract.
+    """
+    matches = sorted(INPUT_ROOT.glob(f"*/{INPUT_MARKER_NAME}"))
     if not matches:
-        raise RuntimeError(f"OCRKit input dataset was not attached to this Kaggle kernel ({INPUT_ARCHIVE_NAME} not found)")
+        raise RuntimeError(f"OCRKit input dataset was not attached to this Kaggle kernel ({INPUT_MARKER_NAME} not found)")
     if len(matches) > 1:
         raise RuntimeError(f"expected exactly one attached OCRKit input dataset, found {len(matches)}")
-    return matches[0]
+    return matches[0].parent
 
 
 def run_logged(command: list[str], *, cwd: Path, log: Any, env: dict[str, str] | None = None) -> None:
@@ -196,9 +188,9 @@ def main() -> int:
     try:
         with REMOTE_LOG.open("w", encoding="utf-8") as log:
             try:
-                input_archive = locate_input_archive()
+                input_directory = locate_input_directory()
                 KAGGLE_ROOT.mkdir(parents=True, exist_ok=True)
-                safe_extract(input_archive, KAGGLE_ROOT)
+                shutil.copytree(input_directory, KAGGLE_ROOT, dirs_exist_ok=True)
                 request_path = KAGGLE_ROOT / "request.json"
                 request = json.loads(request_path.read_text(encoding="utf-8"))
                 run_request = request["run"]

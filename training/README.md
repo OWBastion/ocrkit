@@ -560,17 +560,20 @@ runner polls kernel status; Kaggle kernel execution is asynchronous, unlike
 Colab's synchronous `exec`, so the runner polls `kaggle kernels status`
 instead of streaming output live.
 
-The runner reuses the identical input archive/`request.json` contract Colab
-uploads: the same selected train/holdout labels and referenced crops,
-available review/snapshot provenance files, the training scripts, and (when
+The runner reuses the identical `request.json` contract Colab uploads: the
+same selected train/holdout labels and referenced crops, available
+review/snapshot provenance files, the training scripts, and (when
 `--pretrained-checkpoint` names a checkpoint other than the official default)
-that custom checkpoint. Instead of a chunked CLI upload, this archive is
-staged as the sole file of a **private, run-scoped Kaggle Dataset**
-(`kaggle datasets create`, never `--public`) and attached to a **private
-script kernel** (`kaggle kernels push`) that runs
-`training/kaggle_remote.py`. That kernel fetches the official base checkpoint
-or verifies the uploaded one, runs the unchanged CUDA training/evaluation
-path, and uploads the resulting checkpoint to R2 exactly like Colab does.
+that custom checkpoint. Unlike Colab's chunked single-blob CLI upload, these
+files are staged as a plain directory tree — not an archive — into a
+**private, run-scoped Kaggle Dataset** (`kaggle datasets create`, never
+`--public`): Kaggle auto-extracts recognized archive formats (zip/gz/tar.gz)
+by content on mount, so an uploaded tar.gz would never survive as a file for
+the kernel to find. That dataset is attached to a **private script kernel**
+(`kaggle kernels push`) that runs `training/kaggle_remote.py`. The kernel
+fetches the official base checkpoint or verifies the uploaded one, runs the
+unchanged CUDA training/evaluation path, and uploads the resulting checkpoint
+to R2 exactly like Colab does.
 
 Because Kaggle committed kernel execution has no interactive runtime to stop,
 teardown does not imitate `colab stop`. Instead, once the run finishes (or
