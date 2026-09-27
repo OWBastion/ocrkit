@@ -183,21 +183,25 @@ current crops without replacing human decisions.
 ### Import screenshots from R2
 
 R2 access is used only by the local Studio backend. The browser receives no R2
-credentials or object URLs. Configure a read-only key and a narrow allowlist:
+credentials or object URLs. This import is for a separate non-production
+training bucket; do not use the platform evidence bucket. Configure a
+read-only key scoped to the training bucket and a narrow prefix allowlist:
 
 ```bash
 export OCRKIT_R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
 export OCRKIT_R2_ACCESS_KEY_ID=<read-only-access-key>
 export OCRKIT_R2_SECRET_ACCESS_KEY=<read-only-secret>
-export OCRKIT_STUDIO_R2_BUCKET=owbastion-codes-evidence
+export OCRKIT_STUDIO_R2_BUCKET=ocrkit-training-staging
 export OCRKIT_STUDIO_R2_ALLOWED_PREFIXES=uploads/
 ```
 
 Studio lists only the allowed prefixes, accepts supported image types, limits
 imports to 200 objects per page and 25 MiB per object by default, deduplicates
 by SHA-256, and records the private bucket/key provenance in `batch.json`.
-Remote screenshots are copied into the ignored local batch and still require
-candidate review.
+Remote images are copied into the ignored local batch and still require
+candidate review. Platform submission screenshots are available to training
+only through the finalized reviewed-snapshot importer below, which limits reads
+to eligible snapshot members.
 
 ### Export and continue a batch
 
@@ -505,6 +509,86 @@ To evaluate a checkpoint explicitly, use a new output directory:
   training/.work/checkpoints/rec_pp_ocrv6_small/best_accuracy \
   training/.work/evaluations/manual-check
 ```
+
+### Run recognition training on Kaggle GPU
+
+Kaggle is a second, optional remote GPU backend. It runs the same CUDA
+recognition training path and the same local evaluation gate as Colab; only
+provisioning, submission, and status/output retrieval differ. Choose whichever
+backend has GPU quota available; neither backend changes the model, dataset,
+or evaluation contract.
+
+Install the [Kaggle CLI](https://github.com/Kaggle/kaggle-api) and authenticate
+it (`KAGGLE_USERNAME`/`KAGGLE_KEY`, or `~/.kaggle/kaggle.json` downloaded from
+your Kaggle account settings):
+
+```bash
+uv tool install kaggle
+```
+
+The runner also requires `OCRKIT_R2_ENDPOINT_URL`, `OCRKIT_R2_ACCESS_KEY_ID`,
+`OCRKIT_R2_SECRET_ACCESS_KEY`, and `OCRKIT_R2_DEFAULT_BUCKET` (see
+`.env.model.example`): exactly like Colab, the trained checkpoint travels
+through a short-lived, single-object presigned R2 URL that the runner
+generates locally and never writes to disk or a log. Kaggle never receives R2
+credentials, platform credentials, or release credentials; the pushed kernel
+metadata enables internet access only so it can PUT the checkpoint to that one
+presigned URL.
+
+Train on Kaggle and evaluate the retrieved checkpoint locally with one command:
+
+```bash
+uv run python training/run_rec_kaggle.py
+```
+
+```bash
+uv run python training/run_rec_kaggle.py \
+  --labels-dir datasets/labeled/rec/platform/<snapshot-id>@<version> \
+  --epochs 10
+```
+
+Kaggle does not let you pick a specific GPU model (unlike Colab's `--gpu`
+preference); the runner always requests the generic `gpu` accelerator, and an
+unavailable/exhausted accelerator fails the run explicitly rather than
+retrying on CPU. `--timeout-seconds` (default 6 hours) bounds how long the
+runner polls kernel status; Kaggle kernel execution is asynchronous, unlike
+Colab's synchronous `exec`, so the runner polls `kaggle kernels status`
+instead of streaming output live.
+
+The runner reuses the identical input archive/`request.json` contract Colab
+uploads: the same selected train/holdout labels and referenced crops,
+available review/snapshot provenance files, the training scripts, and (when
+`--pretrained-checkpoint` names a checkpoint other than the official default)
+that custom checkpoint. Instead of a chunked CLI upload, this archive is
+staged as the sole file of a **private, run-scoped Kaggle Dataset**
+(`kaggle datasets create`, never `--public`) and attached to a **private
+script kernel** (`kaggle kernels push`) that runs
+`training/kaggle_remote.py`. That kernel fetches the official base checkpoint
+or verifies the uploaded one, runs the unchanged CUDA training/evaluation
+path, and uploads the resulting checkpoint to R2 exactly like Colab does.
+
+Because Kaggle committed kernel execution has no interactive runtime to stop,
+teardown does not imitate `colab stop`. Instead, once the run finishes (or
+fails), the runner always deletes the private input dataset
+(`kaggle datasets delete`), since that dataset is the only Kaggle-side
+storage holding reviewed training crops; if that deletion itself fails,
+`status.json` includes the exact command to run manually. The Kaggle CLI has
+no kernel-delete command, so the private kernel and its output remain in your
+own Kaggle account; `status.json` records `kaggle_kernel` so you can remove it
+from [kaggle.com/code](https://www.kaggle.com/code) if you do not want to keep
+it. A failed run never publishes a candidate or updates the stable channel.
+
+The checkpoint, `fixture_report.json`, provenance, the remote training log,
+the Kaggle CLI log, and `status.json` are stored below the ignored
+`training/.work/kaggle-runs/<run-id>/` directory, mirroring the Colab layout.
+Failed runs keep diagnostics and any partial output under `partial/`.
+
+`training/remote_gpu_common.py` holds the local-side contract shared by both
+backends (input staging, R2 checkpoint retrieval/verification, and the local
+evaluation gate); `training/colab_remote.py` and `training/kaggle_remote.py`
+each stay a single self-contained script because both Colab's `exec -f` and a
+Kaggle script kernel's `code_file` only ever transfer one file to the remote
+runtime.
 
 ## Release a recognition model
 
