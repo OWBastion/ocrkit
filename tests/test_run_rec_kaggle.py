@@ -159,16 +159,22 @@ def test_success_retrieves_checkpoint_from_r2_and_deletes_input_dataset(kaggle_r
     push_call = next(c for c in calls if verb(c) == ("kernels", "push"))
     assert "--accelerator" in push_call
 
+    run_slug = request["run_id"].lower()
+    dataset_id = f"ocrkit-operator/ocrkit-rec-data-{run_slug}"
+    kernel_id = f"ocrkit-operator/ocrkit-rec-{run_slug}"
+
     package_dir = Path(push_call[push_call.index("-p") + 1])
     kernel_metadata = json.loads((package_dir / "kernel-metadata.json").read_text())
+    assert kernel_metadata["id"] == kernel_id
     assert kernel_metadata["is_private"] is True
     assert kernel_metadata["enable_gpu"] is True
     assert kernel_metadata["enable_internet"] is True
-    assert kernel_metadata["dataset_sources"] == ["ocrkit-operator/ocrkit-rec-" + request["run_id"].lower()]
+    assert kernel_metadata["dataset_sources"] == [dataset_id]
 
     dataset_package_dir = Path(create_call[create_call.index("-p") + 1])
     dataset_metadata = json.loads((dataset_package_dir / "dataset-metadata.json").read_text())
-    assert dataset_metadata["id"] == "ocrkit-operator/ocrkit-rec-" + request["run_id"].lower()
+    assert dataset_metadata["id"] == dataset_id
+    assert dataset_id != kernel_id  # Kaggle datasets/kernels share one per-account slug namespace
 
     run_dir = only_run(runs)
     assert (run_dir / "checkpoint/best_accuracy.pdparams").read_bytes() == b"weights"

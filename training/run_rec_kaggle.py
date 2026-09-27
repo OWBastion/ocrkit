@@ -249,9 +249,11 @@ def main() -> int:
         write_json(run_dir / "status.json", {"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
         raise
 
-    slug = f"ocrkit-rec-{run_id.lower()}"
-    dataset_id = f"{username}/{slug}"
-    kernel_id = f"{username}/{slug}"
+    # Kaggle datasets and kernels share one per-account slug namespace: reusing the same slug for
+    # both makes `kernels push` 409 (SaveKernel Conflict) against the just-created dataset.
+    run_slug = run_id.lower()
+    dataset_id = f"{username}/ocrkit-rec-data-{run_slug}"
+    kernel_id = f"{username}/ocrkit-rec-{run_slug}"
     dataset_created = False
     remote_metadata: dict[str, Any] = {}
     error: str | None = None
