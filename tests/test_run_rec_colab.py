@@ -5,6 +5,7 @@ import json
 import sys
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -58,8 +59,16 @@ def colab_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "checkpoint_config": "Global: {}\n",
         "train_log": "epoch 1 done\n",
         "metadata_download_status": 0,
+        "session_active_after_stop_failure": False,
     }
     fake_r2 = FakeR2Store()
+
+    def fake_capture(command: list[str]) -> SimpleNamespace:
+        assert command[1] == "sessions"
+        if behavior["session_active_after_stop_failure"]:
+            session_name = next(c[3] for c in calls if len(c) > 1 and c[1] == "new")
+            return SimpleNamespace(returncode=0, stdout=f"[{session_name}] fake-endpoint | Hardware: T4\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="[colab] No active sessions found on server.\n", stderr="")
 
     def fake_stream(command: list[str], _log: Path) -> int:
         calls.append(command)
@@ -118,6 +127,7 @@ def colab_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(run_rec_colab, "stage_inputs", fake_stage)
     monkeypatch.setattr(run_rec_colab, "stream_command", fake_stream)
+    monkeypatch.setattr(run_rec_colab, "capture_command", fake_capture)
     monkeypatch.setattr(
         sys, "argv", ["run_rec_colab.py", "--labels-dir", str(labels), "--pretrained-checkpoint", str(checkpoint)]
     )
@@ -187,9 +197,10 @@ def test_local_evaluation_failure_demotes_checkpoint_to_partial(colab_run) -> No
     assert json.loads((run_dir / "status.json").read_text())["runtime_stopped"] is True
 
 
-def test_teardown_failure_demotes_accepted_artifacts_to_partial(colab_run) -> None:
+def test_teardown_failure_with_a_still_active_session_demotes_checkpoint_to_partial(colab_run) -> None:
     runs, _calls, behavior, _fake_r2 = colab_run
     behavior["stop_status"] = 1
+    behavior["session_active_after_stop_failure"] = True
 
     assert run_rec_colab.main() == 1
 
@@ -197,6 +208,22 @@ def test_teardown_failure_demotes_accepted_artifacts_to_partial(colab_run) -> No
     assert not (run_dir / "checkpoint").exists()
     assert (run_dir / "partial/checkpoint/best_accuracy.pdparams").is_file()
     assert "colab stop" in json.loads((run_dir / "status.json").read_text())["error"]
+
+
+def test_teardown_failure_when_colab_already_released_the_session_still_succeeds(colab_run) -> None:
+    """`colab stop` can 404 simply because Colab already reclaimed a finished runtime."""
+    runs, _calls, behavior, _fake_r2 = colab_run
+    behavior["stop_status"] = 1
+    behavior["session_active_after_stop_failure"] = False
+
+    assert run_rec_colab.main() == 0
+
+    run_dir = only_run(runs)
+    assert (run_dir / "checkpoint/best_accuracy.pdparams").is_file()
+    status = json.loads((run_dir / "status.json").read_text())
+    assert status["status"] == "success"
+    assert status["runtime_stopped"] is True
+    assert status["error"] is None
 
 
 def test_provisioning_failure_stops_runtime_and_uploads_nothing(colab_run) -> None:

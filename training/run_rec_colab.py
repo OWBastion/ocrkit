@@ -255,6 +255,20 @@ def stream_command(command: list[str], log_path: Path) -> int:
             return process.wait()
 
 
+def capture_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+
+
+def session_still_active(colab: str, session: str, log_path: Path) -> bool:
+    """`colab stop` can fail simply because Colab already reclaimed an idle/finished runtime."""
+    result = capture_command([colab, "sessions"])
+    with log_path.open("a", encoding="utf-8") as log:
+        log.write(f"$ {colab} sessions\n{result.stdout}{result.stderr}\n")
+    if result.returncode:
+        return True  # could not verify; assume active so a real leak is not silently dropped
+    return session in result.stdout
+
+
 def transfer_with_retry(command: list[str], log_path: Path, attempts: int = 3) -> int:
     status = 1
     for _ in range(attempts):
@@ -500,6 +514,9 @@ def main() -> int:
                 stop_status = -1
                 stop_error = f"Colab runtime teardown command failed: {type(exc).__name__}: {exc}"
                 error = f"{error}; {stop_error}" if error else stop_error
+            if stop_status and not session_still_active(colab, session, colab_log):
+                # Colab had already released the runtime on its own; nothing was left running.
+                stop_status = 0
             if stop_status and error is None:
                 error = f"training completed, but Colab runtime teardown failed; run colab stop -s {session}"
 
