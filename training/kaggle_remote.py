@@ -31,7 +31,10 @@ RUN_METADATA = RESULTS / "run.json"
 REMOTE_LOG = RESULTS / "remote.log"
 BASE_CHECKPOINT_PATH = REPO / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
 INPUT_ROOT = Path("/kaggle/input")
-INPUT_ARCHIVE_NAME = "ocrkit-input.tar.gz"
+# Kaggle auto-extracts recognized archive extensions (.zip, .gz, .tar.gz, .tgz, ...) when a
+# dataset is mounted, so a plain "ocrkit-input.tar.gz" never survives as a file to extract here.
+# The bytes are still a real gzip+tar stream; only the name avoids that extension sniffing.
+INPUT_ARCHIVE_NAME = "ocrkit-input.pkg"
 
 
 def sha256(path: Path) -> str:

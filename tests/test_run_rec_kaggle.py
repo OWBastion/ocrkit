@@ -292,15 +292,16 @@ def test_remote_locate_input_archive_requires_exactly_one_attached_dataset(
     from training import kaggle_remote
 
     monkeypatch.setattr(kaggle_remote, "INPUT_ROOT", tmp_path)
+    archive_name = kaggle_remote.INPUT_ARCHIVE_NAME
     with pytest.raises(RuntimeError, match="was not attached"):
         kaggle_remote.locate_input_archive()
 
     (tmp_path / "dataset-one").mkdir()
-    (tmp_path / "dataset-one" / "ocrkit-input.tar.gz").write_bytes(b"a")
-    assert kaggle_remote.locate_input_archive() == tmp_path / "dataset-one" / "ocrkit-input.tar.gz"
+    (tmp_path / "dataset-one" / archive_name).write_bytes(b"a")
+    assert kaggle_remote.locate_input_archive() == tmp_path / "dataset-one" / archive_name
 
     (tmp_path / "dataset-two").mkdir()
-    (tmp_path / "dataset-two" / "ocrkit-input.tar.gz").write_bytes(b"b")
+    (tmp_path / "dataset-two" / archive_name).write_bytes(b"b")
     with pytest.raises(RuntimeError, match="exactly one"):
         kaggle_remote.locate_input_archive()
 

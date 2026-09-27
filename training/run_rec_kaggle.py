@@ -39,7 +39,9 @@ from training.remote_gpu_common import (  # noqa: E402
 RUNS = ROOT / "training/.work/kaggle-runs"
 R2_KEY_PREFIX = "kaggle-runs"
 REMOTE_WORKER = ROOT / "training/kaggle_remote.py"
-INPUT_ARCHIVE_NAME = "ocrkit-input.tar.gz"
+# Kaggle auto-extracts recognized archive extensions on dataset mount; kaggle_remote.py looks for
+# this exact (non-archive-looking) name, so it must match INPUT_ARCHIVE_NAME there.
+INPUT_ARCHIVE_NAME = "ocrkit-input.pkg"
 STATUS_POLL_SECONDS = 20
 DATASET_READY_POLL_SECONDS = 5
 DATASET_READY_MAX_ATTEMPTS = 30
