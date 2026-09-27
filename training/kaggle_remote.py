@@ -29,15 +29,21 @@ from typing import Any
 # the trained checkpoint travels back (see upload_checkpoint below).
 INPUT_ARCHIVE_URL = "REPLACE_WITH_PRESIGNED_INPUT_URL"
 
+# `kaggle kernels output` syncs back the *entire* /kaggle/working tree, so only the small
+# results/ directory (run.json, remote.log) lives there; the heavy build/runtime scratch (venv,
+# PaddleOCR clone, wheels, the extracted dataset, the trained checkpoint binary) lives under /tmp
+# instead, which is never part of kernel output. The checkpoint binary itself travels back through
+# R2 (see upload_checkpoint below), and config.yml/train.log ride along as text inside run.json.
 WORKING = Path("/kaggle/working")
-KAGGLE_ROOT = WORKING / "ocrkit-run"
-INPUT_ARCHIVE = WORKING / "ocrkit-input.tar.gz"
-REPO = KAGGLE_ROOT / "repo"
-DATASET = KAGGLE_ROOT / "dataset"
-RESULTS = KAGGLE_ROOT / "results"
-CHECKPOINTS = RESULTS / "checkpoint"
+RESULTS = WORKING / "results"
 RUN_METADATA = RESULTS / "run.json"
 REMOTE_LOG = RESULTS / "remote.log"
+
+KAGGLE_ROOT = Path("/tmp/ocrkit-run")
+INPUT_ARCHIVE = Path("/tmp/ocrkit-input.tar.gz")
+REPO = KAGGLE_ROOT / "repo"
+DATASET = KAGGLE_ROOT / "dataset"
+CHECKPOINTS = KAGGLE_ROOT / "checkpoint"
 BASE_CHECKPOINT_PATH = REPO / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
 
 
