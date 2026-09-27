@@ -9,7 +9,9 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 import traceback
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,16 +19,14 @@ from typing import Any
 COLAB_ROOT = Path("/content/ocrkit-colab")
 CONTENT = Path("/content")
 INPUT_ARCHIVE = CONTENT / "ocrkit-input.tar.gz"
-RESULT_ARCHIVE = CONTENT / "ocrkit-result.tar.gz"
-RESULT_INDEX = CONTENT / "ocrkit-result.index.json"
 PART_BYTES = 32 * 1024 * 1024
 REPO = COLAB_ROOT / "repo"
 DATASET = COLAB_ROOT / "dataset"
 RESULTS = COLAB_ROOT / "results"
 CHECKPOINTS = RESULTS / "checkpoint"
-RETURNED_CHECKPOINT_FILES = ("best_accuracy.pdparams", "config.yml", "train.log")
 RUN_METADATA = RESULTS / "run.json"
 REMOTE_LOG = RESULTS / "remote.log"
+BASE_CHECKPOINT_PATH = REPO / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
 
 
 def sha256(path: Path) -> str:
@@ -53,6 +53,7 @@ def run_logged(command: list[str], *, cwd: Path, log: Any, env: dict[str, str] |
     print(f"$ {rendered}", flush=True)
     log.write(f"$ {rendered}\n")
     log.flush()
+    started = time.monotonic()
     with subprocess.Popen(
         command,
         cwd=cwd,
@@ -67,9 +68,23 @@ def run_logged(command: list[str], *, cwd: Path, log: Any, env: dict[str, str] |
             print(line, end="", flush=True)
             log.write(line)
         status = process.wait()
+    elapsed = round(time.monotonic() - started, 1)
+    log.write(f"$ {rendered} -> exit {status} in {elapsed}s\n")
     log.flush()
     if status:
         raise RuntimeError(f"remote command exited with status {status}: {rendered}")
+
+
+def timed(stages: dict[str, float], name: str):
+    class _Timer:
+        def __enter__(self):
+            self._start = time.monotonic()
+            return self
+
+        def __exit__(self, *_exc):
+            stages[name] = round(time.monotonic() - self._start, 1)
+
+    return _Timer()
 
 
 def checked_gpu() -> dict[str, Any]:
@@ -110,21 +125,6 @@ def verify_inputs(request: dict[str, Any], root: Path) -> None:
             raise RuntimeError(f"staged input failed checksum verification: {record['path']}")
 
 
-def output_files() -> list[dict[str, Any]]:
-    records = []
-    for name in RETURNED_CHECKPOINT_FILES:
-        path = CHECKPOINTS / name
-        if path.is_file():
-            records.append(
-                {
-                    "path": path.relative_to(RESULTS).as_posix(),
-                    "size_bytes": path.stat().st_size,
-                    "sha256": sha256(path),
-                }
-            )
-    return records
-
-
 def join_input_parts() -> None:
     parts = sorted(CONTENT.glob("ocrkit-input.part*"))
     if not parts:
@@ -135,34 +135,52 @@ def join_input_parts() -> None:
             part.unlink()
 
 
-def split_result_archive() -> None:
-    for stale in (*CONTENT.glob("ocrkit-result.part*"), RESULT_INDEX):
-        stale.unlink(missing_ok=True)
-    parts = []
-    with RESULT_ARCHIVE.open("rb") as archive:
-        for index, chunk in enumerate(iter(lambda: archive.read(PART_BYTES), b"")):
-            name = f"ocrkit-result.part{index:04d}"
-            (CONTENT / name).write_bytes(chunk)
-            parts.append({"name": name, "sha256": hashlib.sha256(chunk).hexdigest()})
-    RESULT_INDEX.write_text(json.dumps({"parts": parts}), encoding="utf-8")
+def fetch_base_checkpoint(base_checkpoint: dict[str, Any]) -> None:
+    """A checkpoint the runner did not upload; Colab downloads it directly instead."""
+    BASE_CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    urllib.request.urlretrieve(base_checkpoint["url"], BASE_CHECKPOINT_PATH)
+    if sha256(BASE_CHECKPOINT_PATH) != base_checkpoint["sha256"]:
+        raise RuntimeError("downloaded base checkpoint failed checksum verification")
 
 
-def write_result_archive() -> None:
-    RESULT_ARCHIVE.unlink(missing_ok=True)
-    with tarfile.open(RESULT_ARCHIVE, "w:gz") as archive:
-        for path in (RUN_METADATA, REMOTE_LOG):
-            if path.is_file():
-                archive.add(path, arcname=path.relative_to(COLAB_ROOT))
-        for name in RETURNED_CHECKPOINT_FILES:
-            if (CHECKPOINTS / name).is_file():
-                archive.add(CHECKPOINTS / name, arcname=(CHECKPOINTS / name).relative_to(COLAB_ROOT))
-    split_result_archive()
+def upload_checkpoint(upload: dict[str, Any], checkpoint_path: Path) -> dict[str, Any]:
+    """PUTs the trained checkpoint straight to R2; the Colab CLI's own transfer is far slower."""
+    result = subprocess.run(
+        [
+            "curl",
+            "-fsS",
+            "-X",
+            "PUT",
+            "--data-binary",
+            f"@{checkpoint_path}",
+            "-H",
+            "Content-Type: application/octet-stream",
+            "--max-time",
+            "1800",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            upload["url"],
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode or result.stdout.strip() not in {"200", "201"}:
+        raise RuntimeError(f"uploading the checkpoint to R2 failed (curl exit {result.returncode}: {result.stderr.strip()[-300:]})")
+    return {
+        "bucket": upload["bucket"],
+        "key": upload["key"],
+        "size_bytes": checkpoint_path.stat().st_size,
+        "sha256": sha256(checkpoint_path),
+    }
 
 
 def main() -> int:
     RESULTS.mkdir(parents=True, exist_ok=True)
+    stages: dict[str, float] = {}
     result: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "failed",
         "completed_at": datetime.now(UTC).isoformat(),
     }
@@ -174,30 +192,34 @@ def main() -> int:
                 safe_extract(INPUT_ARCHIVE, COLAB_ROOT)
                 request_path = COLAB_ROOT / "request.json"
                 request = json.loads(request_path.read_text(encoding="utf-8"))
-                result["request"] = request["run"]
+                run_request = request["run"]
+                # The presigned checkpoint-upload URL is a write credential; never persist or log it.
+                result["request"] = {
+                    key: (value if key != "checkpoint_upload" else {k: v for k, v in value.items() if k != "url"})
+                    for key, value in run_request.items()
+                }
                 verify_inputs(request, COLAB_ROOT)
                 gpu = checked_gpu()
                 REPO.mkdir(parents=True, exist_ok=True)
                 DATASET.mkdir(parents=True, exist_ok=True)
                 CHECKPOINTS.mkdir(parents=True, exist_ok=True)
 
+                if run_request["base_checkpoint"]["source"] == "official-download":
+                    with timed(stages, "fetch_base_checkpoint"):
+                        fetch_base_checkpoint(run_request["base_checkpoint"])
+                elif not BASE_CHECKPOINT_PATH.is_file():
+                    raise RuntimeError("uploaded base checkpoint was not staged at the expected path")
+
                 if not shutil.which("uv"):
+                    run_logged([sys.executable, "-m", "pip", "install", "uv"], cwd=COLAB_ROOT, log=log)
+                mirror = run_request["paddle_wheel_mirror"]
+                with timed(stages, "setup_environment"):
                     run_logged(
-                        [sys.executable, "-m", "pip", "install", "uv"],
-                        cwd=COLAB_ROOT,
+                        ["bash", "training/setup_rec_environment.sh", "--device", "cuda"],
+                        cwd=REPO,
+                        env={**os.environ, "OCRKIT_PADDLE_WHEEL_URL": mirror["url"], "OCRKIT_PADDLE_WHEEL_SHA256": mirror["sha256"]},
                         log=log,
                     )
-                mirror = request["run"]["paddle_wheel_mirror"]
-                run_logged(
-                    ["bash", "training/setup_rec_environment.sh", "--device", "cuda"],
-                    cwd=REPO,
-                    env={
-                        **os.environ,
-                        "OCRKIT_PADDLE_WHEEL_URL": mirror["url"],
-                        "OCRKIT_PADDLE_WHEEL_SHA256": mirror["sha256"],
-                    },
-                    log=log,
-                )
 
                 paddle = subprocess.run(
                     [
@@ -213,31 +235,43 @@ def main() -> int:
                 if not paddle_info["cuda"] or paddle_info["device"] != "gpu:0":
                     raise RuntimeError("PaddlePaddle did not select the allocated CUDA device")
 
-                epochs = str(request["run"]["training"]["epochs"])
-                run_logged(
-                    [
-                        "bash",
-                        "training/run_rec_smoke.sh",
-                        "--labels-dir",
-                        str(DATASET),
-                        "--output-dir",
-                        str(CHECKPOINTS),
-                        "--epochs",
-                        epochs,
-                        "--device",
-                        "cuda",
-                        "--train-only",
-                    ],
-                    cwd=REPO,
-                    log=log,
-                )
+                epochs = str(run_request["training"]["epochs"])
+                with timed(stages, "train"):
+                    run_logged(
+                        [
+                            "bash",
+                            "training/run_rec_smoke.sh",
+                            "--labels-dir",
+                            str(DATASET),
+                            "--output-dir",
+                            str(CHECKPOINTS),
+                            "--epochs",
+                            epochs,
+                            "--device",
+                            "cuda",
+                            "--train-only",
+                        ],
+                        cwd=REPO,
+                        log=log,
+                    )
                 best_checkpoint = CHECKPOINTS / "best_accuracy.pdparams"
+                if not best_checkpoint.is_file() or best_checkpoint.stat().st_size == 0:
+                    raise RuntimeError("training did not produce the best-accuracy recognition checkpoint")
+
+                with timed(stages, "upload_checkpoint"):
+                    checkpoint_record = upload_checkpoint(run_request["checkpoint_upload"], best_checkpoint)
+                # Recorded immediately: if a later step fails, the caller still knows this object
+                # exists in R2 and can retrieve or delete it instead of leaking it silently.
+                result["checkpoint"] = checkpoint_record
+
                 paddleocr_revision = subprocess.run(
                     ["git", "-C", str(REPO / "training/.work/PaddleOCR"), "rev-parse", "HEAD"],
                     check=True,
                     capture_output=True,
                     text=True,
                 ).stdout.strip()
+                config_path = CHECKPOINTS / "config.yml"
+                train_log_path = CHECKPOINTS / "train.log"
                 result.update(
                     {
                         "status": "success",
@@ -247,34 +281,32 @@ def main() -> int:
                             "paddle": paddle_info,
                             "paddleocr_revision": paddleocr_revision,
                         },
-                        "outputs": output_files(),
+                        "stage_seconds": stages,
+                        "checkpoint": checkpoint_record,
+                        "checkpoint_config": config_path.read_text(encoding="utf-8") if config_path.is_file() else None,
+                        "train_log": train_log_path.read_text(encoding="utf-8", errors="replace") if train_log_path.is_file() else None,
                     }
                 )
             except BaseException as exc:
                 result["error"] = f"{type(exc).__name__}: {exc}"
+                result["stage_seconds"] = stages
                 traceback.print_exc(file=log)
                 log.flush()
             finally:
                 result["completed_at"] = datetime.now(UTC).isoformat()
-                result["outputs"] = output_files()
-                RUN_METADATA.write_text(
-                    json.dumps(result, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
-        write_result_archive()
+                RUN_METADATA.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     except BaseException as exc:
         print(f"OCRKit Colab run failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         try:
             RUN_METADATA.write_text(
                 json.dumps(
-                    {"schema_version": 1, "status": "failed", "error": f"{type(exc).__name__}: {exc}"},
+                    {"schema_version": 2, "status": "failed", "error": f"{type(exc).__name__}: {exc}", "stage_seconds": stages},
                     ensure_ascii=False,
                     indent=2,
                 )
                 + "\n",
                 encoding="utf-8",
             )
-            write_result_archive()
         except OSError:
             pass
         return 1

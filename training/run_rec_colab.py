@@ -14,6 +14,9 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
+from app.core.config import settings
+from app.storage.r2_client import ObjectNotFoundError, R2ObjectStore
+
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "training/.work/colab-runs"
 ACCEPTED_STAGING = "accepted"
@@ -21,6 +24,13 @@ PADDLE_WHEEL = {
     "url": "https://cdn.owbastion.codes/ocrkit/wheels/cu129/paddlepaddle_gpu-3.3.1-cp312-cp312-linux_x86_64.whl",
     "sha256": "03fc5211183ba20ef71e63a35e589fd386a8805c1011c3a409a0e5b118be4668",
 }
+OFFICIAL_BASE_CHECKPOINT = {
+    "model": "PP-OCRv6_small_rec_pretrained",
+    "url": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_pretrained_model/PP-OCRv6_small_rec_pretrained.pdparams",
+    "sha256": "25c9bd54b0e5900916e8bb6ada938abeffb1eac1baedac0ca54a45b1c9310825",
+}
+R2_KEY_PREFIX = "colab-runs"
+R2_UPLOAD_URL_BUFFER_SECONDS = 900
 PART_BYTES = 32 * 1024 * 1024
 REMOTE_RUNNER = ROOT / "training/colab_remote.py"
 PRETRAINED_CHECKPOINT = ROOT / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
@@ -32,6 +42,29 @@ SOURCE_FILES = (
     "training/scripts/prune_rec_checkpoints.py",
     "training/scripts/validate_annotations.py",
 )
+
+
+def require_r2_store(parser: argparse.ArgumentParser) -> R2ObjectStore:
+    """The Colab backend retrieves checkpoints through R2 rather than the slow Colab CLI transfer."""
+    if not (
+        settings.r2_endpoint_url
+        and settings.r2_access_key_id
+        and settings.r2_secret_access_key
+        and settings.r2_default_bucket
+    ):
+        parser.error(
+            "OCRKIT_R2_ENDPOINT_URL, OCRKIT_R2_ACCESS_KEY_ID, OCRKIT_R2_SECRET_ACCESS_KEY, and "
+            "OCRKIT_R2_DEFAULT_BUCKET are required to run training on Colab"
+        )
+    return R2ObjectStore.from_settings(
+        endpoint_url=settings.r2_endpoint_url,
+        access_key_id=settings.r2_access_key_id,
+        secret_access_key=settings.r2_secret_access_key,
+        region_name=settings.r2_region_name,
+        default_bucket=settings.r2_default_bucket,
+        allowed_buckets_raw=settings.r2_allowed_buckets,
+        read_timeout_seconds=settings.r2_read_timeout_seconds,
+    )
 
 
 def sha256(path: Path) -> str:
@@ -138,7 +171,7 @@ def stage_inputs(
     archive_path: Path,
     run_request: dict[str, Any],
     dataset_root: Path,
-    checkpoint_path: Path,
+    checkpoint_path: Path | None,
     train_images: list[str],
     holdout_images: list[str],
 ) -> None:
@@ -167,12 +200,13 @@ def stage_inputs(
         path = dataset_root / relative
         if path.is_file():
             add_file(files, f"dataset/{relative}", path, "dataset-provenance")
-    add_file(
-        files,
-        "repo/training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams",
-        checkpoint_path,
-        "base-recognition-checkpoint",
-    )
+    if checkpoint_path is not None:
+        add_file(
+            files,
+            "repo/training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams",
+            checkpoint_path,
+            "base-recognition-checkpoint",
+        )
 
     records = []
     with tarfile.open(archive_path, "w:gz") as archive:
@@ -247,85 +281,64 @@ def upload_archive(colab: str, session: str, archive: Path, run_dir: Path, log_p
         shutil.rmtree(parts_dir, ignore_errors=True)
 
 
-def download_archive(colab: str, session: str, destination: Path, run_dir: Path, log_path: Path) -> int:
-    parts_dir = run_dir / "result-parts"
-    parts_dir.mkdir()
+def fetch_remote_metadata(colab: str, session: str, run_dir: Path, log_path: Path) -> tuple[dict[str, Any], Path | None]:
+    """Only run.json and remote.log travel through the Colab CLI; both are small, unlike the checkpoint."""
+    metadata_path = run_dir / "remote-run.json"
+    status = transfer_with_retry(
+        [colab, "download", "-s", session, "/content/ocrkit-colab/results/run.json", str(metadata_path)], log_path
+    )
+    if status:
+        raise RuntimeError("Colab did not return run metadata (results/run.json)")
+    remote_log_path = run_dir / "remote-log.txt"
+    if transfer_with_retry(
+        [colab, "download", "-s", session, "/content/ocrkit-colab/results/remote.log", str(remote_log_path)], log_path
+    ):
+        remote_log_path = None  # best-effort: diagnostics, not required for the run's outcome
+    return json.loads(metadata_path.read_text(encoding="utf-8")), remote_log_path
+
+
+def retrieve_checkpoint(
+    r2: R2ObjectStore, remote_metadata: dict[str, Any], remote_log_path: Path | None, run_dir: Path
+) -> None:
+    """The checkpoint travels through R2 (uploaded by colab_remote.py), not the Colab CLI."""
+    accepted = run_dir / ACCEPTED_STAGING
+    accepted.mkdir(parents=True, exist_ok=True)
+    (accepted / "run.json").write_text(
+        json.dumps(remote_metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    if remote_log_path is not None:
+        shutil.move(str(remote_log_path), accepted / "remote.log")
+
+    checkpoint = remote_metadata.get("checkpoint")
+    if checkpoint is None:
+        return
+    checkpoint_dir = accepted / "checkpoint"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    destination = checkpoint_dir / "best_accuracy.pdparams"
     try:
-        index_path = parts_dir / "index.json"
-        status = transfer_with_retry(
-            [colab, "download", "-s", session, "/content/ocrkit-result.index.json", str(index_path)], log_path
-        )
-        if status:
-            return status
-        with destination.open("wb") as result:
-            for record in json.loads(index_path.read_text(encoding="utf-8"))["parts"]:
-                part = parts_dir / safe_relative(record["name"])
-                status = transfer_with_retry(
-                    [colab, "download", "-s", session, f"/content/{record['name']}", str(part)], log_path
-                )
-                if status:
-                    return status
-                if sha256(part) != record["sha256"]:
-                    raise ValueError(f"Colab result part failed checksum verification: {record['name']}")
-                result.write(part.read_bytes())
-                part.unlink()
-        return 0
+        try:
+            r2.download_object(checkpoint["bucket"], checkpoint["key"], destination)
+        except ObjectNotFoundError as exc:
+            raise ValueError(
+                f"Colab did not upload the checkpoint to R2: {checkpoint['bucket']}/{checkpoint['key']}"
+            ) from exc
+        if destination.stat().st_size != checkpoint["size_bytes"] or sha256(destination) != checkpoint["sha256"]:
+            raise ValueError("Colab checkpoint failed checksum verification after download from R2")
+        config_text = remote_metadata.get("checkpoint_config")
+        if config_text:
+            (checkpoint_dir / "config.yml").write_text(config_text, encoding="utf-8")
+        train_log_text = remote_metadata.get("train_log")
+        if train_log_text:
+            (checkpoint_dir / "train.log").write_text(train_log_text, encoding="utf-8")
     finally:
-        shutil.rmtree(parts_dir, ignore_errors=True)
-
-
-def safe_extract_result(archive_path: Path, destination: Path) -> None:
-    destination.mkdir(parents=True, exist_ok=True)
-    root = destination.resolve()
-    with tarfile.open(archive_path, "r:gz") as archive:
-        members = archive.getmembers()
-        for member in members:
-            target = (destination / member.name).resolve()
-            if not target.is_relative_to(root) or not (member.isfile() or member.isdir()):
-                raise ValueError("Colab result archive contains an unsupported path or file type")
-        archive.extractall(destination)
-
-
-def copy_remote_result(remote_root: Path, run_dir: Path, *, success: bool) -> dict[str, Any]:
-    results = remote_root / "results"
-    metadata_path = results / "run.json"
-    remote_metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.is_file() else None
-    remote_log = results / "remote.log"
-    if success:
-        if remote_metadata is None or remote_metadata.get("status") != "success":
-            remote_error = (remote_metadata or {}).get("error", "no run metadata")
-            raise ValueError(f"Colab run did not succeed: {remote_error}")
-        if not (results / "checkpoint").is_dir():
-            raise ValueError("Colab did not return the checkpoint artifacts")
-        output_records = remote_metadata.get("outputs")
-        if not isinstance(output_records, list) or "checkpoint/best_accuracy.pdparams" not in {
-            record.get("path") for record in output_records
-        }:
-            raise ValueError("Colab did not checksum the best-accuracy checkpoint")
-        for record in output_records:
-            output = results / safe_relative(record["path"])
-            if (
-                not output.is_file()
-                or output.stat().st_size != record["size_bytes"]
-                or sha256(output) != record["sha256"]
-            ):
-                raise ValueError(f"Colab result failed checksum verification: {record['path']}")
-        accepted = run_dir / ACCEPTED_STAGING
-        shutil.copytree(results / "checkpoint", accepted / "checkpoint")
-        shutil.copy2(metadata_path, accepted / "run.json")
-        if remote_log.is_file():
-            shutil.copy2(remote_log, accepted / "remote.log")
-        return remote_metadata
-
-    partial = run_dir / "partial"
-    partial.mkdir(exist_ok=True)
-    if (results / "checkpoint").is_dir():
-        shutil.copytree(results / "checkpoint", partial / "checkpoint")
-    if metadata_path.is_file():
-        shutil.copy2(metadata_path, partial / "run.json")
-    if remote_log.is_file():
-        shutil.copy2(remote_log, partial / "remote.log")
-    return remote_metadata or {}
+        try:
+            r2.delete_object(checkpoint["bucket"], checkpoint["key"])
+        except Exception as exc:
+            print(
+                f"warning: failed to delete the Colab checkpoint object from R2 "
+                f"({checkpoint['bucket']}/{checkpoint['key']}): {exc}",
+                file=sys.stderr,
+            )
 
 
 def evaluate_locally(accepted: Path, log_path: Path) -> None:
@@ -366,12 +379,17 @@ def main() -> int:
     if not colab:
         parser.error("Google Colab CLI is required; install it with uv tool install google-colab-cli")
 
+    r2 = require_r2_store(parser)
+
     dataset_root = args.labels_dir.resolve()
     train_label = dataset_root / "labels/train.txt"
     holdout_label = dataset_root / "labels/holdout.txt"
-    for path in (train_label, holdout_label, args.pretrained_checkpoint):
+    for path in (train_label, holdout_label):
         if not path.is_file():
             parser.error(f"required training input is missing: {path}")
+    using_official_checkpoint = args.pretrained_checkpoint == PRETRAINED_CHECKPOINT
+    if not using_official_checkpoint and not args.pretrained_checkpoint.is_file():
+        parser.error(f"required training input is missing: {args.pretrained_checkpoint}")
     train_count, train_images = validate_labels(train_label)
     holdout_count, holdout_images = validate_labels(holdout_label)
 
@@ -379,9 +397,7 @@ def main() -> int:
     run_dir = RUNS / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     input_archive = run_dir / "ocrkit-input.tar.gz"
-    result_archive = run_dir / "ocrkit-result.tar.gz"
     colab_log = run_dir / "colab.log"
-    retrieved = run_dir / "retrieved"
 
     source_revision, source_dirty = git_metadata(ROOT)
     dataset_revision, dataset_dirty = git_metadata(dataset_root)
@@ -389,7 +405,21 @@ def main() -> int:
         dataset_source = dataset_root.relative_to(ROOT).as_posix()
     except ValueError:
         dataset_source = "external"
-    checkpoint_path = args.pretrained_checkpoint.resolve()
+    if using_official_checkpoint:
+        checkpoint_path = None
+        base_checkpoint = {**OFFICIAL_BASE_CHECKPOINT, "source": "official-download"}
+    else:
+        checkpoint_path = args.pretrained_checkpoint.resolve()
+        base_checkpoint = {
+            "model": "custom",
+            "source": "uploaded",
+            "source_name": checkpoint_path.name,
+            "sha256": sha256(checkpoint_path),
+        }
+    checkpoint_upload_key = f"{R2_KEY_PREFIX}/{run_id}/checkpoint.pdparams"
+    checkpoint_upload_url = r2.generate_presigned_put_url(
+        r2.default_bucket, checkpoint_upload_key, expires_in_seconds=int(args.timeout_seconds) + R2_UPLOAD_URL_BUFFER_SECONDS
+    )
     run_request = {
         "run_id": run_id,
         "ocrkit_revision": source_revision,
@@ -402,12 +432,9 @@ def main() -> int:
             "train_samples": train_count,
             "holdout_samples": holdout_count,
         },
-        "base_checkpoint": {
-            "model": "PP-OCRv6_small_rec_pretrained",
-            "source_name": checkpoint_path.name,
-            "sha256": sha256(checkpoint_path),
-        },
+        "base_checkpoint": base_checkpoint,
         "paddle_wheel_mirror": PADDLE_WHEEL,
+        "checkpoint_upload": {"bucket": r2.default_bucket, "key": checkpoint_upload_key, "url": checkpoint_upload_url},
         "training": {
             "epochs": args.epochs,
             "device": "cuda",
@@ -448,26 +475,14 @@ def main() -> int:
             [colab, "exec", "-s", session, "--timeout", str(args.timeout_seconds), "-f", str(REMOTE_RUNNER)],
             colab_log,
         )
-        download_status = download_archive(colab, session, result_archive, run_dir, colab_log)
-        if download_status:
-            raise RuntimeError(
-                "Colab failed to retrieve the remote run logs and artifacts"
-                + (f" after the remote run exited with status {exec_status}" if exec_status else "")
-            )
-        safe_extract_result(result_archive, retrieved)
-        try:
-            remote_metadata = copy_remote_result(retrieved, run_dir, success=exec_status == 0)
-        except Exception:
-            shutil.rmtree(run_dir / ACCEPTED_STAGING, ignore_errors=True)
-            try:
-                copy_remote_result(retrieved, run_dir, success=False)
-            except Exception:
-                pass
-            raise
+        remote_metadata, remote_log_path = fetch_remote_metadata(colab, session, run_dir, colab_log)
+        retrieve_checkpoint(r2, remote_metadata, remote_log_path, run_dir)
         if exec_status:
             raise RuntimeError(f"Colab training failed with exit status {exec_status}.")
         if remote_metadata.get("status") != "success":
-            raise RuntimeError("Colab training did not return a successful status.")
+            raise RuntimeError(
+                f"Colab training did not return a successful status: {remote_metadata.get('error', 'unknown error')}"
+            )
     except KeyboardInterrupt:
         error = "Colab run interrupted by the operator."
     except Exception as exc:
@@ -511,9 +526,6 @@ def main() -> int:
         "error": error,
     }
     (run_dir / "status.json").write_text(json.dumps(status, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    result_archive.unlink(missing_ok=True)
-    if retrieved.exists():
-        shutil.rmtree(retrieved)
     if status["status"] != "success":
         print(f"Colab OCRKit run failed: {error or 'runtime did not stop successfully'}", file=sys.stderr)
         print(f"Local run logs and any partial outputs: {run_dir}", file=sys.stderr)

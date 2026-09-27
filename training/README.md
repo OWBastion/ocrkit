@@ -424,17 +424,24 @@ report for inspection but returns a non-zero status.
 ### Run recognition training on Colab GPU
 
 Install the [Google Colab CLI](https://github.com/googlecolab/google-colab-cli)
-on the local Mac and prepare the reviewed/materialized dataset plus the local
-PP-OCRv6 small base checkpoint:
+and prepare the reviewed/materialized dataset. `setup_rec_environment.sh` is
+only needed locally if you also want CPU Smoke or a non-default (custom) base
+checkpoint; the default official base checkpoint is fetched by Colab itself.
 
 ```bash
 uv tool install google-colab-cli
-./training/setup_rec_environment.sh
 ```
 
 The first CLI request can prompt for Google OAuth authentication in the
 terminal. The CLI keeps those credentials locally; OCRKit does not send
-platform, R2, or release credentials to Colab.
+platform or release credentials to Colab. The runner also requires
+`OCRKIT_R2_ENDPOINT_URL`, `OCRKIT_R2_ACCESS_KEY_ID`, `OCRKIT_R2_SECRET_ACCESS_KEY`,
+and `OCRKIT_R2_DEFAULT_BUCKET` (see `.env.model.example`): the trained
+checkpoint is far too large to transfer efficiently through the Colab CLI, so
+Colab uploads it straight to that private R2 bucket using a short-lived,
+single-object presigned URL that the runner generates locally and never
+writes to disk or a log; Colab never receives R2 credentials. The runner
+downloads the checkpoint from R2 and deletes the object once it has done so.
 
 Train on Colab and evaluate the retrieved checkpoint locally with one command:
 
@@ -470,21 +477,26 @@ checkpoint, stops the runtime, and then runs the unchanged
 environment from `setup_rec_environment.sh` is required). The run only
 succeeds if that evaluation passes the same gate as a local run.
 
-The runner transfers only the selected train/holdout labels and referenced
-crops, available review/snapshot provenance files, the base recognition
-checkpoint, and the training scripts. It records source revisions, input
-checksums, the effective training configuration, PaddleOCR revision, allocated
-GPU details, checkpoint checksums, and the local evaluation summary in the
-returned `run.json`.
+Through the Colab CLI, the runner transfers only the selected train/holdout
+labels and referenced crops, available review/snapshot provenance files, the
+training scripts, and (when `--pretrained-checkpoint` names a checkpoint other
+than the official default) that custom checkpoint. The official default base
+checkpoint is instead fetched by Colab directly from its public URL and
+checksum-verified there, and the trained checkpoint returns through R2 rather
+than the CLI. It records source revisions, input checksums, the effective
+training configuration, PaddleOCR revision, allocated GPU details, checkpoint
+checksums, and the local evaluation summary in the returned `run.json`.
 
-Checkpoints, `fixture_report.json`, provenance, the remote training log, the
-Colab CLI log, and `status.json` are stored below the ignored
+The checkpoint, `fixture_report.json`, provenance, the remote training log,
+the Colab CLI log, and `status.json` are stored below the ignored
 `training/.work/colab-runs/<run-id>/` directory. A successful run does not
 publish a candidate or change the stable model channel. Provisioning,
-staging, training, retrieval, and handled failures all stop the Colab runtime
-after it has been allocated; it is stopped before the local evaluation starts. Failed runs keep diagnostics and
-any partial output under `partial/`; if teardown itself fails, `status.json`
-includes the named `colab stop` command to release that session.
+staging, training, metadata retrieval, and handled failures all stop the
+Colab runtime after it has been allocated; it is stopped before the local
+evaluation starts. Failed runs keep diagnostics and any partial output under
+`partial/`; if teardown itself fails, `status.json` includes the named
+`colab stop` command to release that session. The R2 checkpoint object is
+deleted once retrieved, on both success and failure.
 
 To evaluate a checkpoint explicitly, use a new output directory:
 
