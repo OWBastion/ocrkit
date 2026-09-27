@@ -15,7 +15,15 @@ printf 'PaddleOCR checkout: %s\n' "${paddleocr_dir}"
 
 venv_dir="${work_dir}/venv"
 if [[ ! -x "${venv_dir}/bin/python" ]]; then
-  python3.12 -m venv "${venv_dir}"
+  if command -v python3.12 >/dev/null && python3.12 -m venv "${venv_dir}"; then
+    :
+  elif command -v uv >/dev/null; then
+    # Managed runtimes such as Colab ship python3.12 without python3-venv/ensurepip.
+    uv venv --clear --seed --python 3.12 "${venv_dir}"
+  else
+    printf 'Python 3.12 with venv support, or uv, is required to create the training environment.\n' >&2
+    exit 1
+  fi
 fi
 
 printf 'Training environment: %s\n' "${venv_dir}"
