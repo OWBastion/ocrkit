@@ -565,14 +565,17 @@ same selected train/holdout labels and referenced crops, available
 review/snapshot provenance files, the training scripts, and (when
 `--pretrained-checkpoint` names a checkpoint other than the official default)
 that custom checkpoint. Unlike Colab's chunked single-blob CLI upload, these
-files are staged as a plain directory tree — not an archive — into a
-**private, run-scoped Kaggle Dataset** (`kaggle datasets create`, never
-`--public`): Kaggle auto-extracts recognized archive formats (zip/gz/tar.gz)
-by content on mount, so an uploaded tar.gz would never survive as a file for
-the kernel to find. That dataset is attached to a **private script kernel**
-(`kaggle kernels push`) that runs `training/kaggle_remote.py`. The kernel
-fetches the official base checkpoint or verifies the uploaded one, runs the
-unchanged CUDA training/evaluation path, and uploads the resulting checkpoint
+files are staged as a plain directory tree into a **private, run-scoped
+Kaggle Dataset** (`kaggle datasets create -r zip`, never `--public`): Kaggle
+sniffs archive formats by content, not filename, so a monolithic tar.gz never
+survives as a file for the kernel to find. Instead, the CLI's own `-r zip`
+locally zips each subdirectory for upload, and Kaggle reliably auto-unzips
+`.zip` files back into their folder when the dataset is mounted — the
+top-level `request.json` stays a plain, never-zipped file throughout. That
+dataset is attached to a **private script kernel** (`kaggle kernels push`)
+that runs `training/kaggle_remote.py`. The kernel fetches the official base
+checkpoint or verifies the uploaded one, runs the unchanged CUDA
+training/evaluation path, and uploads the resulting checkpoint
 to R2 exactly like Colab does.
 
 Because Kaggle committed kernel execution has no interactive runtime to stop,

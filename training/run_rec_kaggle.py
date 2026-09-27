@@ -91,8 +91,11 @@ def create_input_dataset(
 ) -> int:
     """A private, run-scoped Kaggle Dataset stages the same files Colab uploads as a single blob.
 
-    Staged as a plain directory tree, not an archive: Kaggle auto-extracts recognized archive
-    formats by content on mount, so an uploaded tar.gz would never survive as a file to find.
+    Staged as a plain directory tree, not a single opaque archive like Colab's: a monolithic
+    tar.gz never survives Kaggle's own content-sniffed auto-extraction as a file to find, so the
+    top-level request.json here is deliberately a plain file (never auto-extracted), while the
+    dataset/ and repo/ subdirectories ride Kaggle's zip auto-extraction (see the -r zip comment
+    below) to reconstruct their folder structure on mount instead of us extracting anything.
     """
     package_dir = run_dir / "dataset-package"
     package_dir.mkdir()
@@ -102,9 +105,11 @@ def create_input_dataset(
         {"id": dataset_id, "title": dataset_id.split("/", 1)[1], "licenses": [{"name": "unknown"}]},
     )
     # `datasets create` defaults to private; passing -u/--public would be a privacy regression.
-    # `-r skip` uploads the directory tree as-is instead of zipping subdirectories, so nothing
-    # needs archive extraction on either side of the transfer.
-    status = stream_command([kaggle, "datasets", "create", "-p", str(package_dir), "-r", "skip"], log_path)
+    # `-r skip` (the alternative to zip/tar) drops subdirectories entirely instead of uploading
+    # them, so it can't be used here: `-r zip` locally zips the dataset/ and repo/ subdirectories
+    # for upload, and Kaggle reliably auto-unzips .zip files back into their folder on mount. The
+    # top-level request.json is a plain file, never a folder, so it always survives unmangled.
+    status = stream_command([kaggle, "datasets", "create", "-p", str(package_dir), "-r", "zip"], log_path)
     if status:
         return status
     # The exact "ready"/processing status text is not stabilized across kaggle-api releases, so this
