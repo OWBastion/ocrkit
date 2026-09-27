@@ -166,3 +166,11 @@ class R2ObjectStore:
             Params={"Bucket": bucket, "Key": object_key},
             ExpiresIn=expires_in_seconds,
         )
+
+    def generate_presigned_get_url(self, bucket: str, object_key: str, expires_in_seconds: int) -> str:
+        """A short-lived, single-object read URL a remote runtime can use without holding credentials."""
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": object_key},
+            ExpiresIn=expires_in_seconds,
+        )

@@ -293,7 +293,7 @@ def test_transfer_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch, t
 
     monkeypatch.setattr(run_rec_colab, "stream_command", flaky)
 
-    assert run_rec_colab.transfer_with_retry(["colab", "download"], tmp_path / "log") == 0
+    assert run_rec_colab.transfer_with_retry(["colab", "download"], tmp_path / "log", run_rec_colab.stream_command) == 0
     assert len(attempts) == 3
 
 
