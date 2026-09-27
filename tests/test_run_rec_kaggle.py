@@ -222,6 +222,26 @@ def test_kernel_push_failure_never_polls_status(kaggle_run) -> None:
     assert not fake_r2.objects  # the uploaded input archive is still cleaned up
 
 
+def test_still_queued_at_timeout_preserves_the_input_object_and_skips_output_fetch(
+    kaggle_run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A kernel Kaggle never scheduled must keep its input archive: it may still run later."""
+    runs, calls, _behavior, fake_r2 = kaggle_run
+    monkeypatch.setattr(
+        run_rec_kaggle, "capture_command", lambda _c: SimpleNamespace(returncode=0, stdout='has status "KernelWorkerStatus.QUEUED"\n', stderr="")
+    )
+    argv = list(sys.argv) + ["--timeout-seconds", "0.05"]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    assert run_rec_kaggle.main() == 1
+
+    assert not any(verb(c) == ("kernels", "output") for c in calls)
+    assert not fake_r2.deleted  # the input archive is deliberately NOT cleaned up
+    status = json.loads((only_run(runs) / "status.json").read_text())
+    assert status["kaggle_kernel_status"] == "timeout_queued"
+    assert "still queued" in status["error"]
+
+
 def test_kernel_output_retrieval_failure_is_reported_clearly(kaggle_run) -> None:
     runs, _calls, behavior, _fake_r2 = kaggle_run
     behavior["output_status"] = 1
@@ -232,12 +252,27 @@ def test_kernel_output_retrieval_failure_is_reported_clearly(kaggle_run) -> None
     assert "kernel output" in error
 
 
-def test_poll_kernel_status_raises_on_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_poll_kernel_status_reports_timeout_queued_when_it_never_left_the_queue(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A kernel that never left the queue never ran kaggle_remote.py, so its input must survive."""
     monkeypatch.setattr(run_rec_kaggle, "STATUS_POLL_SECONDS", 0)
-    monkeypatch.setattr(run_rec_kaggle, "capture_command", lambda _c: SimpleNamespace(returncode=0, stdout="queued\n", stderr=""))
+    monkeypatch.setattr(
+        run_rec_kaggle, "capture_command", lambda _c: SimpleNamespace(returncode=0, stdout='has status "KernelWorkerStatus.QUEUED"\n', stderr="")
+    )
 
-    with pytest.raises(RuntimeError, match="did not settle"):
-        run_rec_kaggle.poll_kernel_status("kaggle", "owner/slug", 0.01, tmp_path / "log")
+    assert run_rec_kaggle.poll_kernel_status("kaggle", "owner/slug", 0.01, tmp_path / "log") == "timeout_queued"
+
+
+def test_poll_kernel_status_reports_timeout_running_once_it_left_the_queue(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(run_rec_kaggle, "STATUS_POLL_SECONDS", 0)
+    monkeypatch.setattr(
+        run_rec_kaggle, "capture_command", lambda _c: SimpleNamespace(returncode=0, stdout='has status "KernelWorkerStatus.RUNNING"\n', stderr="")
+    )
+
+    assert run_rec_kaggle.poll_kernel_status("kaggle", "owner/slug", 0.01, tmp_path / "log") == "timeout_running"
 
 
 def test_poll_kernel_status_retries_a_transient_cli_error_instead_of_reporting_kernel_failure(

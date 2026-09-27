@@ -22,7 +22,6 @@ from training.remote_gpu_common import (  # noqa: E402
     OFFICIAL_BASE_CHECKPOINT,
     PADDLE_WHEEL,
     PRETRAINED_CHECKPOINT,
-    R2_UPLOAD_URL_BUFFER_SECONDS,
     ROOT,
     capture_command,
     evaluate_locally,
@@ -42,6 +41,11 @@ R2_KEY_PREFIX = "kaggle-runs"
 REMOTE_WORKER = ROOT / "training/kaggle_remote.py"
 INPUT_ARCHIVE_URL_PLACEHOLDER = 'INPUT_ARCHIVE_URL = "REPLACE_WITH_PRESIGNED_INPUT_URL"'
 STATUS_POLL_SECONDS = 20
+# Kaggle's free-tier GPU queue can run far longer than any one run's own training time, so the
+# presigned URLs a queued-then-finally-scheduled kernel relies on (to fetch the input archive and
+# to PUT the checkpoint back) must outlive --timeout-seconds, which only bounds how long this
+# script itself keeps polling, not how long the kernel may sit queued before Kaggle runs it.
+RESOURCE_URL_TTL_SECONDS = 24 * 3600
 
 
 def _read_json_username(path: Path) -> str | None:
@@ -114,26 +118,35 @@ def push_kernel(kaggle: str, kernel_id: str, input_archive_url: str, run_dir: Pa
 
 
 def poll_kernel_status(kaggle: str, kernel_id: str, timeout_seconds: float, log_path: Path) -> str:
-    """Kaggle kernel execution is asynchronous, unlike Colab's synchronous `exec`; poll until settled."""
+    """Kaggle kernel execution is asynchronous, unlike Colab's synchronous `exec`; poll until settled.
+
+    Returns "complete", "error", "timeout_queued" (this script gave up before the kernel ever left
+    Kaggle's queue — kaggle_remote.py never ran, so it never touched the input archive), or
+    "timeout_running" (it left the queue but did not settle before the deadline). The distinction
+    matters to the caller: a kernel that is still queued may still run later on Kaggle's own side
+    even after this script gives up, so its input archive must not be deleted out from under it.
+    """
     deadline = time.monotonic() + timeout_seconds
-    last_output = ""
+    left_queue = False
     while time.monotonic() < deadline:
         result = capture_command([kaggle, "kernels", "status", kernel_id])
         with log_path.open("a", encoding="utf-8") as log:
             log.write(f"$ {kaggle} kernels status {kernel_id}\n{result.stdout}{result.stderr}\n")
-        last_output = (result.stdout + result.stderr).lower()
         if result.returncode:
             # The status *check* itself failed (a transient CLI/network error asking Kaggle, e.g.
             # a dropped TLS connection) — not a verdict on the kernel, so keep polling instead of
             # matching "error" text that belongs to the transport failure, not the kernel run.
             time.sleep(STATUS_POLL_SECONDS)
             continue
+        last_output = (result.stdout + result.stderr).lower()
         if "error" in last_output or "cancel" in last_output:
             return "error"
         if "complete" in last_output:
             return "complete"
+        if "queued" not in last_output:
+            left_queue = True
         time.sleep(STATUS_POLL_SECONDS)
-    raise RuntimeError(f"Kaggle kernel did not settle within {timeout_seconds:.0f}s (last status: {last_output.strip() or 'unknown'})")
+    return "timeout_running" if left_queue else "timeout_queued"
 
 
 def fetch_kernel_output(kaggle: str, kernel_id: str, run_dir: Path, log_path: Path) -> tuple[dict[str, Any], Path | None]:
@@ -208,10 +221,11 @@ def main() -> int:
             "source_name": checkpoint_path.name,
             "sha256": sha256(checkpoint_path),
         }
-    url_expiry = int(args.timeout_seconds) + R2_UPLOAD_URL_BUFFER_SECONDS
     input_upload_key = f"{R2_KEY_PREFIX}/{run_id}/input.tar.gz"
     checkpoint_upload_key = f"{R2_KEY_PREFIX}/{run_id}/checkpoint.pdparams"
-    checkpoint_upload_url = r2.generate_presigned_put_url(r2.default_bucket, checkpoint_upload_key, expires_in_seconds=url_expiry)
+    checkpoint_upload_url = r2.generate_presigned_put_url(
+        r2.default_bucket, checkpoint_upload_key, expires_in_seconds=RESOURCE_URL_TTL_SECONDS
+    )
     run_request = {
         "run_id": run_id,
         "ocrkit_revision": source_revision,
@@ -243,20 +257,33 @@ def main() -> int:
 
     kernel_id = f"{username}/ocrkit-rec-{run_id.lower()}"
     input_uploaded = False
+    kernel_status: str | None = None
     remote_metadata: dict[str, Any] = {}
     error: str | None = None
 
     try:
         upload_via_presigned_url(
-            input_archive, r2.generate_presigned_put_url(r2.default_bucket, input_upload_key, expires_in_seconds=url_expiry)
+            input_archive,
+            r2.generate_presigned_put_url(r2.default_bucket, input_upload_key, expires_in_seconds=RESOURCE_URL_TTL_SECONDS),
         )
         input_uploaded = True
         input_archive.unlink(missing_ok=True)
-        input_archive_url = r2.generate_presigned_get_url(r2.default_bucket, input_upload_key, expires_in_seconds=url_expiry)
+        input_archive_url = r2.generate_presigned_get_url(
+            r2.default_bucket, input_upload_key, expires_in_seconds=RESOURCE_URL_TTL_SECONDS
+        )
         push_status = push_kernel(kaggle, kernel_id, input_archive_url, run_dir, kaggle_log)
         if push_status:
             raise RuntimeError("Kaggle could not provision/submit the private training kernel")
         kernel_status = poll_kernel_status(kaggle, kernel_id, args.timeout_seconds, kaggle_log)
+        if kernel_status == "timeout_queued":
+            # The kernel never left Kaggle's queue, so it never ran kaggle_remote.py and never
+            # touched the input archive; Kaggle may still schedule and run it after this script
+            # gives up, so the archive (and the presigned URLs pointing at it) must survive.
+            raise RuntimeError(
+                f"Kaggle kernel is still queued after {args.timeout_seconds:.0f}s; giving up locally "
+                f"without canceling it (the Kaggle CLI has no kernel-cancel command). It may still run "
+                f"later — check with: kaggle kernels status {kernel_id}"
+            )
         remote_metadata, remote_log_path = fetch_kernel_output(kaggle, kernel_id, run_dir, kaggle_log)
         retrieve_checkpoint(r2, remote_metadata, remote_log_path, run_dir)
         if kernel_status != "complete":
@@ -271,7 +298,7 @@ def main() -> int:
         error = f"{type(exc).__name__}: {exc}"
     finally:
         input_archive.unlink(missing_ok=True)
-        if input_uploaded:
+        if input_uploaded and kernel_status != "timeout_queued":
             delete_input_object(r2, r2.default_bucket, input_upload_key)
 
     accepted = run_dir / ACCEPTED_STAGING
@@ -294,6 +321,7 @@ def main() -> int:
         # The Kaggle CLI has no kernel-delete command; the private kernel and its output stay in the
         # operator's own account. Remove it from https://www.kaggle.com/code if it should not be kept.
         "kaggle_kernel": kernel_id,
+        "kaggle_kernel_status": kernel_status,
         "error": error,
     }
     write_json(run_dir / "status.json", status)
