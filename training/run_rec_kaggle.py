@@ -31,17 +31,17 @@ from training.remote_gpu_common import (  # noqa: E402
     require_r2_store,
     retrieve_checkpoint,
     sha256,
-    stage_input_directory,
+    stage_inputs,
     stream_command,
+    upload_via_presigned_url,
     validate_labels,
 )
 
 RUNS = ROOT / "training/.work/kaggle-runs"
 R2_KEY_PREFIX = "kaggle-runs"
 REMOTE_WORKER = ROOT / "training/kaggle_remote.py"
+INPUT_ARCHIVE_URL_PLACEHOLDER = 'INPUT_ARCHIVE_URL = "REPLACE_WITH_PRESIGNED_INPUT_URL"'
 STATUS_POLL_SECONDS = 20
-DATASET_READY_POLL_SECONDS = 5
-DATASET_READY_MAX_ATTEMPTS = 30
 
 
 def _read_json_username(path: Path) -> str | None:
@@ -56,7 +56,7 @@ def _read_json_username(path: Path) -> str | None:
 
 
 def resolve_kaggle_username(parser: argparse.ArgumentParser) -> str:
-    """Kaggle dataset/kernel ids must be prefixed by the authenticated account's own username."""
+    """Kaggle kernel ids must be prefixed by the authenticated account's own username."""
     username = os.environ.get("KAGGLE_USERNAME")
     if username:
         return username
@@ -68,7 +68,7 @@ def resolve_kaggle_username(parser: argparse.ArgumentParser) -> str:
         if username:
             return username
     parser.error(
-        "Kaggle username is required to name the private dataset/kernel; set KAGGLE_USERNAME, run "
+        "Kaggle username is required to name the private kernel; set KAGGLE_USERNAME, run "
         "`kaggle auth login`, or place ~/.kaggle/kaggle.json"
     )
     raise AssertionError("unreachable")  # parser.error always raises SystemExit
@@ -78,59 +78,22 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def create_input_dataset(
-    kaggle: str,
-    dataset_id: str,
-    run_request: dict[str, Any],
-    dataset_root: Path,
-    checkpoint_path: Path | None,
-    train_images: list[str],
-    holdout_images: list[str],
-    run_dir: Path,
-    log_path: Path,
-) -> int:
-    """A private, run-scoped Kaggle Dataset stages the same files Colab uploads as a single blob.
+def render_remote_worker(input_archive_url: str) -> str:
+    """Substitute the input archive's presigned URL into kaggle_remote.py's own source text.
 
-    Staged as a plain directory tree, not a single opaque archive like Colab's: a monolithic
-    tar.gz never survives Kaggle's own content-sniffed auto-extraction as a file to find, so the
-    top-level request.json here is deliberately a plain file (never auto-extracted), while the
-    dataset/ and repo/ subdirectories ride Kaggle's zip auto-extraction (see the -r zip comment
-    below) to reconstruct their folder structure on mount instead of us extracting anything.
+    `kaggle kernels push` reads only the code_file's text as the kernel source and ignores any
+    other files in the push folder, so this is the only channel to hand the kernel per-run data.
     """
-    package_dir = run_dir / "dataset-package"
-    package_dir.mkdir()
-    stage_input_directory(package_dir, run_request, dataset_root, checkpoint_path, train_images, holdout_images)
-    write_json(
-        package_dir / "dataset-metadata.json",
-        {"id": dataset_id, "title": dataset_id.split("/", 1)[1], "licenses": [{"name": "unknown"}]},
-    )
-    # `datasets create` defaults to private; passing -u/--public would be a privacy regression.
-    # `-r skip` (the alternative to zip/tar) drops subdirectories entirely instead of uploading
-    # them, so it can't be used here: `-r zip` locally zips the dataset/ and repo/ subdirectories
-    # for upload, and Kaggle reliably auto-unzips .zip files back into their folder on mount. The
-    # top-level request.json is a plain file, never a folder, so it always survives unmangled.
-    status = stream_command([kaggle, "datasets", "create", "-p", str(package_dir), "-r", "zip"], log_path)
-    if status:
-        return status
-    # The exact "ready"/processing status text is not stabilized across kaggle-api releases, so this
-    # wait is best-effort diagnostics on top of `datasets create` itself already blocking on the upload;
-    # it only fails closed on an explicit error report.
-    for _ in range(DATASET_READY_MAX_ATTEMPTS):
-        result = capture_command([kaggle, "datasets", "status", dataset_id])
-        with log_path.open("a", encoding="utf-8") as log:
-            log.write(f"$ {kaggle} datasets status {dataset_id}\n{result.stdout}{result.stderr}\n")
-        if "error" in result.stdout.lower():
-            return 1
-        if not result.returncode:
-            break
-        time.sleep(DATASET_READY_POLL_SECONDS)
-    return 0
+    template = REMOTE_WORKER.read_text(encoding="utf-8")
+    if INPUT_ARCHIVE_URL_PLACEHOLDER not in template:
+        raise RuntimeError("kaggle_remote.py no longer contains the expected INPUT_ARCHIVE_URL placeholder")
+    return template.replace(INPUT_ARCHIVE_URL_PLACEHOLDER, f"INPUT_ARCHIVE_URL = {json.dumps(input_archive_url)}")
 
 
-def push_kernel(kaggle: str, kernel_id: str, dataset_id: str, run_dir: Path, log_path: Path) -> int:
+def push_kernel(kaggle: str, kernel_id: str, input_archive_url: str, run_dir: Path, log_path: Path) -> int:
     package_dir = run_dir / "kernel-package"
     package_dir.mkdir()
-    shutil.copyfile(REMOTE_WORKER, package_dir / "kaggle_remote.py")
+    (package_dir / "kaggle_remote.py").write_text(render_remote_worker(input_archive_url), encoding="utf-8")
     write_json(
         package_dir / "kernel-metadata.json",
         {
@@ -141,10 +104,10 @@ def push_kernel(kaggle: str, kernel_id: str, dataset_id: str, run_dir: Path, log
             "kernel_type": "script",
             "is_private": True,
             "enable_gpu": True,
-            # Required so the pushed kaggle_remote.py can PUT the checkpoint to R2; no platform or
-            # release credentials are ever given to Kaggle, only a bounded, single-object write URL.
+            # Required so the pushed kaggle_remote.py can GET the input archive and PUT the
+            # checkpoint through R2; no platform or release credentials are ever given to
+            # Kaggle, only bounded, single-object presigned URLs.
             "enable_internet": True,
-            "dataset_sources": [dataset_id],
         },
     )
     return stream_command([kaggle, "kernels", "push", "-p", str(package_dir), "--accelerator", "gpu"], log_path)
@@ -180,9 +143,12 @@ def fetch_kernel_output(kaggle: str, kernel_id: str, run_dir: Path, log_path: Pa
     return json.loads(metadata_path.read_text(encoding="utf-8")), remote_log_path
 
 
-def delete_input_dataset(kaggle: str, dataset_id: str, log_path: Path) -> int:
-    """The input dataset is the only persistent Kaggle storage holding reviewed crops; always remove it."""
-    return stream_command([kaggle, "datasets", "delete", dataset_id, "-y"], log_path)
+def delete_input_object(r2: Any, bucket: str, key: str) -> None:
+    """The staged input archive holds reviewed training crops; always remove it from R2 once used."""
+    try:
+        r2.delete_object(bucket, key)
+    except Exception as exc:
+        print(f"warning: failed to delete the Kaggle input object from R2 ({bucket}/{key}): {exc}", file=sys.stderr)
 
 
 def main() -> int:
@@ -216,6 +182,7 @@ def main() -> int:
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + f"-{os.getpid():x}"
     run_dir = RUNS / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
+    input_archive = run_dir / "ocrkit-input.tar.gz"
     kaggle_log = run_dir / "kaggle.log"
 
     source_revision, source_dirty = git_metadata(ROOT)
@@ -235,10 +202,10 @@ def main() -> int:
             "source_name": checkpoint_path.name,
             "sha256": sha256(checkpoint_path),
         }
+    url_expiry = int(args.timeout_seconds) + R2_UPLOAD_URL_BUFFER_SECONDS
+    input_upload_key = f"{R2_KEY_PREFIX}/{run_id}/input.tar.gz"
     checkpoint_upload_key = f"{R2_KEY_PREFIX}/{run_id}/checkpoint.pdparams"
-    checkpoint_upload_url = r2.generate_presigned_put_url(
-        r2.default_bucket, checkpoint_upload_key, expires_in_seconds=int(args.timeout_seconds) + R2_UPLOAD_URL_BUFFER_SECONDS
-    )
+    checkpoint_upload_url = r2.generate_presigned_put_url(r2.default_bucket, checkpoint_upload_key, expires_in_seconds=url_expiry)
     run_request = {
         "run_id": run_id,
         "ocrkit_revision": source_revision,
@@ -261,24 +228,26 @@ def main() -> int:
             "paddleocr_recipe": "configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml",
         },
     }
-    # Kaggle datasets and kernels share one per-account slug namespace: reusing the same slug for
-    # both makes `kernels push` 409 (SaveKernel Conflict) against the just-created dataset.
-    run_slug = run_id.lower()
-    dataset_id = f"{username}/ocrkit-rec-data-{run_slug}"
-    kernel_id = f"{username}/ocrkit-rec-{run_slug}"
-    dataset_created = False
+    try:
+        stage_inputs(input_archive, run_request, dataset_root, checkpoint_path, train_images, holdout_images)
+    except Exception as exc:
+        input_archive.unlink(missing_ok=True)
+        write_json(run_dir / "status.json", {"status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+        raise
+
+    kernel_id = f"{username}/ocrkit-rec-{run_id.lower()}"
+    input_uploaded = False
     remote_metadata: dict[str, Any] = {}
     error: str | None = None
-    cleanup_status: int | None = None
 
     try:
-        dataset_status = create_input_dataset(
-            kaggle, dataset_id, run_request, dataset_root, checkpoint_path, train_images, holdout_images, run_dir, kaggle_log
+        upload_via_presigned_url(
+            input_archive, r2.generate_presigned_put_url(r2.default_bucket, input_upload_key, expires_in_seconds=url_expiry)
         )
-        if dataset_status:
-            raise RuntimeError("Kaggle failed to stage the private OCRKit input dataset")
-        dataset_created = True
-        push_status = push_kernel(kaggle, kernel_id, dataset_id, run_dir, kaggle_log)
+        input_uploaded = True
+        input_archive.unlink(missing_ok=True)
+        input_archive_url = r2.generate_presigned_get_url(r2.default_bucket, input_upload_key, expires_in_seconds=url_expiry)
+        push_status = push_kernel(kaggle, kernel_id, input_archive_url, run_dir, kaggle_log)
         if push_status:
             raise RuntimeError("Kaggle could not provision/submit the private training kernel")
         kernel_status = poll_kernel_status(kaggle, kernel_id, args.timeout_seconds, kaggle_log)
@@ -295,25 +264,19 @@ def main() -> int:
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
     finally:
-        if dataset_created:
-            try:
-                cleanup_status = delete_input_dataset(kaggle, dataset_id, kaggle_log)
-            except Exception as exc:
-                cleanup_status = -1
-                cleanup_error = f"Kaggle input dataset cleanup failed: {type(exc).__name__}: {exc}"
-                error = f"{error}; {cleanup_error}" if error else cleanup_error
-            if cleanup_status and error is None:
-                error = f"training completed, but deleting the private input dataset failed; run kaggle datasets delete {dataset_id} -y"
+        input_archive.unlink(missing_ok=True)
+        if input_uploaded:
+            delete_input_object(r2, r2.default_bucket, input_upload_key)
 
     accepted = run_dir / ACCEPTED_STAGING
-    if error is None and cleanup_status in (None, 0) and accepted.is_dir():
+    if error is None and accepted.is_dir():
         try:
             evaluate_locally(accepted, kaggle_log, stream_command)
         except KeyboardInterrupt:
             error = "Local checkpoint evaluation interrupted by the operator."
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-    succeeded = error is None and cleanup_status in (None, 0)
+    succeeded = error is None
     if accepted.is_dir():
         destination = run_dir if succeeded else run_dir / "partial"
         destination.mkdir(exist_ok=True)
@@ -322,8 +285,6 @@ def main() -> int:
         accepted.rmdir()
     status = {
         "status": "success" if succeeded else "failed",
-        "input_dataset_deleted": cleanup_status == 0,
-        "kaggle_dataset": dataset_id,
         # The Kaggle CLI has no kernel-delete command; the private kernel and its output stay in the
         # operator's own account. Remove it from https://www.kaggle.com/code if it should not be kept.
         "kaggle_kernel": kernel_id,

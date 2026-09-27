@@ -235,9 +235,13 @@ def stage_inputs(
     train_images: list[str],
     holdout_images: list[str],
 ) -> None:
-    """Colab: the staged files as one input archive (+ request.json), sent through the CLI's
-    chunked upload. The `request.json` contract is shared with `stage_input_directory` so a
-    backend's remote worker script can reuse the same verification code either way.
+    """Build the one input archive (+ request.json) every backend stages identically.
+
+    Colab uploads this archive directly through its CLI's chunked transfer; Kaggle instead
+    uploads it to R2 and has its kernel download it through a bounded, single-object presigned
+    URL (see upload_via_presigned_url below) — Kaggle's own dataset-attachment mechanism silently
+    auto-extracts or drops archives/subdirectories depending on undocumented, unstable behavior,
+    so it is not used for input transport at all.
     """
     files = _collect_stage_files(dataset_root, checkpoint_path, train_images, holdout_images)
     records = _stage_records(files)
@@ -250,28 +254,31 @@ def stage_inputs(
         archive.add(request_path, arcname="request.json", recursive=False)
 
 
-def stage_input_directory(
-    destination: Path,
-    run_request: dict[str, Any],
-    dataset_root: Path,
-    checkpoint_path: Path | None,
-    train_images: list[str],
-    holdout_images: list[str],
-) -> None:
-    """Kaggle: the same staged files as plain copies under `destination`, not an archive.
-
-    Kaggle Datasets keep an uploaded directory tree natively and, unlike Colab's single-blob
-    CLI upload, auto-extract any archive format (zip/gz/tar.gz/tgz) by content on mount — so a
-    tar.gz staged here would never survive as a file for the remote worker to find.
-    """
-    files = _collect_stage_files(dataset_root, checkpoint_path, train_images, holdout_images)
-    records = _stage_records(files)
-    for path, (source, _kind) in files.items():
-        target = destination / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
-    request = {"run": run_request, "input_files": records}
-    (destination / "request.json").write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def upload_via_presigned_url(path: Path, url: str) -> None:
+    """PUTs a local file straight to R2 through a bounded, single-object presigned URL."""
+    result = subprocess.run(
+        [
+            "curl",
+            "-fsS",
+            "-X",
+            "PUT",
+            "--data-binary",
+            f"@{path}",
+            "-H",
+            "Content-Type: application/octet-stream",
+            "--max-time",
+            "1800",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            url,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode or result.stdout.strip() not in {"200", "201"}:
+        raise RuntimeError(f"uploading to R2 failed (curl exit {result.returncode}: {result.stderr.strip()[-300:]})")
 
 
 def stream_command(command: list[str], log_path: Path) -> int:

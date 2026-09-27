@@ -523,8 +523,8 @@ it. The current CLI's `kaggle auth login` opens an OAuth flow in the browser
 and stores the session in `~/.kaggle/credentials.json`; the legacy
 `KAGGLE_USERNAME`/`KAGGLE_KEY` environment variables or a `~/.kaggle/kaggle.json`
 API key downloaded from your Kaggle account settings also work. The runner
-reads whichever one authenticated the `kaggle` CLI to name the private
-dataset/kernel after your own account:
+reads whichever one authenticated the `kaggle` CLI to name the private kernel
+after your own account:
 
 ```bash
 uv tool install kaggle
@@ -533,12 +533,12 @@ kaggle auth login
 
 The runner also requires `OCRKIT_R2_ENDPOINT_URL`, `OCRKIT_R2_ACCESS_KEY_ID`,
 `OCRKIT_R2_SECRET_ACCESS_KEY`, and `OCRKIT_R2_DEFAULT_BUCKET` (see
-`.env.model.example`): exactly like Colab, the trained checkpoint travels
-through a short-lived, single-object presigned R2 URL that the runner
+`.env.model.example`): both the input archive and the trained checkpoint
+travel through short-lived, single-object presigned R2 URLs that the runner
 generates locally and never writes to disk or a log. Kaggle never receives R2
 credentials, platform credentials, or release credentials; the pushed kernel
-metadata enables internet access only so it can PUT the checkpoint to that one
-presigned URL.
+metadata enables internet access only so it can GET the input archive and PUT
+the checkpoint through those two presigned URLs.
 
 Train on Kaggle and evaluate the retrieved checkpoint locally with one command:
 
@@ -560,30 +560,32 @@ runner polls kernel status; Kaggle kernel execution is asynchronous, unlike
 Colab's synchronous `exec`, so the runner polls `kaggle kernels status`
 instead of streaming output live.
 
-The runner reuses the identical `request.json` contract Colab uploads: the
-same selected train/holdout labels and referenced crops, available
-review/snapshot provenance files, the training scripts, and (when
+The runner builds the identical input archive/`request.json` contract Colab
+uploads: the same selected train/holdout labels and referenced crops,
+available review/snapshot provenance files, the training scripts, and (when
 `--pretrained-checkpoint` names a checkpoint other than the official default)
-that custom checkpoint. Unlike Colab's chunked single-blob CLI upload, these
-files are staged as a plain directory tree into a **private, run-scoped
-Kaggle Dataset** (`kaggle datasets create -r zip`, never `--public`): Kaggle
-sniffs archive formats by content, not filename, so a monolithic tar.gz never
-survives as a file for the kernel to find. Instead, the CLI's own `-r zip`
-locally zips each subdirectory for upload, and Kaggle reliably auto-unzips
-`.zip` files back into their folder when the dataset is mounted — the
-top-level `request.json` stays a plain, never-zipped file throughout. That
-dataset is attached to a **private script kernel** (`kaggle kernels push`)
-that runs `training/kaggle_remote.py`. The kernel fetches the official base
-checkpoint or verifies the uploaded one, runs the unchanged CUDA
-training/evaluation path, and uploads the resulting checkpoint
-to R2 exactly like Colab does.
+that custom checkpoint. Unlike Colab's chunked CLI upload, Kaggle's own
+dataset-attachment mechanism is not used for this at all: it silently
+auto-extracts or drops archives and subdirectories depending on undocumented,
+unstable per-format behavior with no server-side signal to control it (a
+`kaggle kernels push` also reads only the pushed script's own text as the
+kernel source and ignores every other file in the push folder, so there is no
+sibling-file channel either). Instead the archive travels through R2, exactly
+like the checkpoint travels back: the runner uploads it to a run-scoped key,
+generates a bounded presigned GET URL, and substitutes that URL into
+`training/kaggle_remote.py`'s own source text before pushing it as a
+**private script kernel** (`kaggle kernels push`) — the only channel available
+to hand a Kaggle script kernel any per-run data. The kernel downloads and
+verifies the archive, fetches the official base checkpoint or verifies the
+uploaded one, runs the unchanged CUDA training/evaluation path, and uploads
+the resulting checkpoint to R2.
 
 Because Kaggle committed kernel execution has no interactive runtime to stop,
 teardown does not imitate `colab stop`. Instead, once the run finishes (or
-fails), the runner always deletes the private input dataset
-(`kaggle datasets delete`), since that dataset is the only Kaggle-side
-storage holding reviewed training crops; if that deletion itself fails,
-`status.json` includes the exact command to run manually. The Kaggle CLI has
+fails), the runner always deletes the uploaded input archive from R2, since
+it is the only place reviewed training crops are ever staged for Kaggle; any
+deletion failure is logged as a warning rather than failing the run (matching
+how the retrieved checkpoint object is already cleaned up). The Kaggle CLI has
 no kernel-delete command, so the private kernel and its output remain in your
 own Kaggle account; `status.json` records `kaggle_kernel` so you can remove it
 from [kaggle.com/code](https://www.kaggle.com/code) if you do not want to keep
@@ -595,11 +597,11 @@ the Kaggle CLI log, and `status.json` are stored below the ignored
 Failed runs keep diagnostics and any partial output under `partial/`.
 
 `training/remote_gpu_common.py` holds the local-side contract shared by both
-backends (input staging, R2 checkpoint retrieval/verification, and the local
-evaluation gate); `training/colab_remote.py` and `training/kaggle_remote.py`
-each stay a single self-contained script because both Colab's `exec -f` and a
-Kaggle script kernel's `code_file` only ever transfer one file to the remote
-runtime.
+backends (input staging, the presigned-URL R2 transfer, checkpoint
+retrieval/verification, and the local evaluation gate); `training/colab_remote.py`
+and `training/kaggle_remote.py` each stay a single self-contained script
+because both Colab's `exec -f` and a Kaggle script kernel's `code_file` only
+ever transfer that one file's own content to the remote runtime.
 
 ## Release a recognition model
 

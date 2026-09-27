@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Runs inside the Kaggle kernel. Pushed as the kernel's sole `code_file`, so it must stay a
-single self-contained stdlib-only script exactly like `colab_remote.py`: Kaggle does not attach
-sibling repository files to a script kernel the way `run_rec_kaggle.py` stages the rest of the
-OCRKit repo through the attached input dataset.
+single self-contained stdlib-only script exactly like `colab_remote.py`: `kaggle kernels push`
+reads only this file's text as the kernel source and ignores any sibling files in the push
+folder, so `run_rec_kaggle.py` cannot hand this script anything except by rewriting the constant
+below into this file's own text before pushing it.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 import traceback
 import urllib.request
@@ -20,8 +22,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+# Rewritten by run_rec_kaggle.py's push_kernel() into a real, bounded, single-object presigned
+# GET URL before this file is pushed. Kaggle's own dataset-attachment mechanism is not used for
+# input transport: it silently auto-extracts or drops archives/subdirectories depending on
+# undocumented, unstable behavior, so the input archive instead travels through R2 exactly like
+# the trained checkpoint travels back (see upload_checkpoint below).
+INPUT_ARCHIVE_URL = "REPLACE_WITH_PRESIGNED_INPUT_URL"
+
 WORKING = Path("/kaggle/working")
 KAGGLE_ROOT = WORKING / "ocrkit-run"
+INPUT_ARCHIVE = WORKING / "ocrkit-input.tar.gz"
 REPO = KAGGLE_ROOT / "repo"
 DATASET = KAGGLE_ROOT / "dataset"
 RESULTS = KAGGLE_ROOT / "results"
@@ -29,10 +39,6 @@ CHECKPOINTS = RESULTS / "checkpoint"
 RUN_METADATA = RESULTS / "run.json"
 REMOTE_LOG = RESULTS / "remote.log"
 BASE_CHECKPOINT_PATH = REPO / "training/.work/pretrained/PP-OCRv6_small_rec_pretrained.pdparams"
-INPUT_ROOT = Path("/kaggle/input")
-# `request.json` sits at the root of the staged input tree (see stage_input_directory in
-# training/remote_gpu_common.py) and uniquely identifies the run's mounted dataset.
-INPUT_MARKER_NAME = "request.json"
 
 
 def sha256(path: Path) -> str:
@@ -43,33 +49,21 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def describe_input_root() -> str:
-    """Best-effort recursive listing of what Kaggle actually mounted, for diagnosing a locate failure."""
-    if not INPUT_ROOT.is_dir():
-        return f"{INPUT_ROOT} does not exist"
-    lines = []
-    for path in sorted(INPUT_ROOT.rglob("*")):
-        kind = "dir" if path.is_dir() else f"file {path.stat().st_size}B"
-        lines.append(f"{path.relative_to(INPUT_ROOT)} ({kind})")
-    return "\n".join(lines) if lines else f"{INPUT_ROOT} is empty"
+def safe_extract(archive_path: Path, destination: Path) -> None:
+    root = destination.resolve()
+    with tarfile.open(archive_path, "r:gz") as archive:
+        members = archive.getmembers()
+        for member in members:
+            target = (destination / member.name).resolve()
+            if not target.is_relative_to(root) or not (member.isfile() or member.isdir()):
+                raise RuntimeError("Kaggle input archive contains an unsupported path or file type")
+        archive.extractall(destination)
 
 
-def locate_input_directory() -> Path:
-    """The run's private input dataset is the only dataset attached to this kernel.
-
-    Kaggle Datasets keep an uploaded directory tree natively (and auto-extract any archive
-    format by content on mount), so the staged files arrive as plain files under
-    /kaggle/input/<dataset-slug>/ rather than as a single blob to extract.
-    """
-    matches = sorted(INPUT_ROOT.glob(f"*/{INPUT_MARKER_NAME}"))
-    if not matches:
-        raise RuntimeError(
-            f"OCRKit input dataset was not attached to this Kaggle kernel ({INPUT_MARKER_NAME} not found); "
-            f"actual /kaggle/input contents:\n{describe_input_root()}"
-        )
-    if len(matches) > 1:
-        raise RuntimeError(f"expected exactly one attached OCRKit input dataset, found {len(matches)}")
-    return matches[0].parent
+def download_input_archive() -> None:
+    if INPUT_ARCHIVE_URL == "REPLACE_WITH_PRESIGNED_INPUT_URL":
+        raise RuntimeError("kaggle_remote.py was pushed without its input archive URL substituted in")
+    urllib.request.urlretrieve(INPUT_ARCHIVE_URL, INPUT_ARCHIVE)
 
 
 def run_logged(command: list[str], *, cwd: Path, log: Any, env: dict[str, str] | None = None) -> None:
@@ -202,9 +196,10 @@ def main() -> int:
     try:
         with REMOTE_LOG.open("w", encoding="utf-8") as log:
             try:
-                input_directory = locate_input_directory()
+                with timed(stages, "download_input_archive"):
+                    download_input_archive()
                 KAGGLE_ROOT.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(input_directory, KAGGLE_ROOT, dirs_exist_ok=True)
+                safe_extract(INPUT_ARCHIVE, KAGGLE_ROOT)
                 request_path = KAGGLE_ROOT / "request.json"
                 request = json.loads(request_path.read_text(encoding="utf-8"))
                 run_request = request["run"]

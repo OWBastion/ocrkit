@@ -32,6 +32,13 @@ def test_generate_presigned_put_url_targets_the_given_bucket_and_key(store: R2Ob
     assert "X-Amz-Signature" in url
 
 
+def test_generate_presigned_get_url_targets_the_given_bucket_and_key(store: R2ObjectStore) -> None:
+    url = store.generate_presigned_get_url("bucket", "kaggle-runs/run-1/input.tar.gz", expires_in_seconds=900)
+
+    assert "kaggle-runs/run-1/input.tar.gz" in url
+    assert "X-Amz-Signature" in url
+
+
 def test_download_object_writes_the_destination_file(store: R2ObjectStore, tmp_path: Path) -> None:
     destination = tmp_path / "checkpoint.pdparams"
 
