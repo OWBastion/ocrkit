@@ -43,6 +43,17 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def describe_input_root() -> str:
+    """Best-effort recursive listing of what Kaggle actually mounted, for diagnosing a locate failure."""
+    if not INPUT_ROOT.is_dir():
+        return f"{INPUT_ROOT} does not exist"
+    lines = []
+    for path in sorted(INPUT_ROOT.rglob("*")):
+        kind = "dir" if path.is_dir() else f"file {path.stat().st_size}B"
+        lines.append(f"{path.relative_to(INPUT_ROOT)} ({kind})")
+    return "\n".join(lines) if lines else f"{INPUT_ROOT} is empty"
+
+
 def locate_input_directory() -> Path:
     """The run's private input dataset is the only dataset attached to this kernel.
 
@@ -52,7 +63,10 @@ def locate_input_directory() -> Path:
     """
     matches = sorted(INPUT_ROOT.glob(f"*/{INPUT_MARKER_NAME}"))
     if not matches:
-        raise RuntimeError(f"OCRKit input dataset was not attached to this Kaggle kernel ({INPUT_MARKER_NAME} not found)")
+        raise RuntimeError(
+            f"OCRKit input dataset was not attached to this Kaggle kernel ({INPUT_MARKER_NAME} not found); "
+            f"actual /kaggle/input contents:\n{describe_input_root()}"
+        )
     if len(matches) > 1:
         raise RuntimeError(f"expected exactly one attached OCRKit input dataset, found {len(matches)}")
     return matches[0].parent
