@@ -45,23 +45,32 @@ DATASET_READY_POLL_SECONDS = 5
 DATASET_READY_MAX_ATTEMPTS = 30
 
 
+def _read_json_username(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    username = data.get("username")
+    return str(username) if username else None
+
+
 def resolve_kaggle_username(parser: argparse.ArgumentParser) -> str:
     """Kaggle dataset/kernel ids must be prefixed by the authenticated account's own username."""
     username = os.environ.get("KAGGLE_USERNAME")
     if username:
         return username
     config_dir = Path(os.environ.get("KAGGLE_CONFIG_DIR", str(Path.home() / ".kaggle")))
-    config_path = config_dir / "kaggle.json"
-    if config_path.is_file():
-        try:
-            data = json.loads(config_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
-        if data.get("username"):
-            return str(data["username"])
+    # The legacy `kaggle.json` API-key file and the OAuth `kaggle auth login` session
+    # (`credentials.json`) both record the account's own username under the same key.
+    for name in ("kaggle.json", "credentials.json"):
+        username = _read_json_username(config_dir / name)
+        if username:
+            return username
     parser.error(
-        "Kaggle username is required to name the private dataset/kernel; set KAGGLE_USERNAME or "
-        "authenticate the Kaggle CLI (~/.kaggle/kaggle.json)"
+        "Kaggle username is required to name the private dataset/kernel; set KAGGLE_USERNAME, run "
+        "`kaggle auth login`, or place ~/.kaggle/kaggle.json"
     )
     raise AssertionError("unreachable")  # parser.error always raises SystemExit
 

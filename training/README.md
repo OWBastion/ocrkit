@@ -519,11 +519,16 @@ backend has GPU quota available; neither backend changes the model, dataset,
 or evaluation contract.
 
 Install the [Kaggle CLI](https://github.com/Kaggle/kaggle-api) and authenticate
-it (`KAGGLE_USERNAME`/`KAGGLE_KEY`, or `~/.kaggle/kaggle.json` downloaded from
-your Kaggle account settings):
+it. The current CLI's `kaggle auth login` opens an OAuth flow in the browser
+and stores the session in `~/.kaggle/credentials.json`; the legacy
+`KAGGLE_USERNAME`/`KAGGLE_KEY` environment variables or a `~/.kaggle/kaggle.json`
+API key downloaded from your Kaggle account settings also work. The runner
+reads whichever one authenticated the `kaggle` CLI to name the private
+dataset/kernel after your own account:
 
 ```bash
 uv tool install kaggle
+kaggle auth login
 ```
 
 The runner also requires `OCRKIT_R2_ENDPOINT_URL`, `OCRKIT_R2_ACCESS_KEY_ID`,

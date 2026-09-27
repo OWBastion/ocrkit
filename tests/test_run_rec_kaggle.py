@@ -266,6 +266,20 @@ def test_username_resolved_from_kaggle_json_when_env_is_unset(monkeypatch: pytes
     assert run_rec_kaggle.resolve_kaggle_username(parser) == "from-config"
 
 
+def test_username_resolved_from_oauth_credentials_json_when_no_kaggle_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`kaggle auth login` (OAuth) stores credentials.json instead of the legacy kaggle.json."""
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.setenv("KAGGLE_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "credentials.json").write_text(
+        json.dumps({"username": "from-oauth", "access_token": "x", "refresh_token": "y"}), encoding="utf-8"
+    )
+    parser = run_rec_kaggle.argparse.ArgumentParser()
+
+    assert run_rec_kaggle.resolve_kaggle_username(parser) == "from-oauth"
+
+
 def test_remote_locate_input_archive_requires_exactly_one_attached_dataset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
