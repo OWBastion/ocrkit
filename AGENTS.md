@@ -1,6 +1,6 @@
 # OCRKit Agent Guide
 
-OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. Workspace guidance owns shared engineering policy; this file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, delivery constraints, and local validation. Keep mutable model/layout/version inventories in their live sources rather than here.
+OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. [OWBastion organization policy](https://github.com/OWBastion/.github/blob/main/README.md) owns shared engineering, testing, verification, entropy, and delivery policy. This file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, and local validation. Keep mutable model/layout/version inventories in their live sources rather than here.
 
 ## Repository role
 
@@ -10,21 +10,18 @@ OCRKit extracts structured evidence from known Bastion screenshot layouts. It ow
 
 OCRKit must not decide whether a player deserves a title, whether a submission should be approved, or whether OCR evidence should cause a grant. Add extracted facts as evidence, not business conclusions.
 
-## Work from intent
+## Start here
 
-A short `implement #123`, `fix #123`, or `review #123` request is enough. Resolve the smallest relevant context yourself rather than asking the user to restate repository rules or skill names.
-
-For substantive work:
+For substantive recognition/model work:
 
 1. Read the linked Issue and `README.md`, then inspect the smallest relevant source, configuration, tests/fixtures, and specialist documentation.
 2. Resolve current API shapes, supported layouts, model versions/channels, thresholds, and deployment details from their authoritative source; this guide is not a mutable inventory.
 3. Compare the Issue contract, current recognition/API contract, and implementation reality. Surface material mismatches instead of inventing a new business rule, layout contract, public contract, or cross-service ownership decision.
-4. Implement the smallest complete coherent change and verify recognition behavior against evidence independent from the implementation, including ambiguous/unsupported/low-quality paths where relevant.
-5. Re-evaluate the requested goal after verification and continue until it is delivered or a concrete blocker remains.
+4. Verify recognition behavior against evidence independent from the implementation, including ambiguous/unsupported/low-quality paths where relevant.
 
 ## Repository delivery constraints
 
-Implementation/fix work normally uses a non-default branch and PR unless explicitly local-only. PR review results belong on the PR rather than only in chat, and review-fix work includes thread/re-review handoff. Never push implementation commits directly to the default branch. Merge, deployment, model publication/channel changes, R2/production writes, destructive actions, secrets changes, and material scope expansion remain separate authorization boundaries.
+Follow [organization PR delivery policy](https://github.com/OWBastion/.github/blob/main/docs/pr-delivery.md). Model publication/channel changes, R2 writes, and production recognition checks remain subject to local owner authorization.
 
 ## Risk routing
 
@@ -59,17 +56,15 @@ Never commit production screenshots or copied private payloads. Do not log image
 
 Object-mode recognition must restrict reads to allowed storage boundaries and reject traversal/unexpected locations. Browser/client-facing surfaces must not receive storage credentials.
 
-## Verification: correctness and necessity
+## Recognition verification
 
-Recognition expectations require an independent basis such as reviewed fixture truth, reproducible visible screenshot evidence, an accepted API/layout contract, or a real regression with provenance. Do not change an expected value merely because the new implementation emits it.
+Apply the [organization testing policy](https://github.com/OWBastion/.github/blob/main/docs/testing-policy.md) and [verification policy](https://github.com/OWBastion/.github/blob/main/docs/verification-and-acceptance.md). Recognition expectations require independent evidence such as reviewed fixture truth, reproducible visible screenshot evidence, an accepted API/layout contract, or a real regression with provenance. Do not change an expected value merely because the new implementation emits it.
 
 Important changes cover success and relevant failure/uncertainty paths: unsupported/cropped/low-quality inputs, missing/conflicting fields, parsing ambiguity, object/model failures, and schema compatibility as applicable.
 
-Material parser/layout/API/model-selection/confidence changes should receive an independent falsification pass. State the claim; where practical remove/invert the key parsing or validation behavior and confirm the targeted fixture/contract check fails again. Rerunning the author's green suite alone is not independent evidence.
+Material parser/layout/API/model-selection/confidence changes should receive an independent falsification pass. State the claim; where practical remove/invert the key parsing or validation behavior and confirm the targeted fixture/contract check fails again.
 
-Separately, perform one simplification/ablation pass for substantive work. Try removing, deferring, inlining, or merging new preprocessing stages, model routes, thresholds, caches, fields, compatibility layers, or state while preserving the accepted recognition contract. Keep complexity only when the simpler form fails measured evidence or a current requirement. Ablation tests necessity, not correctness.
-
-Do not add test-only production APIs, permanent hooks, or architecture layers solely to expose internals.
+Do not add OCR response fields, debug routes, parser hooks, or architecture layers solely to expose internal recognition behavior to tests.
 
 ## Local validation
 
