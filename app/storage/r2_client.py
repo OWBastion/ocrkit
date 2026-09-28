@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from socket import timeout as SocketTimeout
 
 import boto3
@@ -135,3 +136,41 @@ class R2ObjectStore:
             if code in {"AccessDenied", "403"}:
                 raise ObjectAccessDeniedError("Object access denied") from exc
             raise ObjectDownloadError("Object download failed") from exc
+
+    def download_object(self, bucket: str, object_key: str, destination: Path) -> None:
+        try:
+            self._client.download_file(bucket, object_key, str(destination))
+        except (ConnectTimeoutError, ReadTimeoutError, SocketTimeout) as exc:
+            raise ObjectTimeoutError("Object download timed out") from exc
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in {"NoSuchKey", "NoSuchBucket", "404"}:
+                raise ObjectNotFoundError("Object not found") from exc
+            if code in {"AccessDenied", "403"}:
+                raise ObjectAccessDeniedError("Object access denied") from exc
+            raise ObjectDownloadError("Object download failed") from exc
+
+    def delete_object(self, bucket: str, object_key: str) -> None:
+        try:
+            self._client.delete_object(Bucket=bucket, Key=object_key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in {"AccessDenied", "403"}:
+                raise ObjectAccessDeniedError("Object delete access denied") from exc
+            raise ObjectDownloadError("Object delete failed") from exc
+
+    def generate_presigned_put_url(self, bucket: str, object_key: str, expires_in_seconds: int) -> str:
+        """A short-lived, single-object write URL a remote runtime can use without holding credentials."""
+        return self._client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": bucket, "Key": object_key},
+            ExpiresIn=expires_in_seconds,
+        )
+
+    def generate_presigned_get_url(self, bucket: str, object_key: str, expires_in_seconds: int) -> str:
+        """A short-lived, single-object read URL a remote runtime can use without holding credentials."""
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": object_key},
+            ExpiresIn=expires_in_seconds,
+        )
