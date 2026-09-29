@@ -307,6 +307,7 @@ def create_batch(
     roi_config_path: Path = DEFAULT_ROI_CONFIG,
     holdout_ratio: float = 0.2,
     provenance_by_digest: dict[str, dict[str, Any]] | None = None,
+    screenshot_set: dict[str, Any] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     """Copy valid uploads into a private, ignored batch workspace and assign source-level splits."""
     candidates = [Path(item) for item in upload_paths if item]
@@ -372,10 +373,20 @@ def create_batch(
         "holdout_ratio": holdout_ratio,
         "sources": sources,
     }
+    if screenshot_set:
+        manifest["screenshot_set"] = screenshot_set
     _atomic_json(batch_dir / "batch.json", manifest)
     _atomic_json(
         batch_dir / "cases.json",
-        [{"id": row["id"], "image": row["file"], "split": row["split"]} for row in sources],
+        [
+            {
+                "id": row["id"],
+                "image": row["file"],
+                "split": row["split"],
+                "accuracy_feedback": (row.get("provenance") or {}).get("accuracy"),
+            }
+            for row in sources
+        ],
     )
     return batch_dir, batch_summary(batch_dir)
 
@@ -449,7 +460,15 @@ def append_sources(
     _atomic_json(batch_dir / "batch.json", manifest)
     _atomic_json(
         batch_dir / "cases.json",
-        [{"id": row["id"], "image": row["file"], "split": row["split"]} for row in manifest["sources"]],
+        [
+            {
+                "id": row["id"],
+                "image": row["file"],
+                "split": row["split"],
+                "accuracy_feedback": (row.get("provenance") or {}).get("accuracy"),
+            }
+            for row in manifest["sources"]
+        ],
     )
     return {"added": len(added), "batch": batch_summary(batch_dir)}
 
@@ -473,6 +492,7 @@ def batch_summary(batch_dir: Path) -> dict[str, Any]:
         "layout_version": manifest["layout_version"],
         "roi_configs": manifest.get("roi_configs", [manifest.get("roi_config", "")]),
         "active_dataset_revision": manifest.get("active_dataset_revision"),
+        "screenshot_set": manifest.get("screenshot_set"),
     }
 
 
@@ -515,7 +535,12 @@ def _prepare_candidate_groups(
             _atomic_json(
                 cases_path,
                 [
-                    {"id": source["id"], "image": source["file"], "split": source["split"]}
+                    {
+                        "id": source["id"],
+                        "image": source["file"],
+                        "split": source["split"],
+                        "accuracy_feedback": (source.get("provenance") or {}).get("accuracy"),
+                    }
                     for source in group_sources
                 ],
             )
@@ -774,7 +799,15 @@ def generate_candidates(
             try:
                 _atomic_json(
                     temporary_cases,
-                    [{"id": row["id"], "image": row["file"], "split": row["split"]} for row in missing_sources],
+                    [
+                        {
+                            "id": row["id"],
+                            "image": row["file"],
+                            "split": row["split"],
+                            "accuracy_feedback": (row.get("provenance") or {}).get("accuracy"),
+                        }
+                        for row in missing_sources
+                    ],
                 )
                 prepared = _prepare_candidate_groups(
                     batch_dir,
@@ -1232,84 +1265,3 @@ def export_dataset(batch_dir: Path, *, destination_root: Path = PRIVATE_DATASET_
         shutil.rmtree(temporary, ignore_errors=True)
         raise
     return {"export_dir": str(destination), **result}
-
-
-DEFAULT_SNAPSHOT_IMPORT_ROOT = ROOT / "datasets/labeled/rec/platform"
-
-
-def snapshot_label_counts(import_dir: Path) -> dict[str, int]:
-    """Count validated rec label lines written by the platform snapshot importer."""
-    counts: dict[str, int] = {"train": 0, "holdout": 0}
-    for split in ("train", "holdout"):
-        label_path = import_dir / "labels" / f"{split}.txt"
-        if not label_path.is_file():
-            continue
-        counts[split] = sum(1 for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip())
-    return counts
-
-
-def snapshot_annotations(import_dir: Path, limit: int = 200) -> list[dict[str, Any]]:
-    """Materialized reviewed annotation records (no private or unrelated metadata)."""
-    path = import_dir / "annotations.jsonl"
-    if not path.is_file():
-        return []
-    rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        rows.append(json.loads(line))
-        if len(rows) >= limit:
-            break
-    return rows
-
-
-def snapshot_provenance(import_dir: Path) -> dict[str, Any]:
-    path = import_dir / "provenance.json"
-    if not path.is_file():
-        raise ValueError(f"materialized import has no provenance: {import_dir}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def snapshot_import_summary(import_dir: Path) -> dict[str, Any]:
-    """Inspect one materialized platform snapshot import (validation + provenance)."""
-    provenance = snapshot_provenance(import_dir)
-    snapshot = provenance.get("snapshot", {})
-    split = provenance.get("split", {})
-    assignment = split.get("assignment", {})
-    labels = snapshot_label_counts(import_dir)
-    snapshot_id = str(snapshot.get("snapshot_id", ""))
-    version = str(snapshot.get("version", ""))
-    return {
-        "snapshot_id": snapshot_id,
-        "version": version,
-        "ref": f"{snapshot_id}@{version}" if snapshot_id and version else import_dir.name,
-        "import_dir": str(import_dir),
-        "finalized_at": snapshot.get("finalized_at"),
-        "imported_at": provenance.get("imported_at"),
-        "code_revision": provenance.get("code_revision"),
-        "split_rule_version": split.get("rule_version"),
-        "split_seed": split.get("split_seed"),
-        "holdout_fraction": split.get("holdout_fraction"),
-        "train_sources": sum(1 for value in assignment.values() if value == "train"),
-        "holdout_sources": sum(1 for value in assignment.values() if value == "holdout"),
-        "layout_versions": provenance.get("layout_versions", []),
-        "annotation_count": provenance.get("annotation_count", 0),
-        "labels": labels,
-        "warnings": provenance.get("warnings", []),
-        "label_conflicts": provenance.get("label_conflicts", []),
-    }
-
-
-def list_snapshot_imports(imports_root: Path = DEFAULT_SNAPSHOT_IMPORT_ROOT) -> list[dict[str, Any]]:
-    """List materialized platform snapshot imports with provenance summaries."""
-    if not imports_root.is_dir():
-        return []
-    summaries: list[dict[str, Any]] = []
-    for path in sorted(imports_root.iterdir(), reverse=True):
-        if not (path / "provenance.json").is_file():
-            continue
-        try:
-            summaries.append(snapshot_import_summary(path))
-        except (ValueError, json.JSONDecodeError):
-            continue
-    return summaries

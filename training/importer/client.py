@@ -1,8 +1,9 @@
-"""Snapshot access client (bounded, read-only, no platform DB or R2 credentials).
+"""Screenshot-set metadata client (bounded, read-only).
 
-The HTTP client talks only to the platform's private snapshot contract and the
-bounded per-object download path. It never persists credentials, never lists
-buckets, and never writes to the remote snapshot.
+The HTTP client talks only to the platform's private screenshot-set contract.
+Member evidence is not downloaded through the API; objects are fetched from R2
+by the caller with a read-only, prefix-scoped key. The client never persists
+credentials and never writes to the platform.
 """
 
 from __future__ import annotations
@@ -12,41 +13,33 @@ from typing import Protocol
 from urllib import error as url_error
 from urllib import request as url_request
 
-from .contract import AnnotationsPayload, SnapshotMetadata
+from .contract import ScreenshotSetMetadata
 
 
-class SnapshotAuthError(RuntimeError):
-    """The platform rejected the snapshot access credentials."""
+class ScreenshotSetAuthError(RuntimeError):
+    """The platform rejected the screenshot-set access credentials."""
 
 
-class SnapshotNotFoundError(RuntimeError):
-    """The requested snapshot does not exist or is outside the granted scope."""
+class ScreenshotSetNotFoundError(RuntimeError):
+    """The requested screenshot set version does not exist."""
 
 
-class SnapshotNotFinalizedError(RuntimeError):
-    """The snapshot exists but is not finalized, so it must not be imported."""
+class ScreenshotSetNotFinalizedError(RuntimeError):
+    """The screenshot set exists but is not finalized, so it must not be imported."""
 
 
-class ObjectUnavailableError(RuntimeError):
-    """A member object could not be downloaded (missing, denied, or timed out)."""
+class ScreenshotSetContractError(RuntimeError):
+    """The platform response did not match the screenshot-set contract."""
 
 
-class SnapshotContractError(RuntimeError):
-    """The platform response did not match the snapshot contract."""
+class ScreenshotSetClient(Protocol):
+    """Read-only access to one finalized screenshot set's metadata."""
+
+    def fetch_set(self, version: int) -> ScreenshotSetMetadata: ...
 
 
-class SnapshotClient(Protocol):
-    """Read-only access to one private snapshot and its member evidence."""
-
-    def fetch_snapshot(self, snapshot_id: str) -> SnapshotMetadata: ...
-
-    def fetch_annotations(self, snapshot_id: str) -> AnnotationsPayload: ...
-
-    def download_object(self, object_id: str) -> bytes: ...
-
-
-class HttpSnapshotClient:
-    """urllib-based client for the private snapshot contract.
+class HttpScreenshotSetClient:
+    """urllib-based client for the private screenshot-set contract.
 
     ``base_url`` and ``token`` are supplied from environment configuration and
     are never written to any dataset output or log.
@@ -60,49 +53,29 @@ class HttpSnapshotClient:
     def _urlopen(self, req: url_request.Request):
         return url_request.urlopen(req, timeout=self.timeout_seconds)
 
-    def _open(self, path: str) -> bytes:
+    def fetch_set(self, version: int) -> ScreenshotSetMetadata:
         req = url_request.Request(
-            f"{self.base_url}{path}",
+            f"{self.base_url}/v1/ocrkit/screenshot-sets/{version}",
             headers={"Authorization": f"Bearer {self.token}"},
         )
         try:
             with self._urlopen(req) as response:
-                return response.read()
+                body = response.read()
         except url_error.HTTPError as exc:
             if exc.code in (401, 403):
-                raise SnapshotAuthError(f"snapshot access denied ({exc.code})") from exc
+                raise ScreenshotSetAuthError(f"screenshot-set access denied ({exc.code})") from exc
             if exc.code == 404:
-                raise SnapshotNotFoundError(f"snapshot member not found: {path}") from exc
-            raise SnapshotContractError(f"snapshot endpoint returned HTTP {exc.code}") from exc
+                raise ScreenshotSetNotFoundError(f"screenshot set not found: version {version}") from exc
+            if exc.code == 409:
+                raise ScreenshotSetNotFinalizedError(f"screenshot set version {version} is not finalized") from exc
+            raise ScreenshotSetContractError(f"screenshot-set endpoint returned HTTP {exc.code}") from exc
         except (url_error.URLError, TimeoutError, OSError) as exc:
-            raise SnapshotContractError(f"snapshot endpoint unreachable: {exc}") from exc
-
-    def fetch_snapshot(self, snapshot_id: str) -> SnapshotMetadata:
+            raise ScreenshotSetContractError(f"screenshot-set endpoint unreachable: {exc}") from exc
         try:
-            data = json.loads(self._open(f"/api/v1/snapshots/{snapshot_id}"))
+            data = json.loads(body)
         except (json.JSONDecodeError, ValueError) as exc:
-            raise SnapshotContractError("snapshot metadata is not valid JSON") from exc
+            raise ScreenshotSetContractError("screenshot-set metadata is not valid JSON") from exc
         try:
-            return SnapshotMetadata.model_validate(data)
+            return ScreenshotSetMetadata.model_validate(data)
         except ValueError as exc:
-            raise SnapshotContractError(f"invalid snapshot metadata: {exc}") from exc
-
-    def fetch_annotations(self, snapshot_id: str) -> AnnotationsPayload:
-        try:
-            data = json.loads(self._open(f"/api/v1/snapshots/{snapshot_id}/annotations"))
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise SnapshotContractError("snapshot annotations are not valid JSON") from exc
-        try:
-            return AnnotationsPayload.model_validate(data)
-        except ValueError as exc:
-            raise SnapshotContractError(f"invalid snapshot annotations: {exc}") from exc
-
-    def download_object(self, object_id: str) -> bytes:
-        try:
-            return self._open(f"/api/v1/objects/{object_id}/download")
-        except SnapshotNotFoundError as exc:
-            raise ObjectUnavailableError(f"object not available: {object_id}") from exc
-        except SnapshotAuthError as exc:
-            raise ObjectUnavailableError(f"object download denied: {object_id}") from exc
-        except SnapshotContractError as exc:
-            raise ObjectUnavailableError(f"object download failed: {object_id}") from exc
+            raise ScreenshotSetContractError(f"invalid screenshot-set metadata: {exc}") from exc
