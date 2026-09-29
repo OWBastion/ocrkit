@@ -391,6 +391,102 @@ Do not add a maintained provider adapter unless the experiment on
 platform-reviewed annotations shows a material manual-review reduction with
 false confident corrections within the gate.
 
+## Jev-Omni pre-review sidecar experiment (#25)
+
+`training/jev/` is an offline, replayable experiment that measures whether the
+Jev-Omni typed-decision model can safely reduce human ROI review in Studio.
+Per the issue scope it evaluates only the residual rows that the deterministic
+auto-accept/auto-reject rules did not decide:
+
+```text
+Studio batch review rows (dataset/review/*.jsonl)
+→ materialize PreReviewRecord per residual row (crop digest + options + provenance)
+→ bounded decision: de-duplicated OCR candidates + "none correct" + "not valid"
+→ route: high-confidence candidate → auto-accept, high-confidence not-valid
+  → auto-reject, otherwise → human review
+→ fit routing threshold on a source-level fit split, report on the held-out
+  validation split
+```
+
+The experiment is read-only against Studio batches and never feeds Jev output
+into labels, training, or production recognition. Jev-derived output lives
+only under the report directory and can be deleted or recomputed without
+touching the reviewed dataset.
+
+The model runs locally through the community MLX 4-bit conversion
+`Ruiruiz30/Jev-Omni-MLX-4bit` (a third-party conversion of a personal project;
+keep it removable). It is an optional local dependency: the experiment
+spawns a small worker inside a dedicated virtualenv, so nothing here imports
+`mlx`/`mlx-vlm` and neither training nor the API gains a dependency:
+
+```bash
+mkdir -p training/.work/jev
+hf download Ruiruiz30/Jev-Omni-MLX-4bit --local-dir training/.work/jev/Jev-Omni-MLX-4bit
+uv venv training/.work/jev/venv --python 3.13
+uv pip install --python training/.work/jev/venv/bin/python \
+  -r training/.work/jev/Jev-Omni-MLX-4bit/requirements.txt
+```
+
+Run the experiment over the local Studio batches:
+
+```bash
+uv run python training/scripts/run_jev_experiment.py \
+  --runner omni-mlx \
+  --model-dir training/.work/jev/Jev-Omni-MLX-4bit \
+  --report-dir training/.work/jev/report \
+  --records-out training/.work/jev/records.jsonl \
+  --image-tokens 35 70 140
+```
+
+`--image-tokens` selects the visual-token budget per decision; dense HUD text
+may need 70 or higher, so measuring more than one budget is part of the
+evaluation. `--max-rows` applies a deterministic stride subsample for smoke
+runs. Every decision is captured in `decisions.jsonl` next to the report, so
+re-running with `--replay` reproduces the analysis without model calls:
+
+```bash
+uv run python training/scripts/run_jev_experiment.py \
+  --runner mock --replay training/.work/jev/report/decisions.jsonl \
+  --report-dir training/.work/jev/report-check
+```
+
+The report records per-budget and per-ROI review reduction, auto-decision
+accuracy, false-confident accepts/rejects, the share of rows that always need
+manual transcription, threshold curves, post-hoc temperature calibration on
+the fit split, latency/memory, and a `keep_sidecar` / `remove` /
+`insufficient_data` recommendation against the gate. The lifecycle decision
+itself (remove / sidecar / teacher follow-up) remains a maintainer call per
+the issue.
+
+### Measured result (local Studio batches, 929 residual rows)
+
+Two prompt variants were evaluated against held-out validation rows at
+thresholds fitted on the fit split (gate: ≥25% review reduction, ≤2%
+false-confident rate, ≥97% auto-decision accuracy):
+
+| Prompt | Image tokens | Fitted threshold (temp.) | Review reduction | Auto-decision accuracy | False-confident | Auto-rejects |
+| --- | --- | --- | --- | --- | --- | --- |
+| v1 generic | 35 | 0.765 (T=3.44) | 1.7% | 100% | 0 | 0 |
+| v1 generic | 70 | 0.740 (T=3.51) | 9.3% | 100% | 0 | 0 |
+| v1 generic | 140 | 0.735 (T=3.70) | 7.3% | 100% | 0 | 0 |
+| v2 per-ROI hints | 70 | 0.790 (T=3.89) | 1.7% | 100% | 0 | 0 |
+
+The model's raw confidence is overconfident (ECE ≈ 0.26–0.29); temperature
+scaling recovers calibration (ECE ≈ 0.10) but safe thresholds still route
+under 10% of rows. Pushing review reduction toward 60% would require
+thresholds with ~30% false-confident decisions, which would corrupt training
+truth. Auto-reject never engages: on rejected rows the crop usually still
+shows text that literally matches an OCR candidate, so "not a valid target
+text" fires on ~0.4% of them even with per-ROI content hints — most reject
+reasons (duplicate ROI, wrong-source content, mislocalization) are contextual,
+not visible in the crop. ~13% of rows additionally need manual transcription
+regardless (the accepted text appears in no candidate). Median latency is
+~1.6 s/decision at 70 tokens with ~7.4 GB peak Metal memory.
+
+Recommendation: `remove`. Jev's pre-review assistance does not materially
+reduce Studio review at any usable safety level; keep the experiment tooling
+replayed-from-git but do not retain the model as a standing sidecar.
+
 ## Recognition Smoke training
 
 Prepare the offline environment once, then run the CPU recognition Smoke:
