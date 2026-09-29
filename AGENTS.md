@@ -1,6 +1,6 @@
 # OCRKit Agent Guide
 
-OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. Workspace guidance owns shared engineering policy; this file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, and local validation.
+OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. [OWBastion organization routing](https://github.com/OWBastion/.github/blob/main/AGENTS.md) owns repository ownership, shared policy routing, and global invariants; this file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, and local validation.
 
 ## Repository role
 
