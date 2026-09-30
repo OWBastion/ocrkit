@@ -643,6 +643,7 @@ def prepare_candidates(
                             "crop": relative_crop.as_posix(),
                             "source_id": case_id,
                             "split": split,
+                            "accuracy_feedback": case.get("accuracy_feedback"),
                             "roi": roi_name,
                             "layout_version": roi_config.version,
                             "box": np.asarray(box, dtype=float).round(2).tolist(),

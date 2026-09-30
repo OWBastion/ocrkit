@@ -474,3 +474,44 @@ def test_refresh_vision_preserves_manual_review_and_updates_pending_rows(tmp_pat
     assert rows[0]["transcription"] == "模型文本"
     assert rows[1]["transcription"] == "人工文本"
     assert rows[2]["review_status"] == "rejected"
+
+
+def test_create_batch_records_screenshot_set_provenance_and_feedback(tmp_path: Path) -> None:
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    _image(first, 100)
+    _image(second, 200)
+    import hashlib
+
+    digest = hashlib.sha256(first.read_bytes()).hexdigest()
+    provenance = {
+        digest: {
+            "source": "screenshot_set",
+            "set_id": "set-abc",
+            "set_version": 3,
+            "source_id": "src-1",
+            "object_key": "evidence/screens/src-1.png",
+            "sha256": digest,
+            "layout_version": "1280x720-v6",
+            "accuracy": "inaccurate",
+        }
+    }
+    screenshot_set = {"set_id": "set-abc", "version": 3, "finalized_at": "2026-08-01T12:00:00Z", "imported_at": "2026-08-01T13:00:00Z", "code_revision": "abc123"}
+
+    batch_dir, summary = create_batch(
+        [first, second],
+        work_root=tmp_path / "studio",
+        holdout_ratio=0.0,
+        provenance_by_digest=provenance,
+        screenshot_set=screenshot_set,
+    )
+
+    manifest = json.loads((batch_dir / "batch.json").read_text(encoding="utf-8"))
+    assert manifest["screenshot_set"] == screenshot_set
+    assert summary["screenshot_set"] == screenshot_set
+    by_name = {row["original_name"]: row for row in manifest["sources"]}
+    assert by_name["first.png"]["provenance"] == provenance[digest]
+    cases = json.loads((batch_dir / "cases.json").read_text(encoding="utf-8"))
+    feedback = {row["id"]: row["accuracy_feedback"] for row in cases}
+    assert feedback[by_name["first.png"]["id"]] == "inaccurate"
+    assert feedback[by_name["second.png"]["id"]] is None

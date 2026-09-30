@@ -1,125 +1,81 @@
-"""Platform reviewed-snapshot contract (issue #5).
+"""Platform screenshot-set contract (issue #26, platform side owbastion.com#255).
 
-The importer consumes ONE finalized platform-reviewed dataset snapshot. The
-platform supplies reviewed annotation facts and bounded evidence access; it
-must never generate PaddleOCR labels or train/holdout splits, and OCRKit never
-browses platform databases or buckets.
+The importer consumes ONE finalized platform screenshot set. The platform
+supplies immutable set membership — object key, checksum, layout, and an
+optional screenshot-level accuracy mark — and OCRKit downloads the evidence
+objects directly from R2 with a read-only key scoped to the screenshot
+evidence prefix. A finalized set's membership is the platform's explicit
+approval for its members to be used as OCR training sources.
 
-Contract endpoints (private, versioned):
+Contract endpoint (private, versioned):
 
-- ``GET {base}/api/v1/snapshots/{snapshot_id}`` -> :class:`SnapshotMetadata`
-- ``GET {base}/api/v1/snapshots/{snapshot_id}/annotations`` -> :class:`AnnotationsPayload`
-- ``GET {base}/api/v1/objects/{object_id}/download`` -> image bytes (bounded access)
+- ``GET {base}/v1/ocrkit/screenshot-sets/{version}`` -> :class:`ScreenshotSetMetadata`
 
 Authentication is a bearer token supplied out of band (never persisted). Every
 model forbids extra keys so QQ identity, player-account internals, Grant/mastery
-state, risk signals, submission decisions, image bytes, and object URLs cannot
-be smuggled into a materialized import or its logs.
+state, risk signals, submission decisions, and evidence URLs cannot be smuggled
+into an imported batch or its logs.
 
-Annotation semantics stay distinct:
-
-- ``ocr_prediction``: the original OCR output;
-- ``exact_transcription``: the reviewed exact visible text;
-- ``canonical_value``: the business-normalized platform value.
-
-A reviewed annotation refers to one crop source, chosen by priority:
-
-1. ``crop_object_id``: a platform pre-cropped training sample;
-2. ``box``: a text-line polygon in standard-size coordinates (line crop derived
-   locally from the normalized source);
-3. ``roi``: a known field in a versioned layout (ROI crop derived with OCRKit's
-   existing layout/ROI tooling).
-
-A canonical business value is never converted into an OCR label; labels come
-only from ``exact_transcription``.
+``accuracy`` is a sampling/review hint only ("accurate" | "inaccurate" | null):
+it orders or prioritizes human review and must never become a transcription or
+a training label.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
-class SnapshotObject(BaseModel):
-    """One evidence object belonging to the snapshot (source or pre-crop)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    object_id: str
-    kind: Literal["source", "crop"]
-    sha256: str
-    mime_type: str
-    size_bytes: int
-    source_id: str | None = None  # required for kind == "source"
-    annotation_id: str | None = None  # required for kind == "crop"
-    layout_version: str | None = None  # layout the source screenshot belongs to
+_SAFE_SOURCE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
-class SnapshotMetadata(BaseModel):
-    """Immutable finalized snapshot identity and member-object manifest."""
+class ScreenshotSetMember(BaseModel):
+    """One source screenshot belonging to a finalized screenshot set."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1] = 1
-    snapshot_id: str
-    version: str
-    finalized: bool
-    finalized_at: str | None = None
-    objects: list[SnapshotObject] = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    object_key: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    mime_type: str = Field(min_length=1)
+    size_bytes: int = Field(ge=0)
+    layout_version: str = Field(min_length=1)
+    accuracy: Literal["accurate", "inaccurate"] | None = None
 
     @model_validator(mode="after")
-    def _validate_membership(self) -> SnapshotMetadata:
-        seen: set[str] = set()
-        for obj in self.objects:
-            if obj.object_id in seen:
-                raise ValueError(f"duplicate object_id in snapshot: {obj.object_id}")
-            seen.add(obj.object_id)
-            if obj.kind == "source" and not obj.source_id:
-                raise ValueError(f"source object {obj.object_id} is missing source_id")
-            if obj.kind == "crop" and not obj.annotation_id:
-                raise ValueError(f"crop object {obj.object_id} is missing annotation_id")
+    def _validate_source_id_is_path_safe(self) -> "ScreenshotSetMember":
+        if not _SAFE_SOURCE_ID.match(self.source_id):
+            raise ValueError(f"unsafe source_id: {self.source_id!r}")
         return self
 
     @property
-    def sources(self) -> list[SnapshotObject]:
-        return [obj for obj in self.objects if obj.kind == "source"]
+    def normalized_sha256(self) -> str:
+        return self.sha256.lower()
 
 
-class ReviewedAnnotation(BaseModel):
-    """One reviewed annotation with distinct OCR / transcription / canonical values."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    annotation_id: str
-    source_id: str
-    layout_version: str
-    roi: str | None = None
-    field: str | None = None
-    ocr_prediction: str | None = None
-    exact_transcription: str
-    canonical_value: str | None = None
-    box: list[list[float]] | None = None
-    crop_object_id: str | None = None
-
-    @model_validator(mode="after")
-    def _validate_box_and_crop_reference(self) -> ReviewedAnnotation:
-        if self.box is not None and (len(self.box) != 4 or any(len(point) != 2 for point in self.box)):
-            raise ValueError(f"annotation {self.annotation_id} box must have four [x, y] points")
-        if not self.exact_transcription.strip():
-            raise ValueError(f"annotation {self.annotation_id} needs a non-empty exact_transcription")
-        if self.box is not None and self.crop_object_id is not None:
-            raise ValueError(f"annotation {self.annotation_id} must not declare both box and crop_object_id")
-        if self.crop_object_id is None and self.box is None and not self.roi:
-            raise ValueError(f"annotation {self.annotation_id} needs a crop source (crop_object_id, box, or roi)")
-        return self
-
-
-class AnnotationsPayload(BaseModel):
-    """Reviewed annotation records for exactly one snapshot."""
+class ScreenshotSetMetadata(BaseModel):
+    """Immutable finalized screenshot-set identity and member manifest."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal[1] = 1
-    snapshot_id: str
-    annotations: list[ReviewedAnnotation] = Field(min_length=1)
+    set_id: str = Field(min_length=1)
+    version: int = Field(ge=1)
+    finalized: bool
+    finalized_at: str = Field(min_length=1)
+    members: list[ScreenshotSetMember] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_membership(self) -> "ScreenshotSetMetadata":
+        source_ids: set[str] = set()
+        object_keys: set[str] = set()
+        for member in self.members:
+            if member.source_id in source_ids:
+                raise ValueError(f"duplicate source_id in screenshot set: {member.source_id}")
+            if member.object_key in object_keys:
+                raise ValueError(f"duplicate object_key in screenshot set: {member.object_key}")
+            source_ids.add(member.source_id)
+            object_keys.add(member.object_key)
+        return self

@@ -46,12 +46,14 @@ checkpoints, or model binaries.
 
 ## Model Studio (#6)
 
-Studio is a local-only Svelte/Vite + FastAPI **Model Studio**. It consumes
-reviewed platform dataset snapshots (#5) as the authoritative production
-training truth and owns only OCRKit model-lifecycle operations. It does not
-run in the production API and does not publish a model without an explicit
-confirmation. The default launcher starts the API on `127.0.0.1:7860` and the
-Vite HMR UI on `127.0.0.1:5173`:
+Studio is a local-only Svelte/Vite + FastAPI **Model Studio**. Finalized
+platform screenshot sets (owbastion.com#255) are the production source intake:
+the set supplies immutable member screenshots with checksums and provenance,
+and Studio's own human review is the authoritative training truth. Studio owns
+only OCRKit model-lifecycle operations. It does not run in the production API
+and does not publish a model without an explicit confirmation. The default
+launcher starts the API on `127.0.0.1:7860` and the Vite HMR UI on
+`127.0.0.1:5173`:
 
 ```bash
 ./studio.sh
@@ -69,33 +71,35 @@ Equivalent commands are:
 The Model Studio workflow is:
 
 ```text
-select/import a finalized platform dataset snapshot (#5)
-→ inspect materialization/provenance and validation warnings
-→ source-level train/holdout split (ocrkit-split-v1, recorded in provenance)
-→ configure/start or continue Smoke training on the snapshot labels
+import a finalized platform screenshot set (#26)
+→ verified member sources land in a new batch with immutable provenance
+→ source-level train/holdout split recorded in batch.json
+→ ROI crop → OCR candidates → human review → labels (the training truth)
+→ configure/start or continue Smoke training on the reviewed labels
 → evaluate the candidate checkpoint
 → publish an immutable candidate through the existing release gate
 → compare candidate evidence with the current stable manifest
 → explicitly promote to stable, or rollback by selecting an earlier verified manifest
 ```
 
-`GET /api/snapshots` lists materialized imports; `POST /api/snapshots/import`
-imports a finalized snapshot through the #5 importer (requires
-`OCRKIT_PLATFORM_SNAPSHOT_BASE_URL` and `OCRKIT_PLATFORM_SNAPSHOT_TOKEN`);
-`GET /api/snapshots/<id>@<version>` returns provenance, label counts,
-import warnings, and materialized annotations. Training and publication reuse
-the same `run_rec_smoke.sh` / `release_rec_model.sh` scripts and immutable
-release semantics as the local workflow.
+`POST /api/screenshot-sets/import` imports one finalized screenshot set by
+integer version through the #26 importer (requires
+`OCRKIT_SCREENSHOT_SET_BASE_URL` and `OCRKIT_SCREENSHOT_SET_TOKEN`, plus Studio
+R2 read access whose `OCRKIT_STUDIO_R2_ALLOWED_PREFIXES` covers the set's
+object-key prefix). The same finalized set version cannot be imported twice;
+imported batches carry the set identity and per-source provenance in
+`batch.json`. Training and publication reuse the same `run_rec_smoke.sh` /
+`release_rec_model.sh` scripts and immutable release semantics as the local
+workflow.
 
-### Local annotation workflow is demoted, not deleted
+### Local and R2 imports are supplemental inputs
 
-Platform-reviewed annotations are the authoritative production training truth;
-Studio no longer maintains a competing primary review queue. The old local
-import → candidate → review → labels steps remain available in the UI for
-**developer fixtures and synthetic experiments** only, clearly labelled as
-such. Local corrections are never automatically promoted into rules or
-production datasets, and R2 screenshot browsing is no longer the primary way to
-discover labeling evidence.
+Platform screenshot sets are the production source intake; Studio's review
+workflow turns them into labels. Local file uploads and general R2 imports
+remain available for developer fixtures and one-off experiments. They flow
+through the same deduplicate → split → crop → review pipeline, carry no
+platform provenance, and are never automatically promoted into rules or
+production datasets.
 
 ### Migration and archival of existing local batches
 
@@ -113,8 +117,8 @@ To archive a local batch for historical reproduction, export it through
 「标签 → 导出私有数据集」or copy the batch directory to a private location;
 the exported package is self-contained (crops, labels, batch manifest,
 export.json). Do not silently delete local batches that contain unique private
-labels or checkpoints; keep them until the platform annotation pipeline has
-produced a reviewed snapshot covering the same evidence, and never commit
+labels or checkpoints; keep them until an imported screenshot set has been
+reviewed to cover the same evidence, and never commit
 `training/.work/` or production screenshots to the public repository.
 
 The Studio workflow is:
@@ -200,8 +204,8 @@ imports to 200 objects per page and 25 MiB per object by default, deduplicates
 by SHA-256, and records the private bucket/key provenance in `batch.json`.
 Remote images are copied into the ignored local batch and still require
 candidate review. Platform submission screenshots are available to training
-only through the finalized reviewed-snapshot importer below, which limits reads
-to eligible snapshot members.
+only through the finalized screenshot-set importer below, which limits reads
+to declared set members.
 
 ### Export and continue a batch
 
@@ -293,51 +297,50 @@ correction rates:
 uv run python training/scripts/evaluate_rec_candidates.py
 ```
 
-## Platform reviewed-snapshot import (#5)
+## Platform screenshot-set import (#26)
 
-`training/importer/` is the offline importer for one finalized
-platform-reviewed dataset snapshot. The platform supplies reviewed annotation
-facts and bounded evidence access through the contract documented in
-`training/importer/CONTRACT.md`; it never generates PaddleOCR labels or
-train/holdout splits.
+`training/importer/` is the offline importer for one finalized platform
+screenshot set. The platform supplies immutable set membership — object key,
+SHA-256, size, declared layout version, and an optional accuracy mark —
+through the contract documented in `training/importer/CONTRACT.md`, and OCRKit
+downloads member screenshots directly from R2 with a read-only,
+prefix-scoped key. The set carries no annotations, labels, or split
+assignments: imported members become a Studio batch whose human review is the
+training truth.
 
-The importer is read-only against the remote snapshot and requires no platform
-DB access or broad R2 credentials. It:
+The importer is read-only and needs no platform DB access or broad R2
+credentials. It:
 
-1. fetches the immutable snapshot metadata and reviewed annotations;
-2. downloads only snapshot-member evidence through the bounded access path and
-   verifies every SHA-256 (missing evidence fails explicitly, nothing is
-   substituted);
-3. resumes partial imports by reusing already-verified downloads in the
-   workspace;
-4. assigns a deterministic source-level train/holdout split (rule version
-   `ocrkit-split-v1`) so crops of one screenshot can never leak across splits;
-5. derives crops with the existing Rust ROI crop/export tooling for field-level
-   annotations, and locally with the versioned layout tooling for text-line
-   boxes; platform pre-crops are copied through unchanged;
-6. materializes rec labels only from reviewed exact transcriptions (never from
-   canonical business values), reports conflicting crop/transcription pairs
-   instead of silently choosing, and validates labels with the existing
-   validator.
+1. fetches the finalized set metadata by integer version
+   (`GET /v1/ocrkit/screenshot-sets/{version}`);
+2. downloads every member object from R2 and verifies `size_bytes` and
+   SHA-256 against the platform-signed metadata (missing or corrupt evidence
+   fails the import; nothing is substituted or skipped);
+3. decodes each image and re-detects its ROI layout, which must match the
+   declared `layout_version` so Studio crops with the config the platform
+   used;
+4. resumes partial imports by reusing already-verified workspace files;
+5. returns per-source provenance (set id/version, source id, object key,
+   sha256, layout version, accuracy mark) recorded in `batch.json`.
 
-Run:
+`accuracy` (`"accurate"` | `"inaccurate"` | `null`) is a review-prioritization
+hint carried into `cases.json` and review rows as `accuracy_feedback`; it
+never becomes a transcription or training label.
+
+Run through Studio (`POST /api/screenshot-sets/import`) or the CLI:
 
 ```bash
-export OCRKIT_PLATFORM_SNAPSHOT_BASE_URL=https://platform.example
-export OCRKIT_PLATFORM_SNAPSHOT_TOKEN=<token>   # never committed
-uv run python training/scripts/import_platform_snapshot.py \
-  --snapshot-id 2026-08-01-final \
-  --workspace training/.work/imports/2026-08-01-final \
-  --output datasets/labeled/rec/platform/2026-08-01-final@v3
+export OCRKIT_SCREENSHOT_SET_BASE_URL=https://platform.example
+export OCRKIT_SCREENSHOT_SET_TOKEN=<token>   # never committed
+uv run python training/scripts/import_screenshot_set.py --version 3
 ```
 
-The workspace caches verified downloads and is safe to reuse for resume; the
-materialized output is written once and refuses to overwrite. Provenance
-(`provenance.json`) records the snapshot identity, split rule and assignment,
-layout versions, source hashes, and the OCRKit code revision so a training run
-can be compared or reproduced. Imported production evidence is private and
-stays out of the public repository, fixture bundle, logs, and released model
-artifacts.
+The workspace under `<work-root>/set-workspace/set-<version>/` caches verified
+downloads and is safe to reuse for resume. The Studio route refuses to import
+the same finalized set version twice. Imported production evidence is private
+and stays out of the public repository, fixture bundle, logs, and released
+model artifacts; the metadata contract forbids extra fields so platform
+internals cannot leak into a batch.
 
 ## Constrained text adjudication experiment (#4)
 `training/adjudication/` is an offline, replayable experiment that measures
@@ -347,8 +350,8 @@ terminology cases that deterministic normalization leaves unresolved.
 Preconditions before a real go/no-go decision:
 
 1. #3 deterministic normalization is implemented and measured (done);
-2. #5 materializes a representative reviewed-annotation dataset from the
-   platform (the importer is implemented; feed it a real finalized snapshot);
+2. #26 imports a real finalized screenshot set and Studio review produces a
+   representative reviewed dataset;
 3. the remaining unresolved population is large enough to justify evaluation.
 
 Run the experiment against a reviewed-annotations record file:
@@ -549,12 +552,13 @@ Train on Colab and evaluate the retrieved checkpoint locally with one command:
 uv run python training/run_rec_colab.py
 ```
 
-The default dataset is `datasets/labeled/rec`. To train from a materialized
-platform snapshot, select that snapshot's output directory explicitly:
+The default dataset is `datasets/labeled/rec`. To train from an exported
+Studio batch, select the batch's dataset directory explicitly; the runner
+reads the sibling `batch.json` for screenshot-set provenance:
 
 ```bash
 uv run python training/run_rec_colab.py \
-  --labels-dir datasets/labeled/rec/platform/<snapshot-id>@<version> \
+  --labels-dir datasets/labeled/rec/studio/<batch-id>/dataset \
   --gpu T4 \
   --epochs 10
 ```
@@ -578,7 +582,7 @@ environment from `setup_rec_environment.sh` is required). The run only
 succeeds if that evaluation passes the same gate as a local run.
 
 Through the Colab CLI, the runner transfers only the selected train/holdout
-labels and referenced crops, available review/snapshot provenance files, the
+labels and referenced crops, available review provenance files, the
 training scripts, and (when `--pretrained-checkpoint` names a checkpoint other
 than the official default) that custom checkpoint. The official default base
 checkpoint is instead fetched by Colab directly from its public URL and
@@ -652,7 +656,7 @@ uv run python training/run_rec_kaggle.py
 
 ```bash
 uv run python training/run_rec_kaggle.py \
-  --labels-dir datasets/labeled/rec/platform/<snapshot-id>@<version> \
+  --labels-dir datasets/labeled/rec/studio/<batch-id>/dataset \
   --epochs 10
 ```
 
@@ -666,7 +670,7 @@ instead of streaming output live.
 
 The runner builds the identical input archive/`request.json` contract Colab
 uploads: the same selected train/holdout labels and referenced crops,
-available review/snapshot provenance files, the training scripts, and (when
+available review provenance files, the training scripts, and (when
 `--pretrained-checkpoint` names a checkpoint other than the official default)
 that custom checkpoint. Unlike Colab's chunked CLI upload, Kaggle's own
 dataset-attachment mechanism is not used for this at all: it silently

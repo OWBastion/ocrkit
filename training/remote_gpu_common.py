@@ -157,19 +157,27 @@ def git_metadata(path: Path) -> tuple[str | None, bool]:
 
 
 def read_dataset_provenance(dataset_root: Path) -> dict[str, Any]:
-    for name in ("provenance.json", "snapshot.json"):
-        path = dataset_root / name
-        if not path.is_file():
-            continue
-        data = json.loads(path.read_text(encoding="utf-8"))
-        snapshot = data.get("snapshot", {})
-        snapshot_id = snapshot.get("snapshot_id") or data.get("snapshot_id")
-        if snapshot_id:
-            return {
-                "snapshot_id": snapshot_id,
-                "snapshot_version": snapshot.get("version") or data.get("snapshot_version") or data.get("version"),
-                "code_revision": data.get("code_revision"),
-            }
+    # Studio batches carry provenance in the batch manifest beside `dataset/`;
+    # only set identity travels into run metadata (object keys stay local).
+    batch_manifest = dataset_root.parent / "batch.json"
+    if batch_manifest.is_file():
+        try:
+            data = json.loads(batch_manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        provenance: dict[str, Any] = {}
+        if data.get("batch_id"):
+            provenance["batch_id"] = data["batch_id"]
+        screenshot_set = data.get("screenshot_set")
+        if isinstance(screenshot_set, dict):
+            if screenshot_set.get("set_id"):
+                provenance["screenshot_set_id"] = screenshot_set["set_id"]
+            if screenshot_set.get("version"):
+                provenance["screenshot_set_version"] = screenshot_set["version"]
+            if screenshot_set.get("code_revision"):
+                provenance["code_revision"] = screenshot_set["code_revision"]
+        if provenance:
+            return provenance
     return {}
 
 
@@ -201,8 +209,6 @@ def _collect_stage_files(
         add_file(files, f"dataset/{relative.as_posix()}", image_path, "reviewed-crop")
 
     for relative in (
-        "provenance.json",
-        "snapshot.json",
         "crop_manifest.json",
         "review/train.jsonl",
         "review/holdout.jsonl",
