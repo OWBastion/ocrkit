@@ -10,6 +10,10 @@ OCRKit extracts structured evidence from known Bastion screenshot layouts. It ow
 
 OCRKit must not decide whether a player deserves a title, whether a submission should be approved, or whether OCR evidence should cause a grant. Add extracted facts as evidence, not business conclusions.
 
+## Contribution to the organization goal
+
+Serves the [organization product goal](https://github.com/OWBastion/.github/blob/main/docs/product-goal.md) by keeping score verification light for players: recognize known Bastion screenshots well enough that ordinary players rarely need more than a screenshot, and surface uncertainty so human review stays targeted. It does not grow into general OCR or visual understanding.
+
 ## Start here
 
 For substantive work:
