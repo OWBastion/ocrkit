@@ -7,7 +7,7 @@
   type JevState = { status?: string; log_tail?: string; processed?: number; saved?: number; errors?: number; jev_adopted?: { accepted: number; rejected: number } | null }
   type PipelineState = { status?: string; stage?: string; completed?: number; total?: number; new_screenshots?: number; batch_id?: string | null; jev_errors?: number; agreement_adopted?: number; jev_adopted?: { accepted: number; rejected: number } | null; review?: ReviewCounts; log_tail?: string }
   type PipelinePreview = { new: number; recent: number; latest_batch: string | null }
-  type Row = { jev_suggestion?: JevSuggestion; crop: string; roi: string; layout_version?: string; accuracy_feedback?: 'accurate' | 'inaccurate' | null; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
+  type Row = { category?: 'event' | 'achievement' | 'other'; jev_suggestion?: JevSuggestion; crop: string; roi: string; layout_version?: string; accuracy_feedback?: 'accurate' | 'inaccurate' | null; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
     status?: string
@@ -46,11 +46,12 @@
   // Regions Studio collects. The central banner is intentionally absent: it overlaps the side panels.
   const ROI_INFO: Record<string, RoiMeta> = {
     left_panel: { name: '左侧统计', dotColor: '#0284c7' },
-    achievement_panel: { name: '左下成就', dotColor: '#b45309' },
+    achievement_panel: { name: '事件与成就', dotColor: '#b45309' },
     run_code_panel: { name: '运行代码', dotColor: '#6d28d9' },
     run_code_right_panel: { name: '右侧代码', dotColor: '#7c3aed' },
     right_panel: { name: '右上地图', dotColor: '#b91c1c' },
-    bottom_left_hero: { name: '左下英雄', dotColor: '#4338ca' },
+    bottom_left_hero: { name: '玩家名', dotColor: '#4338ca' },
+    ai_watermark: { name: 'AI 标记', dotColor: '#0f766e' },
   }
 
   function getRoiInfo(code: string): RoiMeta {
@@ -725,6 +726,10 @@
     return all.filter((engine) => norm(engine.text))
   }
 
+  // A name with a duration, e.g. "心之钢 (27 秒)", is the event; anything else in the stack starts as an achievement.
+  const defaultCategory = (text: string): 'event' | 'achievement' => (/[（(]\s*\d+\s*秒\s*[）)]/.test(text) ? 'event' : 'achievement')
+  const CATEGORIES = [['event', '事件'], ['achievement', '成就'], ['other', '其它']] as const
+
   // One answer to start from. JEV settles disagreements between engines; it never overrides engines that already agree.
   function suggestionFor(row: Row): Suggestion {
     const engines = enginesOf(row)
@@ -791,7 +796,8 @@
   }
 
   function selectCandidate(row: Row, event?: MouseEvent) {
-    selected = { ...row, transcription: row.transcription || suggestionFor(row).text }
+    const text = row.transcription || suggestionFor(row).text
+    selected = { ...row, transcription: text, category: row.category ?? (row.roi === 'achievement_panel' ? defaultCategory(text) : undefined) }
     cropZoom = 'auto'
     cropNatural = { w: 0, h: 0 }
     const target = event?.currentTarget
@@ -891,7 +897,7 @@
       .then(() => request<{ row: Row; counts: ReviewCounts }>(`/api/batches/${batchId}/review`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ split: currentSplit, crop: row.crop, status: statusValue, transcription }),
+        body: JSON.stringify({ split: currentSplit, crop: row.crop, status: statusValue, transcription, category: row.roi === 'achievement_panel' ? row.category : undefined }),
       }))
       .then((result) => { if (batch?.batch_id === batchId) batch = { ...batch, review: result.counts } })
       .catch((cause) => {
@@ -1818,6 +1824,13 @@
                   on:load={onCropLoad}
                 />
               </button>
+              {#if selected.roi === 'achievement_panel'}
+                <div class="segmented" role="group" aria-label="类别">
+                  {#each CATEGORIES as [value, label]}
+                    <button type="button" class="segmented-btn" class:segmented-active={selected.category === value} aria-pressed={selected.category === value} on:click={() => { if (selected) selected = { ...selected, category: value } }}>{label}</button>
+                  {/each}
+                </div>
+              {/if}
               <div class={`suggest suggest-${pick.tone}`}>
                 <span class="suggest-source">{pick.label}</span>
                 <span>{pick.hint}</span>

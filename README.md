@@ -88,7 +88,7 @@ and also include traceable contract metadata:
   "request_id": "...",
   "engine": "rapidocr",
   "model_version": "builtin",
-  "layout_version": "1280x720-v6",
+  "layout_version": "1280x720-v7",
   "ok": true,
   "data": {},
   "fields": {
@@ -108,7 +108,7 @@ and also include traceable contract metadata:
     "cropped": false,
     "blur_score": 0.08,
     "normalized_size": [1280, 720],
-    "layout_version": "1280x720-v6",
+    "layout_version": "1280x720-v7",
     "warnings": []
   }
 }
@@ -119,7 +119,14 @@ decimal places; `cropped` and the related warnings indicate a ratio mismatch aga
 configured layout and do not make an approval decision. `blur_score` is a normalized blur
 risk from 0 to 1, where higher means blurrier.
 
-The service selects the versioned `1280x720-v6` or `1280x800-v1` ROI layout from the source
+Layout v7/v2 regions: `left_panel` (stats, without the code row), `run_code_panel`, `run_code_right_panel`,
+`right_panel` (map, mode, timers, version, run code, server load), `bottom_left_hero` (player name only),
+`achievement_panel` (the stack under the stats block: at most one event, then up to five achievement unlocks;
+achievements move up when no event is shown, so the ROI is tall and lines are told apart by content), and
+`ai_watermark` (bottom-right generation mark; empty on genuine screenshots). Event/achievement/AI-mark
+fields are added to the response separately from the geometry.
+
+The service selects the versioned `1280x720-v7` or `1280x800-v2` ROI layout from the source
 aspect ratio. The 16:10 layout is used for screenshots such as 2560x1600 without marking the
 input as cropped.
 

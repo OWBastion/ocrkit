@@ -189,7 +189,7 @@ def test_prepare_candidates_deduplicates_overlapping_achievement_and_left_panel_
     assert left["auto_reject_reason"] == "duplicate_roi_candidate"
 
 
-def test_prepare_candidates_ignores_variable_height_event_lines_in_achievement_roi(tmp_path: Path) -> None:
+def test_prepare_candidates_keeps_event_lines_in_the_event_and_achievement_roi(tmp_path: Path) -> None:
     fixtures = tmp_path / "fixtures"
     fixtures.mkdir()
     source = np.full((40, 60, 3), 200, dtype=np.uint8)
@@ -214,8 +214,10 @@ def test_prepare_candidates_ignores_variable_height_event_lines_in_achievement_r
         vision_factory=EventVisionOcr,
     )
 
-    assert summary["train_candidates"] == 0
-    assert (tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8") == ""
+    # The stack holds the active event as well as achievements, and an event line carries no check mark.
+    assert summary["train_candidates"] == 1
+    rows = [json.loads(line) for line in (tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(row["roi"], row["candidate_text"]) for row in rows] == [("achievement_panel", "当前事件描述")]
 
 
 def test_holdout_split_is_fixed_to_training_plan() -> None:
@@ -351,7 +353,7 @@ def test_prepare_candidates_records_terminology_normalization_when_catalog_provi
     row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
     terminology = row["terminology"]
     assert terminology["decision"] == "normalized"
-    assert terminology["rules_version"] == "1"
+    assert terminology["rules_version"] == "2"
     assert terminology["scope_id"] == "left_panel.challenge_stats"
     assert terminology["normalized_text"] == "增益"
     assert terminology["matches"][0]["rule_id"] == "left_panel.challenge_stats:alias:编益"

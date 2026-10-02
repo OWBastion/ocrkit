@@ -9,26 +9,17 @@
 # A platform-reviewed correction must not be added here automatically; it only
 # becomes a rule after explicit review and a versioned change in OCRKit.
 
-rules_version: "1"
+rules_version: "2"
 
+# The v6/v1 layouts are kept so historical datasets recorded under them still normalize.
 scopes:
   - id: left_panel.challenge_stats
     roi: left_panel
-    layout_versions: ["1280x720-v6", "1280x800-v1"]
-    allowed_terms: ["增益", "减益", "总计"]
+    layout_versions: ["1280x720-v6", "1280x800-v1", "1280x720-v7", "1280x800-v2"]
+    allowed_terms: ["增益", "减益", "总计", "心之钢", "移速", "减伤", "治疗"]
     aliases:
       "编益": "增益"
-    confusions:
-      "编": "增"
-
-  - id: bottom_left_hero.hero_status
-    roi: bottom_left_hero
-    layout_versions: ["1280x720-v6", "1280x800-v1"]
-    allowed_terms: ["心之钢", "移速", "减伤", "治疗"]
-    aliases:
       "疗%": "治疗%"
     confusions:
+      "编": "增"
       "锅": "钢"
-    fuzzy_match: true
-    fuzzy_threshold: 0.62
-    fuzzy_min_margin: 0.2

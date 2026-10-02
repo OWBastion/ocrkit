@@ -67,6 +67,7 @@ class ReviewUpdate(BaseModel):
     crop: str
     status: str
     transcription: str | None = None
+    category: Literal["event", "achievement", "other"] | None = None
 
 
 class TrainingStart(BaseModel):
@@ -751,7 +752,7 @@ def create_app(
     async def save_review(batch_id: str, update: ReviewUpdate) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
         _reject_active_workflow(batch_dir / "runs/latest.json")
-        row = await run_in_threadpool(update_review_row, batch_dir, update.split, update.crop, update.status, update.transcription)
+        row = await run_in_threadpool(update_review_row, batch_dir, update.split, update.crop, update.status, update.transcription, update.category)
         return {"row": row, "counts": review_counts(batch_dir)}
 
     @app.post("/api/batches/{batch_id}/review/accept-teacher")

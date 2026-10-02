@@ -21,7 +21,7 @@ REAL_RULES = load_terminology_rules(Path("configs/terminology.yaml"))
 
 
 def test_motivating_example_challenge_stats_normalizes_in_left_panel() -> None:
-    result = normalize_roi_text("编益/减益/总计", "1280x720-v6", "left_panel", REAL_RULES)
+    result = normalize_roi_text("编益/减益/总计", "1280x720-v7", "left_panel", REAL_RULES)
     assert result.decision == DECISION_NORMALIZED
     assert result.normalized_text == "增益/减益/总计"
     assert result.raw_text == "编益/减益/总计"
@@ -29,21 +29,21 @@ def test_motivating_example_challenge_stats_normalizes_in_left_panel() -> None:
     assert token.status == "adopted"
     assert token.match_type == "exact_alias"
     assert token.rule_id == "left_panel.challenge_stats:alias:编益"
-    assert result.rules_version == "1"
+    assert result.rules_version == "2"
 
 
-def test_motivating_example_hero_status_normalizes_in_bottom_left() -> None:
-    result = normalize_roi_text("心之钢/移速/减伤/疗%", "1280x720-v6", "bottom_left_hero", REAL_RULES)
+def test_motivating_example_player_stats_normalizes_in_left_panel() -> None:
+    result = normalize_roi_text("心之钢/移速/减伤/疗%", "1280x720-v7", "left_panel", REAL_RULES)
     assert result.decision == DECISION_NORMALIZED
     assert result.normalized_text == "心之钢/移速/减伤/治疗%"
-    assert result.tokens[-1].rule_id == "bottom_left_hero.hero_status:alias:疗%"
+    assert result.tokens[-1].rule_id == "left_panel.challenge_stats:alias:疗%"
 
 
 def test_character_confusion_adopted_only_inside_allowed_terms() -> None:
     scope = Scope(
         id="s",
         roi="left_panel",
-        layout_versions=frozenset({"1280x720-v6"}),
+        layout_versions=frozenset({"1280x720-v7"}),
         allowed_terms=("增益", "减益", "总计"),
         aliases={},
         confusions={"编": "增"},
@@ -58,17 +58,17 @@ def test_character_confusion_adopted_only_inside_allowed_terms() -> None:
 
 
 def test_false_friend_term_is_not_touched() -> None:
-    result = normalize_roi_text("减益", "1280x720-v6", "left_panel", REAL_RULES)
+    result = normalize_roi_text("减益", "1280x720-v7", "left_panel", REAL_RULES)
     assert result.decision == DECISION_UNCHANGED
     assert result.normalized_text == "减益"
 
 
 def test_unknown_text_stays_unresolved_or_unchanged() -> None:
     # In-scope token that looks like a confusion but lands off-allowlist.
-    unresolved = normalize_roi_text("编编", "1280x720-v6", "left_panel", REAL_RULES)
+    unresolved = normalize_roi_text("编编", "1280x720-v7", "left_panel", REAL_RULES)
     assert unresolved.decision == DECISION_UNRESOLVED
     # Ordinary text that is not terminology stays unchanged, never fabricated.
-    ordinary = normalize_roi_text("挑战 完成 英雄: 51/51", "1280x720-v6", "left_panel", REAL_RULES)
+    ordinary = normalize_roi_text("挑战 完成 英雄: 51/51", "1280x720-v7", "left_panel", REAL_RULES)
     assert ordinary.decision == DECISION_UNCHANGED
     assert ordinary.normalized_text == "挑战 完成 英雄: 51/51"
 
@@ -77,7 +77,7 @@ def test_fuzzy_matching_is_constrained_and_ambiguity_detected() -> None:
     scope = Scope(
         id="fuzzy",
         roi="bottom_left_hero",
-        layout_versions=frozenset({"1280x720-v6"}),
+        layout_versions=frozenset({"1280x720-v7"}),
         allowed_terms=("心之钢", "移速", "减伤", "治疗"),
         aliases={},
         confusions={},
@@ -94,7 +94,7 @@ def test_fuzzy_matching_is_constrained_and_ambiguity_detected() -> None:
     ambiguous_scope = Scope(
         id="amb",
         roi="left_panel",
-        layout_versions=frozenset({"1280x720-v6"}),
+        layout_versions=frozenset({"1280x720-v7"}),
         allowed_terms=("增益", "减益", "总计"),
         aliases={},
         confusions={},
@@ -109,7 +109,7 @@ def test_fuzzy_matching_is_constrained_and_ambiguity_detected() -> None:
 
 def test_scope_is_isolated_by_layout_and_roi() -> None:
     # Same text, different ROI: the challenge_stats alias must not fire.
-    other_roi = normalize_roi_text("编益", "1280x720-v6", "right_panel", REAL_RULES)
+    other_roi = normalize_roi_text("编益", "1280x720-v7", "right_panel", REAL_RULES)
     assert other_roi.decision == DECISION_UNCHANGED
     assert other_roi.normalized_text == "编益"
     # Unknown layout version: pass through, no scope.
@@ -123,8 +123,8 @@ def test_scope_is_isolated_by_layout_and_roi() -> None:
 
 
 def test_scope_for_returns_none_outside_declared_layouts() -> None:
-    assert scope_for(REAL_RULES, "1280x720-v6", "left_panel") is not None
-    assert scope_for(REAL_RULES, "1280x720-v6", "achievement_panel") is None
+    assert scope_for(REAL_RULES, "1280x720-v7", "left_panel") is not None
+    assert scope_for(REAL_RULES, "1280x720-v7", "achievement_panel") is None
     assert scope_for(REAL_RULES, "unknown-layout", "left_panel") is None
 
 
@@ -193,7 +193,7 @@ class _TerminologyEngine:
     def recognize(self, image: np.ndarray):
         from app.ocr.engine import OcrResult
 
-        if image.shape[:2] == (420, 370):  # left_panel preprocessed at 2x
+        if image.shape[:2] == (370, 370):  # left_panel preprocessed at 2x
             return OcrResult(text=self.left_panel_text, confidence=0.93, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 
@@ -225,7 +225,7 @@ def test_service_preserves_raw_evidence_and_records_normalization() -> None:
         "request-terminology-1",
         "rapidocr",
         "builtin",
-        "1280x720-v6",
+        "1280x720-v7",
         terminology=context.terminology,
     )
 
@@ -236,7 +236,7 @@ def test_service_preserves_raw_evidence_and_records_normalization() -> None:
     assert normalization.decision == DECISION_NORMALIZED
     assert normalization.normalized_text == "增益/减益/总计"
     assert normalization.scope_id == "left_panel.challenge_stats"
-    assert normalization.rules_version == "1"
+    assert normalization.rules_version == "2"
     assert normalization.tokens[0].rule_id == "left_panel.challenge_stats:alias:编益"
     # Field evidence carries a traceable normalization tag.
     assert "terminology:增益" in response.fields["deaths"].normalization
@@ -253,7 +253,7 @@ def test_service_warns_when_terminology_is_ambiguous() -> None:
             Scope(
                 id="left_panel.challenge_stats",
                 roi="left_panel",
-                layout_versions=frozenset({"1280x720-v6"}),
+                layout_versions=frozenset({"1280x720-v7"}),
                 allowed_terms=("增益", "减益", "总计"),
                 aliases={},
                 confusions={},
@@ -274,7 +274,7 @@ def test_service_warns_when_terminology_is_ambiguous() -> None:
         "request-terminology-2",
         "rapidocr",
         "builtin",
-        "1280x720-v6",
+        "1280x720-v7",
         terminology=context.terminology,
     )
 

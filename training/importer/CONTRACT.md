@@ -43,7 +43,7 @@ GET {base}/v1/ocrkit/screenshot-sets/{version}
       "sha256": "…64-hex…",
       "mime_type": "image/png",
       "size_bytes": 12345,
-      "layout_version": "1280x720-v6",
+      "layout_version": "1280x720-v7",
       "accuracy": "inaccurate"
     }
   ]

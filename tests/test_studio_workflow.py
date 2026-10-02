@@ -499,3 +499,32 @@ def test_studio_does_not_collect_center_banner_but_production_layout_keeps_it(tm
     assert drop_excluded_rois(batch) == 1
     assert [row["roi"] for row in review_rows(batch, "train")] == ["left_panel"]
     assert (batch / "dataset/labels/train.txt").read_text() == ""
+
+
+def test_ai_watermark_rejects_the_rest_of_that_screenshot_but_keeps_the_mark_and_human_work(tmp_path: Path) -> None:
+    from training.studio.core import reject_ai_generated_sources, update_review_row
+
+    batch = _batch(tmp_path)
+    (batch / "batch.json").write_text(json.dumps({"layout_version": "v1", "sources": [{"id": "ai"}, {"id": "real"}]}))
+    rows = [
+        {"crop": "images/mark.png", "source_id": "ai", "roi": "ai_watermark", "rapidocr_text": "豆包AI生成", "review_status": "pending"},
+        {"crop": "images/left.png", "source_id": "ai", "roi": "left_panel", "review_status": "pending"},
+        {"crop": "images/done.png", "source_id": "ai", "roi": "left_panel", "review_status": "accepted", "transcription": "kept", "review_method": "human"},
+        {"crop": "images/real.png", "source_id": "real", "roi": "left_panel", "review_status": "pending"},
+        {"crop": "images/lookalike.png", "source_id": "real", "roi": "ai_watermark", "rapidocr_text": "AI", "review_status": "pending"},
+    ]
+    (batch / "dataset/review/train.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    assert reject_ai_generated_sources(batch) == 1
+    by_crop = {row["crop"]: row for row in review_rows(batch, "train")}
+    assert by_crop["images/left.png"]["review_status"] == "rejected"
+    assert by_crop["images/left.png"]["auto_reject_reason"] == "ai_generated"
+    assert by_crop["images/mark.png"]["review_status"] == "pending"
+    assert by_crop["images/done.png"]["transcription"] == "kept"
+    assert by_crop["images/real.png"]["review_status"] == "pending"
+    assert [s.get("ai_generated") for s in json.loads((batch / "batch.json").read_text())["sources"]] == [True, None]
+
+    row = update_review_row(batch, "train", "images/left.png", "accepted", "x", "event")
+    assert row["category"] == "event"
+    with pytest.raises(ValueError, match="category"):
+        update_review_row(batch, "train", "images/left.png", "accepted", "x", "nope")

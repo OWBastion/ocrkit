@@ -28,7 +28,7 @@ ROI_HINTS = {
         "'VRM: 5306 MB', 'PING: 22 MS', '服务器负载47'), or the game version."
     ),
     "center_banner": " It should contain the complete centered banner message.",
-    "bottom_left_hero": " It should contain the bottom-left hero/player identifier or score values.",
+    "bottom_left_hero": " It should contain only the player name shown under the health bar.",
     "run_code_panel": (
         " The expected content is the match run code: three groups of four digits "
         "separated by hyphens, optionally after a '本局代码' or 'Run Code' label."
@@ -37,7 +37,11 @@ ROI_HINTS = {
         " The expected content is the match run code: three groups of four digits "
         "separated by hyphens, optionally after a '本局代码' or 'Run Code' label."
     ),
-    "achievement_panel": " It should contain an achievement name or a completion mark ('✓').",
+    "achievement_panel": (
+        " It should contain either the single active event (a name with a duration such as '(27 秒)' and its "
+        "description lines) or an achievement unlock line followed by a check mark ('✓')."
+    ),
+    "ai_watermark": " It should contain an AI-generation watermark such as '豆包AI生成', or nothing.",
 }
 
 

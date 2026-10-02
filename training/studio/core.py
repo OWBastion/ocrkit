@@ -5,6 +5,7 @@ import fcntl
 from contextlib import contextmanager
 import json
 import os
+import re
 import shutil
 import uuid
 from collections import Counter
@@ -792,7 +793,7 @@ def recreate_candidates(
         shutil.rmtree(temporary_dir, ignore_errors=True)
 
 
-def generate_candidates(
+def _generate_candidates(
     batch_dir: Path,
     *,
     roi_config_path: Path = DEFAULT_ROI_CONFIG,
@@ -1217,10 +1218,12 @@ def save_jev_suggestion(batch_dir: Path, split: str, crop: str, suggestion: dict
         return False
 
 
-def update_review_row(batch_dir: Path, split: str, crop: str, status: str, transcription: str | None) -> dict[str, Any]:
+def update_review_row(batch_dir: Path, split: str, crop: str, status: str, transcription: str | None, category: str | None = None) -> dict[str, Any]:
     with _review_lock(batch_dir, split):
         if status not in {"accepted", "rejected"}:
             raise ValueError("review status must be accepted or rejected")
+        if category is not None and category not in REVIEW_CATEGORIES:
+            raise ValueError("review category must be event, achievement or other")
         path = batch_dir / "dataset/review" / f"{split}.jsonl"
         rows = review_rows(batch_dir, split)
         for row in rows:
@@ -1239,6 +1242,8 @@ def update_review_row(batch_dir: Path, split: str, crop: str, status: str, trans
             )
             row["auto_reject_reason"] = None
             row["review_method"] = "automatic" if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription else "human"
+            if category is not None:
+                row["category"] = category
             _atomic_jsonl(path, rows)
             rebuild_negative_registry(batch_dir)
             return row
@@ -1409,3 +1414,46 @@ def export_dataset(batch_dir: Path, *, destination_root: Path = PRIVATE_DATASET_
         shutil.rmtree(temporary, ignore_errors=True)
         raise
     return {"export_dir": str(destination), **result}
+
+
+_AI_MARK = re.compile(r"AI|人工智能", re.IGNORECASE)
+REVIEW_CATEGORIES = frozenset({"event", "achievement", "other"})
+
+
+def reject_ai_generated_sources(batch_dir: Path) -> int:
+    """Reject pending and machine-accepted crops of screenshots whose watermark ROI reads as an AI-generation mark.
+
+    The watermark crop itself stays reviewable: it is the training signal for recognising the mark.
+    """
+    flagged: set[str] = set()
+    for split in ("train", "holdout"):
+        for row in review_rows(batch_dir, split):
+            texts = (row.get(name) for name in ("candidate_text", "rapidocr_text", "vision_text", "teacher_text"))
+            if row.get("roi") == "ai_watermark" and any(isinstance(t, str) and "生成" in t and _AI_MARK.search(t) for t in texts):
+                flagged.add(str(row.get("source_id")))
+    if not flagged:
+        return 0
+    rejected = 0
+    for split in ("train", "holdout"):
+        with _review_lock(batch_dir, split):
+            rows = review_rows(batch_dir, split)
+            for row in rows:
+                machine_decided = row.get("review_status") == "pending" or (
+                    row.get("review_status") == "accepted" and row.get("review_method") != "human"
+                )
+                if row.get("source_id") in flagged and row.get("roi") != "ai_watermark" and machine_decided:
+                    row.update(review_status="rejected", transcription=None, auto_accept_reason=None, auto_reject_reason="ai_generated", review_method="automatic")
+                    rejected += 1
+            _atomic_jsonl(batch_dir / "dataset/review" / f"{split}.jsonl", rows)
+    manifest = load_manifest(batch_dir)
+    for source in manifest.get("sources", []):
+        if source.get("id") in flagged:
+            source["ai_generated"] = True
+    _atomic_json(batch_dir / "batch.json", manifest)
+    return rejected
+
+
+def generate_candidates(batch_dir: Path, **kwargs: Any) -> dict[str, Any]:
+    summary = _generate_candidates(batch_dir, **kwargs)
+    summary["ai_generated_rejected"] = reject_ai_generated_sources(batch_dir)
+    return summary

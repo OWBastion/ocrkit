@@ -86,7 +86,7 @@ def test_evaluate_reports_raw_and_normalized_accuracy_separately(tmp_path: Path)
 
     result = evaluate(tmp_path, load_terminology_rules(Path("configs/terminology.yaml")))
     terminology = result["terminology"]
-    assert terminology["rules_version"] == "1"
+    assert terminology["rules_version"] == "2"
     # Raw accuracy: 编益 is wrong, 减益 is right.
     assert terminology["raw"]["rapidocr"] == {"covered": 2, "correct": 1}
     # Normalized accuracy: both are right after normalization.

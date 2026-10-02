@@ -86,6 +86,10 @@ but stay pending for a human. Confident JEV decisions (confidence ≥ 0.9, a cho
 adopted automatically: they stay human-reviewed so the evaluation evidence is
 independent of the model that suggested labels. "打开时自动准备" in the panel
 starts the preparation as soon as Studio opens and new screenshots exist.
+Rows in the event/achievement stack carry a category (event / achievement / other) chosen during review. A
+screenshot whose `ai_watermark` crop reads as an AI-generation mark has its other pending and machine-accepted
+crops rejected automatically (`ai_generated`); the watermark crop itself stays reviewable as training data.
+
 Studio does not collect the central banner (`center_banner`) ROI: it overlaps the
 left/right panels. Production recognition still reads it from the shared layout
 config. Review shows one suggested answer per crop (JEV settles engine
