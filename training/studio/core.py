@@ -700,7 +700,7 @@ def _inherit_manual_review(
     return inherited
 
 
-def recreate_candidates(
+def _recreate_candidates(
     batch_dir: Path,
     *,
     crop_backend: str = "rust",
@@ -1283,6 +1283,8 @@ def engines_agree(row: dict[str, Any]) -> bool:
 def adopt_engine_agreement(batch_dir: Path) -> int:
     """Accept pending Train rows where both OCR engines agree, at any confidence; Holdout stays human."""
     adopted = 0
+    if not (batch_dir / "dataset/review/train.jsonl").is_file():
+        return adopted
     with _review_lock(batch_dir, "train"):
         rows = review_rows(batch_dir, "train")
         for row in rows:
@@ -1452,7 +1454,16 @@ def reject_ai_generated_sources(batch_dir: Path) -> int:
     return rejected
 
 
-def generate_candidates(batch_dir: Path, **kwargs: Any) -> dict[str, Any]:
-    summary = _generate_candidates(batch_dir, **kwargs)
+def _apply_automatic_rules(batch_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic decisions after any candidate (re)generation; Holdout is never decided here."""
     summary["ai_generated_rejected"] = reject_ai_generated_sources(batch_dir)
+    summary["agreement_adopted"] = adopt_engine_agreement(batch_dir)
     return summary
+
+
+def generate_candidates(batch_dir: Path, **kwargs: Any) -> dict[str, Any]:
+    return _apply_automatic_rules(batch_dir, _generate_candidates(batch_dir, **kwargs))
+
+
+def recreate_candidates(batch_dir: Path, **kwargs: Any) -> dict[str, Any]:
+    return _apply_automatic_rules(batch_dir, _recreate_candidates(batch_dir, **kwargs))

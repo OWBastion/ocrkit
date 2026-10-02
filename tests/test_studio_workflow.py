@@ -535,3 +535,20 @@ def test_health_tells_which_checkout_is_serving(tmp_path: Path) -> None:
     assert payload["service"] == "ocrkit-studio"
     assert payload["root"] == str(studio_app.ROOT)
     assert "@" in payload["build"] or payload["build"] == "unknown"
+
+
+@pytest.mark.parametrize("name", ["generate_candidates", "recreate_candidates"])
+def test_generating_or_recreating_candidates_applies_the_same_automatic_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    from training.studio import core
+
+    batch = _batch(tmp_path)
+    agree = {"rapidocr_text": "Samoa", "vision_text": "Samoa", "roi": "map_panel", "review_status": "pending"}
+    (batch / "dataset/review/train.jsonl").write_text(json.dumps({**agree, "crop": "images/a.png", "source_id": "a"}) + "\n")
+    (batch / "dataset/review/holdout.jsonl").write_text(json.dumps({**agree, "crop": "images/h.png", "source_id": "h"}) + "\n")
+    monkeypatch.setattr(core, f"_{name}", lambda batch_dir, **kwargs: {})
+
+    summary = getattr(core, name)(batch)
+
+    assert summary["agreement_adopted"] == 1
+    assert review_rows(batch, "train")[0]["review_status"] == "accepted"
+    assert review_rows(batch, "holdout")[0]["review_status"] == "pending"

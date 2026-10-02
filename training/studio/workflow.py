@@ -18,7 +18,6 @@ from training.jev.records import OPTION_NONE_CORRECT, OPTION_NOT_VALID, compute_
 from training.jev.runner import OmniMlxRunner
 from training.studio.core import (
     DEFAULT_WORK_ROOT,
-    adopt_engine_agreement,
     adopt_jev_suggestions,
     engines_agree,
     create_batch,
@@ -128,9 +127,7 @@ def run_prepare(work_root: Path, run_dir: Path, days: int, holdout_ratio: float,
     finally:
         shutil.rmtree(temporary, ignore_errors=True)
     report(batch_id=batch_dir.name)
-    generate_candidates(batch_dir)
-
-    report(agreement_adopted=adopt_engine_agreement(batch_dir))
+    report(agreement_adopted=generate_candidates(batch_dir).get("agreement_adopted", 0))
     pending = sum(not engines_agree(row) for split in ("train", "holdout") for row in review_rows(batch_dir, split, "pending"))
     if pending and jev_config()["configured"]:
         report(stage="jev", completed=0, total=pending, jev_errors=0)
