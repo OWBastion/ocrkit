@@ -1239,6 +1239,37 @@ def imported_object_keys(work_root: Path) -> set[str]:
     return keys
 
 
+def engines_agree(row: dict[str, Any]) -> bool:
+    """RapidOCR and Vision read the same text and the previous model does not disagree."""
+    texts = [row.get(name) for name in ("rapidocr_text", "vision_text")]
+    if not all(isinstance(text, str) and text.strip() for text in texts):
+        return False
+    if len({canonicalize(str(text)) for text in texts}) != 1:
+        return False
+    teacher = row.get("teacher_text")
+    return not (isinstance(teacher, str) and teacher.strip() and canonicalize(teacher) != canonicalize(str(texts[0])))
+
+
+def adopt_engine_agreement(batch_dir: Path) -> int:
+    """Accept pending Train rows where both OCR engines agree, at any confidence; Holdout stays human."""
+    adopted = 0
+    with _review_lock(batch_dir, "train"):
+        rows = review_rows(batch_dir, "train")
+        for row in rows:
+            if row.get("review_status") == "pending" and engines_agree(row):
+                row.update(
+                    review_status="accepted",
+                    transcription=canonicalize(str(row["rapidocr_text"])),
+                    auto_accept_reason="rapidocr_vision_text_agreement",
+                    auto_reject_reason=None,
+                    review_method="automatic",
+                )
+                adopted += 1
+        if adopted:
+            _atomic_jsonl(batch_dir / "dataset/review/train.jsonl", rows)
+    return adopted
+
+
 def adopt_jev_suggestions(batch_dir: Path, *, min_confidence: float = JEV_ADOPT_CONFIDENCE) -> dict[str, int]:
     """Adopt confident JEV decisions for pending Train rows; Holdout stays human-reviewed."""
     adopted = {"accepted": 0, "rejected": 0}

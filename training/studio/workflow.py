@@ -18,7 +18,9 @@ from training.jev.records import OPTION_NONE_CORRECT, OPTION_NOT_VALID, compute_
 from training.jev.runner import OmniMlxRunner
 from training.studio.core import (
     DEFAULT_WORK_ROOT,
+    adopt_engine_agreement,
     adopt_jev_suggestions,
+    engines_agree,
     create_batch,
     generate_candidates,
     imported_object_keys,
@@ -55,6 +57,8 @@ def run_jev(batch_dir: Path, run_dir: Path, image_tokens: int, on_progress: Call
         with (run_dir / "decisions.jsonl").open("a", encoding="utf-8") as decisions:
             for split in ("train", "holdout"):
                 for row in review_rows(batch_dir, split, "pending"):
+                    if engines_agree(row):
+                        continue
                     crop = str(row["crop"])
                     dataset = (batch_dir / "dataset").resolve()
                     image = (dataset / crop).resolve()
@@ -126,7 +130,8 @@ def run_prepare(work_root: Path, run_dir: Path, days: int, holdout_ratio: float,
     report(batch_id=batch_dir.name)
     generate_candidates(batch_dir)
 
-    pending = sum(len(review_rows(batch_dir, split, "pending")) for split in ("train", "holdout"))
+    report(agreement_adopted=adopt_engine_agreement(batch_dir))
+    pending = sum(not engines_agree(row) for split in ("train", "holdout") for row in review_rows(batch_dir, split, "pending"))
     if pending and jev_config()["configured"]:
         report(stage="jev", completed=0, total=pending, jev_errors=0)
         jev_run = run_dir / "jev"

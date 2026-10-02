@@ -5,7 +5,7 @@
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; active_dataset_revision?: string | null; screenshot_set?: { set_id: string; version: number; finalized_at?: string; imported_at?: string } | null; review?: ReviewCounts }
   type JevSuggestion = { action: 'accept' | 'reject' | 'manual' | 'error'; selected_option?: string | null; confidence?: number | null; status?: string; reason_code?: string }
   type JevState = { status?: string; log_tail?: string; processed?: number; saved?: number; errors?: number; jev_adopted?: { accepted: number; rejected: number } | null }
-  type PipelineState = { status?: string; stage?: string; completed?: number; total?: number; new_screenshots?: number; batch_id?: string | null; jev_errors?: number; jev_adopted?: { accepted: number; rejected: number } | null; review?: ReviewCounts; log_tail?: string }
+  type PipelineState = { status?: string; stage?: string; completed?: number; total?: number; new_screenshots?: number; batch_id?: string | null; jev_errors?: number; agreement_adopted?: number; jev_adopted?: { accepted: number; rejected: number } | null; review?: ReviewCounts; log_tail?: string }
   type PipelinePreview = { new: number; recent: number; latest_batch: string | null }
   type Row = { jev_suggestion?: JevSuggestion; crop: string; roi: string; layout_version?: string; accuracy_feedback?: 'accurate' | 'inaccurate' | null; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
@@ -1448,7 +1448,7 @@
         <header class="panel-head">
           <p class="eyebrow">快速开始</p>
           <h2>{pipelineHeadline}</h2>
-          <p>{pipelineRunning() ? '可以离开此页，任务在后台继续。' : `自动选取最近 ${remoteDays === 'all' ? '全部' : remoteDays + ' 天'}尚未用过的 R2 截图 → 切片与 OCR → JEV 建议；高置信结果自动成为 Train 标签，Holdout 与不确定项留给你复核。`}</p>
+          <p>{pipelineRunning() ? '可以离开此页，任务在后台继续。' : `自动选取最近 ${remoteDays === 'all' ? '全部' : remoteDays + ' 天'}尚未用过的 R2 截图 → 切片与 OCR → 双引擎一致的 Train 直接采纳，其余交 JEV；高置信结果自动成为 Train 标签，Holdout 与不确定项留给你复核。`}</p>
         </header>
         {#if pipelineError}<p class="remote-empty">{pipelineError}</p>{/if}
         {#if pipelineRunning() || pipeline?.status === 'completed' || pipeline?.status === 'failed'}
@@ -1458,7 +1458,7 @@
             {/each}
           </ol>
           {#if pipeline?.status === 'completed'}
-            <p class="status-meta">新截图 {pipeline.new_screenshots ?? 0} 张{#if pipeline.jev_adopted} · JEV 自动采纳 Train：接受 {pipeline.jev_adopted.accepted}、拒绝 {pipeline.jev_adopted.rejected}{:else} · JEV 未运行{/if}{#if pipeline.jev_errors} · JEV 错误 {pipeline.jev_errors}{/if}</p>
+            <p class="status-meta">新截图 {pipeline.new_screenshots ?? 0} 张 · 双引擎一致自动采纳 {pipeline.agreement_adopted ?? 0}{#if pipeline.jev_adopted} · JEV 另采纳：接受 {pipeline.jev_adopted.accepted}、拒绝 {pipeline.jev_adopted.rejected}{:else} · JEV 未运行{/if}{#if pipeline.jev_errors} · JEV 错误 {pipeline.jev_errors}{/if}</p>
           {/if}
           {#if pipeline?.status === 'failed' && pipeline.log_tail}<pre class="pipeline-log">{pipeline.log_tail.slice(-3000)}</pre>{/if}
         {/if}

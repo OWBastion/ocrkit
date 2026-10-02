@@ -71,14 +71,17 @@ the whole preparation in the background:
 new recent R2 screenshots (not yet in any local batch)
 → source-level train/holdout split
 → fixed-ROI crops and OCR candidates
-→ local JEV suggestions for every pending crop
+→ Train crops where RapidOCR and Vision read the same text adopted directly
+→ local JEV suggestions only for the remaining disagreeing/uncertain crops
 → confident JEV choices adopted as Train labels
 → you review the rest (all Holdout rows + uncertain Train rows)
 → one click: generate labels + Kaggle GPU training (or local CPU Smoke)
 → retrieve checkpoint and run the existing local evaluation
 ```
 
-Confident JEV decisions (confidence ≥ 0.9, a choice among the OCR candidates or
+Agreeing engines (same canonical text, previous model not disagreeing, any
+confidence) skip JEV and become Train labels; agreeing Holdout rows also skip JEV
+but stay pending for a human. Confident JEV decisions (confidence ≥ 0.9, a choice among the OCR candidates or
 "not a valid crop") become automatic Train labels. Holdout rows are never
 adopted automatically: they stay human-reviewed so the evaluation evidence is
 independent of the model that suggested labels. "打开时自动准备" in the panel

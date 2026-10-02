@@ -440,3 +440,45 @@ def test_pipeline_api_previews_new_screenshots_and_blocks_duplicate_prepare(tmp_
     assert launched[0][2:5] == ["-m", "training.studio.workflow", "prepare"] and launched[0][launched[0].index("--days") + 1] == "7"
     assert client.post("/api/pipeline/prepare").status_code == 409
     assert client.get("/api/pipeline/status").json()["status"] == "preparing"
+
+
+def test_engine_agreement_skips_jev_and_is_adopted_for_train_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from training.studio.core import adopt_engine_agreement, engines_agree
+
+    batch = _batch(tmp_path)
+    agree = {"rapidocr_text": "Samoa ", "vision_text": "Samoa", "review_status": "pending", "roi": "map_panel"}
+    rows = [
+        {**agree, "crop": "images/agree.png", "source_id": "a"},
+        {**agree, "crop": "images/teacher.png", "source_id": "b", "teacher_text": "Other"},
+        {**agree, "crop": "images/differ.png", "source_id": "c", "vision_text": "Samba"},
+        {**agree, "crop": "images/single.png", "source_id": "d", "vision_text": None},
+    ]
+    holdout = [{**agree, "crop": "images/h.png", "source_id": "h"}]
+    (batch / "dataset/review/train.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    (batch / "dataset/review/holdout.jsonl").write_text("".join(json.dumps(row) + "\n" for row in holdout))
+    assert [engines_agree(row) for row in rows] == [True, False, False, False]
+
+    seen = []
+    class Runner:
+        def __init__(self, *args: object) -> None:
+            pass
+        def decide(self, record, image: Path, tokens: int) -> DecisionOutput:
+            seen.append(record.record_id)
+            return DecisionOutput(record_id=record.record_id, input_digest=compute_input_digest(record), runner="test", status="ok", reason_code="ok", image_tokens=tokens, options=record.options, selected_option=OPTION_NONE_CORRECT)
+        def close(self) -> None:
+            pass
+    for name in ("agree", "teacher", "differ", "single", "h"):
+        (batch / f"dataset/images/{name}.png").write_bytes(name.encode())
+    monkeypatch.setattr(workflow, "OmniMlxRunner", Runner)
+    monkeypatch.setattr(workflow, "jev_config", lambda: {"configured": True, "model_dir": "local", "worker_python": "python"})
+    run = tmp_path / "run"
+    run.mkdir()
+    workflow.run_jev(batch, run, 70)
+    assert len(seen) == 3  # teacher/differ/single only; agreeing Train and Holdout rows skipped
+
+    assert adopt_engine_agreement(batch) == 1
+    by_crop = {row["crop"]: row for row in review_rows(batch, "train")}
+    assert by_crop["images/agree.png"]["review_status"] == "accepted"
+    assert by_crop["images/agree.png"]["transcription"] == "Samoa"
+    assert by_crop["images/teacher.png"]["review_status"] == "pending"
+    assert review_rows(batch, "holdout")[0]["review_status"] == "pending"
