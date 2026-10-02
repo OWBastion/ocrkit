@@ -59,8 +59,8 @@ provenance but never become labels. Human-reviewed crop transcriptions are the
 training labels.
 
 ```bash
-./studio.sh                    # builds the UI, serves everything on http://127.0.0.1:7860
-./studio.sh --host 0.0.0.0     # same, also reachable from a phone on the same network
+./studio.sh                    # builds the UI, serves everything on port 7860 (computer and phone)
+./studio.sh --host 127.0.0.1   # this computer only
 ```
 
 There is one entry point and one port. The server prints the checkout and
@@ -101,7 +101,7 @@ left/right panels. Production recognition still reads it from the shared layout
 config. Review shows one suggested answer per crop (JEV settles engine
 disagreements; it never overrides agreeing engines) and the UI works on a phone:
 
-Studio has no authentication; use `--host 0.0.0.0` only on a trusted network.
+Studio has no authentication and listens on all interfaces by default; use it only on a trusted network.
 
 Manual R2 browsing, local uploads and platform screenshot sets remain under
 「手动选择 / 上传截图」and feed the same pipeline.

@@ -52,8 +52,8 @@ start_development() {
 }
 
 usage() {
-  printf 'usage: %s [Studio server options]   build the UI and serve everything on http://127.0.0.1:7860\n' "$0"
-  printf '       %s --host 0.0.0.0           also reachable from a phone on the same network\n' "$0"
+  printf 'usage: %s [Studio server options]   build the UI and serve everything on port 7860 (all interfaces)\n' "$0"
+  printf '       %s --host 127.0.0.1         this computer only\n' "$0"
   printf '       %s build                    install locked frontend dependencies and build the UI only\n' "$0"
   printf '       %s dev                      API + Vite HMR on http://127.0.0.1:5173 (UI development)\n' "$0"
 }
