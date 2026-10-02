@@ -10,7 +10,7 @@ import sys
 import tempfile
 import threading
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -38,6 +38,7 @@ from training.studio.core import (
     export_dataset,
     finalize_dataset,
     generate_candidates,
+    imported_object_keys,
     load_manifest,
     refresh_vision_candidates,
     refresh_teacher_candidates,
@@ -75,6 +76,12 @@ class TrainingStart(BaseModel):
 
 class JevStart(BaseModel):
     image_tokens: int = 70
+
+
+class PrepareStart(BaseModel):
+    days: int = Field(default=30, ge=1, le=365)
+    holdout_ratio: float = Field(default=0.2, ge=0, lt=1)
+    image_tokens: Literal[10, 20, 35, 70, 140, 280] = 70
 
 
 class PublishStart(BaseModel):
@@ -769,6 +776,50 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+
+    # --- one-click preparation: new R2 screenshots → batch → candidates → JEV ---
+
+    def _recent_new_objects(days: int) -> tuple[list[dict[str, object]], int]:
+        store = remote_store or StudioR2Store.from_settings()
+        if store is None:
+            raise HTTPException(status_code=503, detail="Studio R2 未配置")
+        since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        try:
+            recent = store.list_recent(since)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=r2_error_detail(exc)) from exc
+        known = imported_object_keys(work_root)
+        return [item for item in recent if item["key"] not in known], len(recent)
+
+    @app.get("/api/pipeline/preview")
+    async def pipeline_preview(days: int = 30) -> dict[str, object]:
+        fresh, recent = await run_in_threadpool(_recent_new_objects, days)
+        batches = sorted(path.parent.name for path in (work_root / "batches").glob("*/batch.json"))
+        return {"new": len(fresh), "recent": recent, "latest_batch": batches[-1] if batches else None}
+
+    @app.post("/api/pipeline/prepare")
+    def start_pipeline(request: PrepareStart | None = None) -> dict[str, object]:
+        request = request or PrepareStart()
+        state_path = work_root / "pipeline/latest.json"
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(state_path, "preparing")
+            run_dir = state_path.parent / f"prepare-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+            run_dir.mkdir(parents=True)
+            log_path = run_dir / "prepare.log"
+            command = [
+                sys.executable, "-u", "-m", "training.studio.workflow", "prepare",
+                "--work-root", str(work_root), "--run-dir", str(run_dir), "--days", str(request.days),
+                "--holdout-ratio", str(request.holdout_ratio), "--image-tokens", str(request.image_tokens),
+            ]
+            with log_path.open("ab") as log:
+                process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            state: dict[str, object] = {"pid": process.pid, "status": "preparing", "backend": "prepare", "command": command, "log": str(log_path), "stage": "listing"}
+            _write_workflow_state(state_path, state)
+            return state
+
+    @app.get("/api/pipeline/status")
+    def pipeline_status() -> dict[str, object]:
+        return _workflow_status(work_root / "pipeline/latest.json", "preparing")
 
     @app.get("/api/jev/config")
     def jev_configuration() -> dict[str, object]:

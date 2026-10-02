@@ -326,3 +326,117 @@ def test_selected_accuracy_marks_follow_r2_provenance_without_becoming_labels(tm
     assert captured == [{"a" * 64: {"sha256": "a" * 64, "object_key": "uploads/selected.png", "accuracy": "inaccurate"}}]
     assert review_rows(batch, "train")[0]["review_status"] == "pending"
     assert "transcription" not in review_rows(batch, "train")[0]
+
+
+def _suggest(batch: Path, split: str, crop: str, **suggestion: object) -> None:
+    path = batch / "dataset/review" / f"{split}.jsonl"
+    rows = review_rows(batch, split)
+    next(row for row in rows if row["crop"] == crop)["jev_suggestion"] = {"status": "ok", **suggestion}
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+
+def test_confident_jev_choices_are_adopted_for_train_only(tmp_path: Path) -> None:
+    from training.studio.core import adopt_jev_suggestions
+
+    batch = _batch(tmp_path)
+    rows = review_rows(batch, "train")
+    rows += [
+        {"crop": f"images/{name}.png", "source_id": name, "roi": "map_panel", "review_status": "pending"}
+        for name in ("low", "reject")
+    ]
+    (batch / "dataset/review/train.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    (batch / "dataset/review/holdout.jsonl").write_text(json.dumps({"crop": "images/h.png", "source_id": "h", "roi": "map_panel", "review_status": "pending", "jev_suggestion": {"status": "ok", "action": "accept", "selected_option": "Samoa", "confidence": 0.99}}) + "\n")
+    _suggest(batch, "train", "images/pending.png", action="accept", selected_option="Samoa", confidence=0.95)
+    _suggest(batch, "train", "images/manual.png", action="accept", selected_option="jev guess", confidence=0.99)
+    _suggest(batch, "train", "images/low.png", action="accept", selected_option="maybe", confidence=0.5)
+    _suggest(batch, "train", "images/reject.png", action="reject", selected_option="not valid", confidence=0.97)
+    _suggest(batch, "train", "images/manual.png", action="accept", selected_option="jev guess", confidence=0.99)
+    _suggest(batch, "train", "images/manual.png", action="manual", selected_option=None, confidence=0.99)
+
+    assert adopt_jev_suggestions(batch) == {"accepted": 1, "rejected": 1}
+    by_crop = {row["crop"]: row for row in review_rows(batch, "train")}
+    assert by_crop["images/pending.png"]["review_status"] == "accepted"
+    assert by_crop["images/pending.png"]["transcription"] == "Samoa"
+    assert by_crop["images/pending.png"]["review_method"] == "automatic"
+    assert by_crop["images/reject.png"]["review_status"] == "rejected"
+    assert by_crop["images/low.png"]["review_status"] == "pending"
+    assert by_crop["images/manual.png"]["transcription"] == "human truth"
+    assert review_rows(batch, "holdout")[0]["review_status"] == "pending"
+
+
+def test_prepare_imports_only_new_recent_screenshots_and_adopts_jev(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    old = tmp_path / "batches/old"
+    old.mkdir(parents=True)
+    (old / "batch.json").write_text(json.dumps({"sources": [{"provenance": {"object_key": "uploads/submissions/seen.png"}}]}))
+    batch = _batch(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    created = {}
+
+    class Store:
+        max_objects = 200
+        def list_recent(self, since: str):
+            return [{"key": "uploads/submissions/new.png"}, {"key": "uploads/submissions/seen.png"}]
+        def download_images(self, keys, directory, progress_callback=None):
+            created["keys"] = keys
+            path = directory / "0001.png"
+            path.write_bytes(b"png")
+            progress_callback(1, 1, keys[0])
+            return [SimpleNamespace(path=path, provenance={"object_key": keys[0], "sha256": "digest"})]
+
+    def create(paths, **kwargs):
+        created["provenance"] = kwargs["provenance_by_digest"]
+        return batch, {}
+
+    def jev(batch_dir, run_dir, tokens, on_progress):
+        _suggest(batch_dir, "train", "images/pending.png", action="accept", selected_option="Samoa", confidence=0.95)
+        on_progress(1, 1, 0)
+        return 0
+
+    monkeypatch.setattr(workflow.StudioR2Store, "from_settings", classmethod(lambda cls: Store()))
+    monkeypatch.setattr(workflow, "get_feedback", lambda since: {"available": True, "marks": {"uploads/submissions/new.png": "inaccurate"}})
+    monkeypatch.setattr(workflow, "create_batch", create)
+    monkeypatch.setattr(workflow, "generate_candidates", lambda batch_dir: {})
+    monkeypatch.setattr(workflow, "jev_config", lambda: {"configured": True})
+    monkeypatch.setattr(workflow, "run_jev", jev)
+
+    assert workflow.run_prepare(tmp_path, run, 30, 0.2, 70) == 0
+    assert created["keys"] == ["uploads/submissions/new.png"]
+    assert created["provenance"]["digest"]["accuracy"] == "inaccurate"
+    result = json.loads((run / "result.json").read_text())
+    assert result["stage"] == "done"
+    assert result["batch_id"] == "example"
+    assert result["jev_adopted"] == {"accepted": 1, "rejected": 0}
+    assert review_rows(batch, "train")[0]["review_status"] == "accepted"
+
+
+def test_prepare_with_nothing_new_finishes_on_latest_batch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = _batch(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    class Store:
+        max_objects = 200
+        def list_recent(self, since: str):
+            return []
+    monkeypatch.setattr(workflow.StudioR2Store, "from_settings", classmethod(lambda cls: Store()))
+    assert workflow.run_prepare(tmp_path, run, 30, 0.2, 70) == 0
+    assert json.loads((run / "result.json").read_text()) == {"stage": "done", "new_screenshots": 0, "batch_id": batch.name}
+
+
+def test_pipeline_api_previews_new_screenshots_and_blocks_duplicate_prepare(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _batch(tmp_path)
+    launched = []
+    monkeypatch.setattr(studio_app.subprocess, "Popen", lambda command, **kwargs: launched.append(command) or SimpleNamespace(pid=555))
+    monkeypatch.setattr(studio_app.os, "waitpid", lambda pid, flags: (0, 0))
+
+    class Store:
+        def list_recent(self, since: str):
+            return [{"key": "a.png"}, {"key": "b.png"}]
+
+    client = TestClient(studio_app.create_app(tmp_path, None, remote_store=Store()))
+    assert client.get("/api/pipeline/preview").json() == {"new": 2, "recent": 2, "latest_batch": "example"}
+    started = client.post("/api/pipeline/prepare", json={"days": 7})
+    assert started.status_code == 200
+    assert launched[0][2:5] == ["-m", "training.studio.workflow", "prepare"] and launched[0][launched[0].index("--days") + 1] == "7"
+    assert client.post("/api/pipeline/prepare").status_code == 409
+    assert client.get("/api/pipeline/status").json()["status"] == "preparing"

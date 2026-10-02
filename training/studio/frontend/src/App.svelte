@@ -4,7 +4,9 @@
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number; teacher_eligible?: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; active_dataset_revision?: string | null; screenshot_set?: { set_id: string; version: number; finalized_at?: string; imported_at?: string } | null; review?: ReviewCounts }
   type JevSuggestion = { action: 'accept' | 'reject' | 'manual' | 'error'; selected_option?: string | null; confidence?: number | null; status?: string; reason_code?: string }
-  type JevState = { status?: string; log_tail?: string; processed?: number; saved?: number; errors?: number }
+  type JevState = { status?: string; log_tail?: string; processed?: number; saved?: number; errors?: number; jev_adopted?: { accepted: number; rejected: number } | null }
+  type PipelineState = { status?: string; stage?: string; completed?: number; total?: number; new_screenshots?: number; batch_id?: string | null; jev_errors?: number; jev_adopted?: { accepted: number; rejected: number } | null; review?: ReviewCounts; log_tail?: string }
+  type PipelinePreview = { new: number; recent: number; latest_batch: string | null }
   type Row = { jev_suggestion?: JevSuggestion; crop: string; roi: string; layout_version?: string; accuracy_feedback?: 'accurate' | 'inaccurate' | null; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
@@ -207,6 +209,13 @@
   let jevConfigured = false
   let jevState: JevState | null = null
   let jevPollTimer: ReturnType<typeof setInterval> | null = null
+  let pipeline: PipelineState | null = null
+  let pipelinePreview: PipelinePreview | null = null
+  let pipelineError = ''
+  let pipelinePollTimer: ReturnType<typeof setInterval> | null = null
+  let autoPrepare = false
+  const AUTO_PREPARE_KEY = 'ocrkit-studio-auto-prepare'
+  const pipelineStages = [['listing', '查找新截图'], ['downloading', '下载'], ['candidates', '切片 + OCR'], ['jev', 'JEV 建议'], ['done', '完成']] as const
   let hoverPreviewObject: RemoteObject | null = null
   let hoverPreviewTimeout: ReturnType<typeof setTimeout> | null = null
   let previewModalObject: RemoteObject | null = null
@@ -235,7 +244,7 @@
   $: selectedRatio = selected ? getEngineRatio(selected) : null
 
   const nav = [
-    ['import', '1', '导入'],
+    ['import', '1', '准备'],
     ['candidates', '2', '候选'],
     ['review', '3', '复核'],
     ['dataset', '4', '标签'],
@@ -265,7 +274,7 @@
   }
 
   function batchHint() {
-    if (!batch) return '选择 R2 截图 → 自动切片 → JEV 辅助复核 → 生成数据集 → Kaggle 训练'
+    if (!batch) return '一键准备新截图 → 复核不确定项 → Kaggle 训练'
     const review = batch.review
     if (!review || review.total === 0) return '下一步：生成候选'
     if (review.pending > 0) return `下一步：复核剩余 ${review.pending} 条`
@@ -1275,15 +1284,95 @@
     } catch (cause) { message(cause instanceof Error ? cause.message : 'JEV 启动失败', true) } finally { busy = false }
   }
 
+  // --- 一键准备：新 R2 截图 → 批次 → 切片/OCR → JEV → 采纳高置信 Train 标签 ---
+
+  const pipelineRunning = () => pipeline?.status === 'preparing'
+
+  function stopPipelinePoll() {
+    if (pipelinePollTimer) clearInterval(pipelinePollTimer)
+    pipelinePollTimer = null
+  }
+
+  async function refreshPipeline() {
+    const wasRunning = pipelineRunning()
+    pipeline = await request<PipelineState>('/api/pipeline/status')
+    if (pipelineRunning()) {
+      if (!pipelinePollTimer) pipelinePollTimer = setInterval(() => { void refreshPipeline().catch(stopPipelinePoll) }, 1500)
+      return
+    }
+    stopPipelinePoll()
+    if (wasRunning) {
+      await refreshBatches(pipeline.batch_id || undefined)
+      if (pipeline.status === 'completed') message('准备完成，可以开始复核。')
+      else message('准备失败，详情见下方日志。', true)
+    }
+  }
+
+  async function loadPipelinePreview() {
+    pipelineError = ''
+    try {
+      pipelinePreview = await request<PipelinePreview>(`/api/pipeline/preview?days=${remoteDays === 'all' ? 365 : remoteDays}`)
+    } catch (cause) {
+      pipelinePreview = null
+      pipelineError = cause instanceof Error ? cause.message : '无法读取 R2'
+    }
+  }
+
+  async function startPipeline() {
+    try {
+      pipeline = await request<PipelineState>('/api/pipeline/prepare', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ days: remoteDays === 'all' ? 365 : Number(remoteDays), holdout_ratio: holdoutRatio }),
+      })
+      await refreshPipeline()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '启动失败', true) }
+  }
+
+  function setAutoPrepare(value: boolean) {
+    autoPrepare = value
+    try { localStorage.setItem(AUTO_PREPARE_KEY, value ? '1' : '0') } catch {}
+  }
+
+  async function reviewPipelineBatch() {
+    await refreshBatches(pipeline?.batch_id || pipelinePreview?.latest_batch || undefined)
+    if (!batch) return message('还没有批次。', true)
+    openStep('review')
+  }
+
+  async function trainPipelineBatch() {
+    await refreshBatches(pipeline?.batch_id || pipelinePreview?.latest_batch || undefined)
+    if (!batch) return message('还没有批次。', true)
+    trainingBackend = 'kaggle'
+    active = 'training'
+    await startTraining()
+  }
+
+  $: pipelineBatch = batches.find((item) => item.batch_id === (pipeline?.batch_id || pipelinePreview?.latest_batch)) || null
+  $: pipelineStageIndex = Math.max(0, pipelineStages.findIndex(([name]) => name === pipeline?.stage))
+  $: pipelineHeadline = pipelineRunning()
+    ? '正在准备训练数据…'
+    : pipeline?.status === 'failed' ? '准备失败'
+    : pipelineBatch && pipelineBatch.review && pipelineBatch.review.pending === 0 && pipelineBatch.review.total > 0 ? '标签已就绪，可以训练'
+    : pipelineBatch && pipelineBatch.review && pipelineBatch.review.pending > 0 ? `还有 ${pipelineBatch.review.pending} 条待复核`
+    : pipelinePreview ? (pipelinePreview.new ? `发现 ${pipelinePreview.new} 张新截图` : '没有新截图')
+    : '准备训练数据'
+
   onMount(async () => {
     try {
+      try { autoPrepare = localStorage.getItem(AUTO_PREPARE_KEY) === '1' } catch {}
       await Promise.all([refreshBatches(), loadRemoteStatus(), request<{ configured: boolean }>('/api/jev/config').then((config) => { jevConfigured = config.configured }).catch(() => { jevConfigured = false })])
-      if (remoteConfig?.configured) await loadRemoteImages()
+      await refreshPipeline()
+      if (remoteConfig?.configured && !pipelineRunning()) {
+        await loadPipelinePreview()
+        if (autoPrepare && pipelinePreview?.new) await startPipeline()
+      }
     } catch { message('无法连接 Studio API。', true) }
   })
   onDestroy(() => {
     stopTrainingPoll()
     stopJevPoll()
+    stopPipelinePoll()
     clearToastTimer()
   })
 </script>
@@ -1355,6 +1444,40 @@
     <div class="app-content">
 
     {#if active === 'import'}
+      <section class="panel pipeline-panel" aria-label="一键准备">
+        <header class="panel-head">
+          <p class="eyebrow">快速开始</p>
+          <h2>{pipelineHeadline}</h2>
+          <p>{pipelineRunning() ? '可以离开此页，任务在后台继续。' : `自动选取最近 ${remoteDays === 'all' ? '全部' : remoteDays + ' 天'}尚未用过的 R2 截图 → 切片与 OCR → JEV 建议；高置信结果自动成为 Train 标签，Holdout 与不确定项留给你复核。`}</p>
+        </header>
+        {#if pipelineError}<p class="remote-empty">{pipelineError}</p>{/if}
+        {#if pipelineRunning() || pipeline?.status === 'completed' || pipeline?.status === 'failed'}
+          <ol class="pipeline-stages">
+            {#each pipelineStages as [name, label], index}
+              <li class:stage-done={pipeline?.status === 'completed' || index < pipelineStageIndex} class:stage-current={pipelineRunning() && index === pipelineStageIndex}>{label}{#if pipelineRunning() && index === pipelineStageIndex && pipeline?.total}<span> {pipeline.completed ?? 0}/{pipeline.total}</span>{/if}</li>
+            {/each}
+          </ol>
+          {#if pipeline?.status === 'completed'}
+            <p class="status-meta">新截图 {pipeline.new_screenshots ?? 0} 张{#if pipeline.jev_adopted} · JEV 自动采纳 Train：接受 {pipeline.jev_adopted.accepted}、拒绝 {pipeline.jev_adopted.rejected}{:else} · JEV 未运行{/if}{#if pipeline.jev_errors} · JEV 错误 {pipeline.jev_errors}{/if}</p>
+          {/if}
+          {#if pipeline?.status === 'failed' && pipeline.log_tail}<pre class="pipeline-log">{pipeline.log_tail.slice(-3000)}</pre>{/if}
+        {/if}
+        <div class="panel-actions">
+          {#if pipelineBatch?.review && pipelineBatch.review.pending > 0 && !pipelineRunning()}
+            <button class="button-primary" on:click={() => void reviewPipelineBatch()}>开始复核（{pipelineBatch.review.pending} 条）</button>
+          {:else if pipelineBatch?.review && pipelineBatch.review.total > 0 && !pipelineRunning()}
+            <button class="button-primary" disabled={busy} on:click={() => void trainPipelineBatch()}>生成标签并开始 Kaggle 训练</button>
+          {/if}
+          <button class={pipelineBatch?.review?.total && !pipelineRunning() ? 'button-secondary' : 'button-primary'} disabled={pipelineRunning() || !remoteConfig?.configured || (!!pipelinePreview && pipelinePreview.new === 0)} on:click={() => void startPipeline()}>
+            {pipelineRunning() ? '准备中…' : pipelinePreview?.new ? `准备 ${pipelinePreview.new} 张新截图` : '准备新截图'}
+          </button>
+          <label class="field"><span>时间范围</span><select class="control" bind:value={remoteDays} disabled={pipelineRunning()} on:change={() => void loadPipelinePreview()}><option value="30">最近 30 天</option><option value="7">最近 7 天</option><option value="all">一年内</option></select></label>
+          <label class="field field-check"><input type="checkbox" checked={autoPrepare} on:change={(event) => setAutoPrepare(event.currentTarget.checked)} /><span>打开时自动准备</span></label>
+          {#if !jevConfigured}<span class="status-meta">JEV 未配置：跳过自动建议，全部候选留给你复核。</span>{/if}
+        </div>
+      </section>
+      <details class="manual-import" on:toggle={(event) => { if (event.currentTarget.open && remoteConfig?.configured && !remoteObjects.length) void loadRemoteImages() }}>
+      <summary>手动选择 / 上传截图（高级）</summary>
       <section class="panel-grid">
         <div class="panel">
           <header class="panel-head"><p class="eyebrow">步骤 1</p><h2>选择截图，准备训练数据</h2><p>自动加载最近 30 天 R2 截图，选图后创建批次并切片，使用 JEV 建议辅助确认标签。</p></header>
@@ -1679,7 +1802,7 @@
         <aside class="panel panel-side">
           <h3>流程</h3>
           <ol class="flow-list">
-            <li class="flow-current"><b>1</b><span><strong>导入</strong> 创建批次</span></li>
+            <li class="flow-current"><b>1</b><span><strong>准备</strong> 选图 + 切片 + JEV</span></li>
             <li><b>2</b><span><strong>候选</strong> RapidOCR + Vision</span></li>
             <li><b>3</b><span><strong>复核</strong> 接受 / 拒绝</span></li>
             <li><b>4</b><span><strong>标签</strong> train / holdout</span></li>
@@ -1702,6 +1825,7 @@
           {/if}
         </aside>
       </section>
+      </details>
     {:else if active === 'candidates'}
       <section class="panel stage-panel">
         <header class="panel-head">
@@ -1725,7 +1849,7 @@
         </div>
       </section>
     {:else if active === 'review'}
-      <section class="panel"><div class="panel-actions"><button class="button-primary" disabled={!batch || busy || !jevConfigured || jevState?.status === 'reviewing'} on:click={() => void startJev()}>{jevState?.status === 'reviewing' ? 'JEV 生成建议中…' : 'JEV 生成复核建议'}</button><span>{jevConfigured ? '建议需人工确认后成为标签，Holdout 保留独立人工复核。' : 'JEV 未配置，请设置本地模型目录。'}</span></div>{#if jevState}<p>JEV：{jevState.status} · 已处理 {jevState.processed ?? 0} · 已保存 {jevState.saved ?? 0} · 错误 {jevState.errors ?? 0}</p>{/if}{#if jevState?.log_tail}<pre class="log-tail">{jevState.log_tail}</pre>{/if}</section>
+      <section class="panel"><div class="panel-actions"><button class="button-secondary" disabled={!batch || busy || !jevConfigured || jevState?.status === 'reviewing'} on:click={() => void startJev()}>{jevState?.status === 'reviewing' ? 'JEV 生成建议中…' : '重新运行 JEV'}</button><span>{jevConfigured ? 'JEV 高置信建议自动采纳为 Train 标签；Holdout 保留独立人工复核。' : 'JEV 未配置，请设置本地模型目录。'}</span></div>{#if jevState && jevState.status !== 'not_started'}<p class="status-meta">JEV：{jevState.status} · 已处理 {jevState.processed ?? 0} · 错误 {jevState.errors ?? 0}{#if jevState.jev_adopted} · 自动采纳 接受 {jevState.jev_adopted.accepted} / 拒绝 {jevState.jev_adopted.rejected}{/if}</p>{/if}{#if jevState?.status === 'failed' && jevState.log_tail}<pre class="pipeline-log">{jevState.log_tail.slice(-3000)}</pre>{/if}</section>
       <section class="review-layout">
         <aside class="review-list">
           <div class="filters">

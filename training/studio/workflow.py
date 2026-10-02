@@ -5,13 +5,30 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sys
 import subprocess
+import tempfile
+import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 from training.jev.records import OPTION_NONE_CORRECT, OPTION_NOT_VALID, compute_input_digest, record_from_review_row
 from training.jev.runner import OmniMlxRunner
-from training.studio.core import load_manifest, review_rows, save_jev_suggestion
+from training.studio.core import (
+    DEFAULT_WORK_ROOT,
+    adopt_jev_suggestions,
+    create_batch,
+    generate_candidates,
+    imported_object_keys,
+    load_manifest,
+    review_counts,
+    review_rows,
+    save_jev_suggestion,
+)
+from training.studio.feedback import get_feedback
+from training.studio.r2 import StudioR2Store
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -28,7 +45,7 @@ def _write_result(run_dir: Path, result: dict[str, object]) -> None:
     temporary.replace(run_dir / "result.json")
 
 
-def run_jev(batch_dir: Path, run_dir: Path, image_tokens: int) -> int:
+def run_jev(batch_dir: Path, run_dir: Path, image_tokens: int, on_progress: Callable[[int, int, int], None] | None = None) -> int:
     config = jev_config()
     if not config["configured"]:
         raise ValueError("local Jev-Omni model or worker Python is not configured")
@@ -60,9 +77,66 @@ def run_jev(batch_dir: Path, run_dir: Path, image_tokens: int) -> int:
                     result = {"processed": processed, "saved": saved, "errors": errors}
                     _write_result(run_dir, result)
                     print(f"JEV suggestions: {processed} processed, {saved} saved, {errors} errors", flush=True)
+                    if on_progress:
+                        on_progress(processed, saved, errors)
     finally:
         runner.close()
     return 1 if errors else 0
+
+
+def run_prepare(work_root: Path, run_dir: Path, days: int, holdout_ratio: float, image_tokens: int) -> int:
+    """New R2 screenshots → batch → crops/candidates → JEV → confident Train labels adopted."""
+    store = StudioR2Store.from_settings()
+    if store is None:
+        raise ValueError("Studio R2 未配置")
+    state: dict[str, object] = {}
+    lock = threading.Lock()
+
+    def report(**fields: object) -> None:
+        with lock:
+            state.update(fields)
+            _write_result(run_dir, state)
+
+    report(stage="listing")
+    since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    known = imported_object_keys(work_root)
+    fresh = [item for item in store.list_recent(since) if item["key"] not in known][: store.max_objects]
+    report(new_screenshots=len(fresh))
+    if not fresh:
+        batches = sorted(path.parent.name for path in (work_root / "batches").glob("*/batch.json"))
+        report(stage="done", batch_id=batches[-1] if batches else None)
+        return 0
+
+    marks = get_feedback(since)["marks"]
+    keys = [str(item["key"]) for item in fresh]
+    temporary = Path(tempfile.mkdtemp(prefix="studio-prepare-", dir=work_root))
+    try:
+        report(stage="downloading", completed=0, total=len(keys))
+        downloaded = store.download_images(keys, temporary, progress_callback=lambda done, total, _key: report(stage="downloading", completed=done, total=total))
+        provenance: dict[str, dict[str, object]] = {}
+        for item in downloaded:
+            entry = dict(item.provenance)
+            if entry["object_key"] in marks:
+                entry["accuracy"] = marks[entry["object_key"]]
+            provenance[str(entry["sha256"])] = entry
+        report(stage="candidates", completed=0, total=0)
+        batch_dir, _ = create_batch([item.path for item in downloaded], work_root=work_root, holdout_ratio=holdout_ratio, provenance_by_digest=provenance)
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
+    report(batch_id=batch_dir.name)
+    generate_candidates(batch_dir)
+
+    pending = sum(len(review_rows(batch_dir, split, "pending")) for split in ("train", "holdout"))
+    if pending and jev_config()["configured"]:
+        report(stage="jev", completed=0, total=pending, jev_errors=0)
+        jev_run = run_dir / "jev"
+        jev_run.mkdir(exist_ok=True)
+        run_jev(batch_dir, jev_run, image_tokens, lambda processed, _saved, errors: report(stage="jev", completed=processed, total=pending, jev_errors=errors))
+        report(jev_adopted=adopt_jev_suggestions(batch_dir))
+    else:
+        report(jev_adopted=None)
+    report(stage="done", review=review_counts(batch_dir))
+    return 0
 
 
 def run_kaggle(batch_dir: Path, run_dir: Path, epochs: int) -> int:
@@ -83,15 +157,26 @@ def run_kaggle(batch_dir: Path, run_dir: Path, epochs: int) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=("jev", "kaggle"))
-    parser.add_argument("--batch-dir", type=Path, required=True)
+    parser.add_argument("kind", choices=("prepare", "jev", "kaggle"))
+    parser.add_argument("--batch-dir", type=Path)
+    parser.add_argument("--work-root", type=Path, default=DEFAULT_WORK_ROOT)
+    parser.add_argument("--days", type=int, default=30)
+    parser.add_argument("--holdout-ratio", type=float, default=0.2)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--image-tokens", type=int, default=70, choices=(10, 20, 35, 70, 140, 280))
     args = parser.parse_args()
     exit_code = 1
     try:
-        exit_code = run_jev(args.batch_dir, args.run_dir, args.image_tokens) if args.kind == "jev" else run_kaggle(args.batch_dir, args.run_dir, args.epochs)
+        if args.kind == "prepare":
+            exit_code = run_prepare(args.work_root, args.run_dir, args.days, args.holdout_ratio, args.image_tokens)
+        elif args.kind == "jev":
+            exit_code = run_jev(args.batch_dir, args.run_dir, args.image_tokens)
+            result_path = args.run_dir / "result.json"
+            previous = json.loads(result_path.read_text(encoding="utf-8")) if result_path.is_file() else {}
+            _write_result(args.run_dir, {**previous, "jev_adopted": adopt_jev_suggestions(args.batch_dir)})
+        else:
+            exit_code = run_kaggle(args.batch_dir, args.run_dir, args.epochs)
         return exit_code
     finally:
         result_path = args.run_dir / "result.json"

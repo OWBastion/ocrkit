@@ -79,3 +79,18 @@ def test_date_filter_uses_timezone_and_includes_exact_boundary():
     assert store.list_images("uploads/submissions/", since="2026-10-01T08:00:01+08:00")["objects"] == []
     with pytest.raises(ValueError, match="ISO"):
         store.list_images("uploads/submissions/", since="not-a-date")
+
+
+def test_list_recent_follows_pages_and_returns_newest_first():
+    pages = {
+        None: {"Contents": [{"Key": "uploads/submissions/a.png", "Size": 1, "LastModified": datetime(2026, 9, 20, tzinfo=timezone.utc)}], "IsTruncated": True, "NextContinuationToken": "p2"},
+        "p2": {"Contents": [{"Key": "uploads/submissions/b.png", "Size": 1, "LastModified": datetime(2026, 9, 25, tzinfo=timezone.utc)}, {"Key": "uploads/submissions/old.png", "Size": 1, "LastModified": datetime(2026, 1, 1, tzinfo=timezone.utc)}]},
+    }
+    store = StudioR2Store(
+        object_store=SimpleNamespace(list_objects=lambda bucket, prefix, token, max_keys: pages[token]),
+        bucket="evidence",
+        allowed_prefixes=("uploads/submissions/",),
+        max_objects=200,
+        max_object_bytes=1024,
+    )
+    assert [item["key"] for item in store.list_recent("2026-09-01")] == ["uploads/submissions/b.png", "uploads/submissions/a.png"]

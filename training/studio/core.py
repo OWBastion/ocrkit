@@ -1220,6 +1220,52 @@ def update_review_row(batch_dir: Path, split: str, crop: str, status: str, trans
         raise ValueError("review candidate no longer exists")
 
 
+JEV_ADOPT_CONFIDENCE = 0.9
+
+
+def imported_object_keys(work_root: Path) -> set[str]:
+    """R2 object keys that already back a source screenshot in any local batch."""
+    keys: set[str] = set()
+    for manifest_path in (work_root / "batches").glob("*/batch.json"):
+        try:
+            sources = json.loads(manifest_path.read_text(encoding="utf-8")).get("sources", [])
+        except (OSError, json.JSONDecodeError):
+            continue
+        keys.update(
+            str(source["provenance"]["object_key"])
+            for source in sources
+            if isinstance((source.get("provenance") or {}).get("object_key"), str)
+        )
+    return keys
+
+
+def adopt_jev_suggestions(batch_dir: Path, *, min_confidence: float = JEV_ADOPT_CONFIDENCE) -> dict[str, int]:
+    """Adopt confident JEV decisions for pending Train rows; Holdout stays human-reviewed."""
+    adopted = {"accepted": 0, "rejected": 0}
+    with _review_lock(batch_dir, "train"):
+        rows = review_rows(batch_dir, "train")
+        for row in rows:
+            suggestion = row.get("jev_suggestion")
+            if row.get("review_status") != "pending" or not isinstance(suggestion, dict) or suggestion.get("status") != "ok":
+                continue
+            confidence = suggestion.get("confidence")
+            if not isinstance(confidence, (int, float)) or confidence < min_confidence:
+                continue
+            option = suggestion.get("selected_option")
+            if suggestion.get("action") == "accept" and isinstance(option, str) and option.strip():
+                row.update(review_status="accepted", transcription=canonicalize(option), auto_accept_reason="jev_suggestion", auto_reject_reason=None)
+                adopted["accepted"] += 1
+            elif suggestion.get("action") == "reject":
+                row.update(review_status="rejected", transcription=None, auto_accept_reason=None, auto_reject_reason="jev.not_valid")
+                adopted["rejected"] += 1
+            else:
+                continue
+            row["review_method"] = "automatic"
+        if any(adopted.values()):
+            _atomic_jsonl(batch_dir / "dataset/review/train.jsonl", rows)
+    return adopted
+
+
 def accept_teacher_suggestions(batch_dir: Path) -> dict[str, int]:
     """Accept only explicit high-confidence teacher suggestions in train data."""
     path = batch_dir / "dataset/review/train.jsonl"

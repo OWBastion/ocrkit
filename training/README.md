@@ -63,21 +63,28 @@ training labels.
 # Open http://127.0.0.1:5173
 ```
 
-Studio opens on recent R2 screenshots (last 30 days), follows list pagination,
-and sorts the matching screenshots newest first. Choose screenshots and
-create a new batch or explicitly append to the current batch. Import can go
-straight into fixed-ROI cropping and candidate generation. The workflow is:
+Studio opens on a one-click **准备** panel. It lists R2 screenshots from the last
+30 days that no local batch has used yet (by R2 object key) and one button runs
+the whole preparation in the background:
 
 ```text
-recent R2 screenshots or local files
+new recent R2 screenshots (not yet in any local batch)
 → source-level train/holdout split
 → fixed-ROI crops and OCR candidates
-→ optional local JEV suggestions for pending crops
-→ confirm/correct or reject crops
-→ generate labels
-→ Kaggle GPU training (or local CPU Smoke)
+→ local JEV suggestions for every pending crop
+→ confident JEV choices adopted as Train labels
+→ you review the rest (all Holdout rows + uncertain Train rows)
+→ one click: generate labels + Kaggle GPU training (or local CPU Smoke)
 → retrieve checkpoint and run the existing local evaluation
 ```
+
+Confident JEV decisions (confidence ≥ 0.9, a choice among the OCR candidates or
+"not a valid crop") become automatic Train labels. Holdout rows are never
+adopted automatically: they stay human-reviewed so the evaluation evidence is
+independent of the model that suggested labels. "打开时自动准备" in the panel
+starts the preparation as soon as Studio opens and new screenshots exist.
+Manual R2 browsing, local uploads and platform screenshot sets remain under
+「手动选择 / 上传截图」and feed the same pipeline.
 
 The existing R2 endpoint/access key/secret are reused. Explicit
 `OCRKIT_STUDIO_R2_BUCKET` and `OCRKIT_STUDIO_R2_ALLOWED_PREFIXES` take precedence;
@@ -87,9 +94,10 @@ A model-only bucket or ambiguous bucket configuration must be given an evidence
 bucket once; Studio does not need a new credential-management service.
 
 JEV reuses the local `training/.work/jev/Jev-Omni-MLX-4bit` model and
-`training/.work/jev/venv/bin/python` worker. Suggestions do not overwrite human
-reviews or automatically become labels. The existing read-only JEV experiment
-script remains available for measuring its decisions independently.
+`training/.work/jev/venv/bin/python` worker. It never overwrites human reviews.
+Without JEV the preparation still creates the batch and candidates and leaves
+all rows for manual review. The existing read-only JEV experiment script
+remains available for measuring its decisions independently.
 
 The training screen starts the existing Kaggle runner with the current batch's
 reviewed dataset, shows local submission/status logs, and records the downloaded

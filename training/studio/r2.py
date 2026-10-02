@@ -155,6 +155,18 @@ class StudioR2Store:
             "next_cursor": response.get("NextContinuationToken") if response.get("IsTruncated") else None,
         }
 
+    def list_recent(self, since: str, *, prefix: str | None = None, max_pages: int = 100) -> list[dict[str, object]]:
+        """All images modified since ``since`` under the prefix, newest first."""
+        objects: list[dict[str, object]] = []
+        cursor: str | None = None
+        for _ in range(max_pages):
+            page = self.list_images(prefix or self.allowed_prefixes[0], cursor, since=since)
+            objects.extend(page["objects"])  # type: ignore[arg-type]
+            cursor = page["next_cursor"]  # type: ignore[assignment]
+            if not cursor:
+                break
+        return sorted(objects, key=lambda item: str(item.get("last_modified") or ""), reverse=True)
+
     def get_image(self, key: str) -> tuple[bytes, str]:
         validated_key = self._validate_key(key)
         content = self.object_store.get_object_bytes(
