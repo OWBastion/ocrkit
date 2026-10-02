@@ -4,6 +4,7 @@ import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
@@ -39,25 +40,36 @@ class StudioR2Store:
     def from_settings(cls) -> "StudioR2Store | None":
         if not all((settings.r2_endpoint_url, settings.r2_access_key_id, settings.r2_secret_access_key)):
             return None
+        bucket = settings.studio_r2_bucket.strip()
+        if not bucket:
+            model_bucket = settings.r2_default_bucket.strip() if settings.model_manifest_key or settings.model_release_channel_key else ""
+            candidates = {value.strip() for value in settings.r2_allowed_buckets.split(",") if value.strip()} - {model_bucket}
+            default_bucket = settings.r2_default_bucket.strip()
+            if default_bucket and not model_bucket:
+                bucket = default_bucket
+            elif len(candidates) == 1:
+                bucket = candidates.pop()
         prefixes = tuple(
             prefix.strip()
             for prefix in settings.studio_r2_allowed_prefixes.split(",")
             if prefix.strip()
         )
-        if not settings.studio_r2_bucket or not prefixes:
+        if not prefixes:
+            prefixes = ("uploads/submissions/",)
+        if not bucket:
             return None
         object_store = R2ObjectStore.from_settings(
             endpoint_url=settings.r2_endpoint_url,
             access_key_id=settings.r2_access_key_id,
             secret_access_key=settings.r2_secret_access_key,
             region_name=settings.r2_region_name,
-            default_bucket=settings.studio_r2_bucket,
-            allowed_buckets_raw=settings.studio_r2_bucket,
+            default_bucket=bucket,
+            allowed_buckets_raw=bucket,
             read_timeout_seconds=settings.r2_read_timeout_seconds,
         )
         return cls(
             object_store=object_store,
-            bucket=settings.studio_r2_bucket,
+            bucket=bucket,
             allowed_prefixes=prefixes,
             max_objects=settings.studio_r2_max_objects,
             max_object_bytes=settings.studio_r2_max_object_bytes,
@@ -98,7 +110,16 @@ class StudioR2Store:
         root = allowed.rstrip("/")
         return value == root or value.startswith(f"{root}/")
 
-    def list_images(self, prefix: str, continuation_token: str | None = None) -> dict[str, object]:
+    @staticmethod
+    def _parse_since(value: str) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("since must be an ISO date or datetime") from exc
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+    def list_images(self, prefix: str, continuation_token: str | None = None, *, since: str | None = None) -> dict[str, object]:
+        cutoff = self._parse_since(since) if since else None
         validated_prefix = self._validate_prefix(prefix)
         response = self.object_store.list_objects(
             self.bucket,
@@ -115,6 +136,12 @@ class StudioR2Store:
             if Path(key).suffix.lower() not in _REMOTE_IMAGE_SUFFIXES or size > self.max_object_bytes:
                 continue
             last_modified = item.get("LastModified")
+            if cutoff is not None:
+                if not isinstance(last_modified, datetime):
+                    continue
+                modified = last_modified.replace(tzinfo=timezone.utc) if last_modified.tzinfo is None else last_modified.astimezone(timezone.utc)
+                if modified < cutoff:
+                    continue
             objects.append(
                 {
                     "key": key,

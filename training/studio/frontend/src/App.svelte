@@ -3,10 +3,16 @@
 
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number; teacher_eligible?: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; active_dataset_revision?: string | null; screenshot_set?: { set_id: string; version: number; finalized_at?: string; imported_at?: string } | null; review?: ReviewCounts }
-  type Row = { crop: string; roi: string; layout_version?: string; accuracy_feedback?: 'accurate' | 'inaccurate' | null; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
+  type JevSuggestion = { action: 'accept' | 'reject' | 'manual' | 'error'; selected_option?: string | null; confidence?: number | null; status?: string; reason_code?: string }
+  type JevState = { status?: string; log_tail?: string; processed?: number; saved?: number; errors?: number }
+  type Row = { jev_suggestion?: JevSuggestion; crop: string; roi: string; layout_version?: string; accuracy_feedback?: 'accurate' | 'inaccurate' | null; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
     status?: string
+    backend?: string
+    output_run_dir?: string
+    kaggle_kernel?: string
+    checkpoint?: string
     pid?: number
     log?: string
     log_tail?: string
@@ -189,7 +195,18 @@
   let remoteFilterText = ''
   let remoteSortField: RemoteSortField = 'date'
   let remoteSortOrder: RemoteSortOrder = 'desc'
-  let remoteViewMode: RemoteViewMode = 'list'
+  let remoteViewMode: RemoteViewMode = 'grid'
+  let remoteDays = '30'
+  let remoteFeedback: Record<string, 'accurate' | 'inaccurate'> = {}
+  let feedbackAvailable = false
+  let feedbackLoading = false
+  let feedbackFilter = 'all'
+  let remoteImportMode = 'new'
+  let generateAfterImport = true
+  let trainingBackend = 'kaggle'
+  let jevConfigured = false
+  let jevState: JevState | null = null
+  let jevPollTimer: ReturnType<typeof setInterval> | null = null
   let hoverPreviewObject: RemoteObject | null = null
   let hoverPreviewTimeout: ReturnType<typeof setTimeout> | null = null
   let previewModalObject: RemoteObject | null = null
@@ -228,12 +245,14 @@
   function openStep(step: (typeof nav)[number][0]) {
     if (step !== 'training') stopTrainingPoll()
     active = step
-    if (step === 'review' && batch) void refreshReview()
+    if (step === 'review' && batch) { void refreshReview(); void resumeJevPoll() }
     if (step === 'training' && batch) void loadTrainingStep()
   }
 
   async function selectBatch(batchId: string) {
     batch = batches.find((item) => item.batch_id === batchId) || null
+    stopJevPoll()
+    jevState = null
     selected = null
     rows = []
     if (active === 'training') {
@@ -246,7 +265,7 @@
   }
 
   function batchHint() {
-    if (!batch) return '请先导入平台截图集或本地截图并创建批次'
+    if (!batch) return '选择 R2 截图 → 自动切片 → JEV 辅助复核 → 生成数据集 → Kaggle 训练'
     const review = batch.review
     if (!review || review.total === 0) return '下一步：生成候选'
     if (review.pending > 0) return `下一步：复核剩余 ${review.pending} 条`
@@ -304,7 +323,7 @@
 
   async function refreshBatches(selectId?: string) {
     batches = await request<Batch[]>('/api/batches')
-    batch = batches.find((item) => item.batch_id === (selectId || batch?.batch_id)) || batches[0] || null
+    batch = batches.find((item) => item.batch_id === (selectId || batch?.batch_id)) || null
   }
 
   function formatBytes(value: number) {
@@ -337,6 +356,7 @@
 
   $: filteredRemoteObjects = (() => {
     let list = [...remoteObjects]
+    if (feedbackFilter !== 'all') list = list.filter((item) => feedbackFilter === 'unknown' ? !remoteFeedback[item.key] : remoteFeedback[item.key] === feedbackFilter)
     const query = remoteFilterText.trim().toLowerCase()
     if (query) {
       list = list.filter((item) => {
@@ -374,19 +394,41 @@
     if (remoteConfig.configured && !remotePrefix) remotePrefix = remoteConfig.allowed_prefixes[0] || ''
   }
 
-  async function loadRemoteImages(append = false) {
+  function feedbackLabel(key: string) {
+    return remoteFeedback[key] === 'inaccurate' ? '反馈：识别不准确' : remoteFeedback[key] === 'accurate' ? '反馈：识别准确' : '无准确反馈'
+  }
+
+  async function loadFeedback(since: string | null) {
+    feedbackLoading = true
+    try {
+      const query = new URLSearchParams()
+      if (since) query.set('since', since)
+      const result = await request<{ available: boolean; marks: Record<string, 'accurate' | 'inaccurate'> }>(`/api/r2/feedback?${query}`)
+      remoteFeedback = result.marks
+      feedbackAvailable = result.available
+    } catch { feedbackAvailable = false; remoteFeedback = {} } finally { feedbackLoading = false }
+  }
+
+  async function loadRemoteImages() {
     if (!remoteConfig?.configured) return message('Studio 尚未配置 R2 远程数据源。', true)
     if (!remotePrefix) return message('请输入或选择一个 R2 prefix。', true)
     remoteLoading = true
+    remoteSelected = new Set()
+    remoteObjects = []
     try {
-      const cursor = append ? remoteCursor : null
-      const query = new URLSearchParams({ prefix: remotePrefix })
-      if (cursor) query.set('cursor', cursor)
-      const result = await request<{ objects: RemoteObject[]; next_cursor: string | null }>(`/api/r2/images?${query.toString()}`)
-      remoteObjects = append ? [...remoteObjects, ...result.objects] : result.objects
-      remoteCursor = result.next_cursor
-      if (!append) remoteSelected = new Set()
-      message(`已加载 ${result.objects.length} 张可用远程截图。`)
+      let cursor: string | null = null
+      const since = remoteDays === 'all' ? null : new Date(Date.now() - Number(remoteDays) * 86400000).toISOString()
+      void loadFeedback(since)
+      do {
+        const query = new URLSearchParams({ prefix: remotePrefix })
+        if (since) query.set('since', since)
+        if (cursor) query.set('cursor', cursor)
+        const result = await request<{ objects: RemoteObject[]; next_cursor: string | null }>(`/api/r2/images?${query}`)
+        remoteObjects = [...remoteObjects, ...result.objects]
+        cursor = result.next_cursor
+        remoteCursor = cursor
+      } while (cursor)
+      message(`已加载 ${remoteObjects.length} 张截图，按时间从新到旧排列。`)
     } catch (cause) { message(cause instanceof Error ? cause.message : '读取 R2 图片失败', true) } finally { remoteLoading = false }
   }
 
@@ -551,7 +593,7 @@
 
   async function importRemoteImages() {
     if (!remoteSelected.size) return message('先选择至少一张 R2 截图。', true)
-    const addingToExistingBatch = Boolean(batch)
+    const addingToExistingBatch = remoteImportMode === 'append' && Boolean(batch)
     const totalKeys = remoteSelected.size
     busy = true
     downloadProgress = {
@@ -562,10 +604,10 @@
     }
 
     try {
-      const endpoint = batch ? `/api/batches/${batch.batch_id}/remote-sources/stream` : '/api/batches/r2/stream'
+      const endpoint = addingToExistingBatch && batch ? `/api/batches/${batch.batch_id}/remote-sources/stream` : '/api/batches/r2/stream'
       let finalResult: any = null
 
-      await streamImport(endpoint, { keys: [...remoteSelected], holdout_ratio: holdoutRatio }, (chunk) => {
+      await streamImport(endpoint, { keys: [...remoteSelected], holdout_ratio: holdoutRatio, accuracy_marks: Object.fromEntries([...remoteSelected].filter((key) => remoteFeedback[key]).map((key) => [key, remoteFeedback[key]])) }, (chunk) => {
         if (chunk.type === 'progress') {
           downloadProgress = {
             stage: chunk.stage,
@@ -588,6 +630,7 @@
       remoteSelected = new Set()
       message(addingToExistingBatch ? `已从 R2 加入 ${finalResult.added || totalKeys} 张截图。` : `已用 R2 截图创建批次（${finalResult.batch?.sources || totalKeys} 张）。`)
       active = 'candidates'
+      if (generateAfterImport) await candidates()
     } catch (cause) {
       message(cause instanceof Error ? cause.message : '导入 R2 图片失败', true)
     } finally {
@@ -698,6 +741,7 @@
         : ''
       message(result.summary.reused_existing_candidates ? `已打开现有候选，进入复核。${duplicateHint}${negativeHint}` : `候选已生成。${duplicateHint}${negativeHint}${teacherHint}`)
       active = 'review'
+      await resumeJevPoll()
       await refreshReview()
       if (displayedRows[0]) selectCandidate(displayedRows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '候选生成失败', true) } finally { busy = false }
@@ -735,6 +779,7 @@
       message(`候选已重建（${result.summary.revision_id || '新版本'}）。已继承人工接受 ${accepted} 条、拒绝 ${rejected} 条；${unmatched} 条无法安全匹配，已重新待复核。`)
       showRecreateModal = false
       active = 'review'
+      await resumeJevPoll()
       await refreshReview()
       if (displayedRows[0]) selectCandidate(displayedRows[0])
     } catch (cause) {
@@ -955,6 +1000,7 @@
       batch = { ...batch, review: result.review }
       message(`已补回 Vision：${result.summary.vision_covered}/${result.summary.rows} 条有结果，自动排除 ${result.summary.auto_rejected} 条位置不匹配项；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
       active = 'review'
+      await resumeJevPoll()
       await refreshReview()
       if (displayedRows[0]) selectCandidate(displayedRows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '补回 Vision 结果失败', true) } finally { busy = false }
@@ -968,6 +1014,7 @@
       batch = { ...batch, review: result.review }
       message(`已补回上一版模型 ${result.summary.teacher_model_version || '未知版本'}：覆盖 ${result.summary.teacher_covered}/${result.summary.rows} 条，自动接受 ${result.summary.teacher_auto_accepted} 条，自动排除 ${result.summary.auto_rejected} 条位置不匹配项；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
       active = 'review'
+      await resumeJevPoll()
       await refreshReview()
       if (displayedRows[0]) selectCandidate(displayedRows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '补回上一版模型结果失败', true) } finally { busy = false }
@@ -1069,7 +1116,7 @@
       } else {
         if (!hasActiveBackgroundWork()) stopTrainingPoll()
         if (previousStatus === 'training' && trainingIsDone(training.status)) {
-          message(training.status === 'completed' ? 'Smoke 训练已成功结束。' : 'Smoke 训练已结束，请查看日志。')
+          message(training.status === 'completed' ? (training.backend === 'kaggle' ? '训练已成功结束，模型已下载到本地。' : '本地 Smoke 训练已成功结束。') : '训练已结束，请查看日志。')
         }
       }
       await scrollLogToBottom()
@@ -1165,12 +1212,12 @@
     if (!batch) return message('先选择批次。', true)
     busy = true
     try {
-      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/smoke`, {
+      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/${trainingBackend}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ resume_checkpoint: resumeCheckpoint || null, epochs: trainingEpochs }),
+        body: JSON.stringify(trainingBackend === 'kaggle' ? { epochs: trainingEpochs } : { resume_checkpoint: resumeCheckpoint || null, epochs: trainingEpochs }),
       })
-      message(resumeCheckpoint ? '已从所选 checkpoint 恢复训练，状态将自动刷新。' : 'Smoke 训练已启动，状态将自动刷新。')
+      message(`${trainingBackend === 'kaggle' ? 'Kaggle' : 'CPU Smoke'} 训练已启动，日志将自动刷新。`)
       followLog = true
       await refreshTraining()
       startTrainingPoll()
@@ -1196,13 +1243,47 @@
     } catch (cause) { message(cause instanceof Error ? cause.message : '截图集导入失败', true) } finally { setImportBusy = false }
   }
 
+  function stopJevPoll() {
+    if (jevPollTimer) clearInterval(jevPollTimer)
+    jevPollTimer = null
+  }
+
+  async function refreshJev() {
+    if (!batch) return
+    jevState = await request<JevState>(`/api/batches/${batch.batch_id}/review/jev`)
+    if (jevState.status !== 'reviewing') {
+      stopJevPoll()
+      await refreshReview({ keepSelection: true })
+    }
+  }
+
+  async function resumeJevPoll() {
+    await refreshJev()
+    if (jevState?.status === 'reviewing' && !jevPollTimer) jevPollTimer = setInterval(() => { void refreshJev().catch(() => stopJevPoll()) }, 2000)
+  }
+
+  async function startJev() {
+    if (!batch) return
+    busy = true
+    try {
+      jevState = await request<JevState>(`/api/batches/${batch.batch_id}/review/jev`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image_tokens: 70 }),
+      })
+      stopJevPoll()
+      jevPollTimer = setInterval(() => { void refreshJev().catch((cause) => { stopJevPoll(); message(String(cause), true) }) }, 2000)
+      message('JEV 已开始生成建议，完成后人工确认标签。')
+    } catch (cause) { message(cause instanceof Error ? cause.message : 'JEV 启动失败', true) } finally { busy = false }
+  }
+
   onMount(async () => {
     try {
-      await Promise.all([refreshBatches(), loadRemoteStatus()])
+      await Promise.all([refreshBatches(), loadRemoteStatus(), request<{ configured: boolean }>('/api/jev/config').then((config) => { jevConfigured = config.configured }).catch(() => { jevConfigured = false })])
+      if (remoteConfig?.configured) await loadRemoteImages()
     } catch { message('无法连接 Studio API。', true) }
   })
   onDestroy(() => {
     stopTrainingPoll()
+    stopJevPoll()
     clearToastTimer()
   })
 </script>
@@ -1276,51 +1357,13 @@
     {#if active === 'import'}
       <section class="panel-grid">
         <div class="panel">
-          <header class="panel-head">
-            <p class="eyebrow">步骤 1</p>
-            <h2>导入平台截图集</h2>
-            <p>生产训练真值来自平台已终态截图集：成员按 object key 从 R2 下载、校验 SHA-256 与版式、按内容去重并做源图级 train/holdout 划分，生成可复核批次。本地或 R2 截图可用于补充或开发实验。</p>
-          </header>
-          <section class="set-import" aria-label="平台截图集导入">
-            <div class="set-import-form">
-              <label class="field">
-                <span>截图集版本</span>
-                <input class="control" type="number" min="1" step="1" bind:value={setVersionInput} placeholder="例如 3" />
-              </label>
-              <button class="button-primary" disabled={setImportBusy || !Number.isInteger(setVersionInput) || (setVersionInput ?? 0) < 1} on:click={() => void importScreenshotSet()}>
-                {setImportBusy ? '导入中…' : '导入截图集'}
-              </button>
-            </div>
-            <p class="set-import-hint">需配置 <code>OCRKIT_SCREENSHOT_SET_BASE_URL</code>、<code>OCRKIT_SCREENSHOT_SET_TOKEN</code> 与 Studio R2 读取；同一终态集合只导入一次，导入中断可重试续传。</p>
-          </section>
-          <label class="file-pick" class:file-pick-ready={files.length > 0}>
-            <input
-              type="file"
-              multiple
-              accept="image/png,image/jpeg,image/webp"
-              on:change={(event) => appendFiles(Array.from((event.currentTarget as HTMLInputElement).files || []))}
-            />
-            <span class="file-pick-title">{files.length ? `已选 ${files.length} 张` : '选择截图'}</span>
-            <span class="file-pick-sub">{files.length ? '可继续添加，或直接创建 / 加入批次' : '也可 ⌘V / Ctrl+V 粘贴'}</span>
-          </label>
-          <div class="panel-actions">
-            <label class="field field-compact">
-              <span>Holdout</span>
-              <input type="number" min="0" max="0.5" step="0.05" bind:value={holdoutRatio} />
-            </label>
-            <button class="button-primary" disabled={busy || !files.length} on:click={importFiles}>
-              {busy ? '创建中…' : '创建批次'}
-            </button>
-            <button class="button-secondary" disabled={busy || !files.length || !batch} on:click={addFilesToBatch}>
-              {busy ? '处理中…' : '加入当前批次'}
-            </button>
-          </div>
+          <header class="panel-head"><p class="eyebrow">步骤 1</p><h2>选择截图，准备训练数据</h2><p>自动加载最近 30 天 R2 截图，选图后创建批次并切片，使用 JEV 建议辅助确认标签。</p></header>
           <section class="remote-import" aria-label="R2 远程截图">
             <header class="remote-head">
               <div>
-                <p class="eyebrow">补充数据源</p>
+                <p class="eyebrow">默认数据源</p>
                 <h3>从 R2 获取截图</h3>
-                <p>凭据只在 Studio 后端使用。远程截图会复制到私有 batch，并与本地截图一起进入候选复核。</p>
+                <p>直接读取 R2，无需平台登录或截图集 token。使用本机已有 Cloudflare 登录读取 D1 中的准确反馈。反馈帮助选图，仍需确认切片文字作为训练标签。</p>
               </div>
               {#if remoteConfig?.configured}
                 <span class="status-pill status-done">只读 · {remoteConfig.bucket}</span>
@@ -1329,13 +1372,15 @@
             {#if !remoteConfig?.configured}
               <p class="remote-empty">未配置 Studio R2。设置 <code>OCRKIT_STUDIO_R2_BUCKET</code> 与 <code>OCRKIT_STUDIO_R2_ALLOWED_PREFIXES</code> 后重启 Studio。</p>
             {:else}
+              <p>{feedbackLoading ? '正在读取平台准确反馈…' : feedbackAvailable ? '平台准确反馈已读取，可筛选识别不准确截图。' : '暂未读取平台反馈，可继续选图与训练。'}</p>
               <div class="remote-controls">
                 <label class="field">
                   <span>Prefix</span>
                   <input class="control" bind:value={remotePrefix} placeholder={remoteConfig.allowed_prefixes[0]} />
                 </label>
+                <label class="field"><span>时间范围</span><select class="control" bind:value={remoteDays} disabled={remoteLoading} on:change={() => void loadRemoteImages()}><option value="30">最近 30 天</option><option value="7">最近 7 天</option><option value="all">全部</option></select></label>
                 <button class="button-secondary" disabled={remoteLoading || busy} on:click={() => void loadRemoteImages()}>
-                  {remoteLoading ? '读取中…' : '加载对象'}
+                  {remoteLoading ? `加载中（${remoteObjects.length} 张）…` : '刷新截图'}
                 </button>
               </div>
 
@@ -1356,6 +1401,7 @@
                     {/if}
                   </div>
 
+                  <label class="field"><span>平台反馈</span><select class="control" bind:value={feedbackFilter}><option value="all">全部</option><option value="inaccurate">识别不准确</option><option value="accurate">识别准确</option><option value="unknown">无反馈</option></select></label>
                   <div class="remote-toolbar-group">
                     <div class="remote-select-group">
                       <button
@@ -1496,7 +1542,7 @@
                               <span class="remote-path" title={keyInfo.dir}>{keyInfo.dir}</span>
                             {/if}
                           </div>
-                          <div class="remote-row-meta">
+                          <div class="remote-row-meta"><span>{feedbackLabel(object.key)}</span>
                             <span class="meta-item meta-date" title="上传时间">
                               <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13">
                                 <path fill-rule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clip-rule="evenodd" />
@@ -1568,7 +1614,7 @@
                         </div>
                         <div class="remote-card-content">
                           <strong class="remote-card-title" title={object.key}>{keyInfo.name}</strong>
-                          <span class="remote-card-date">{formatDate(object.last_modified)}</span>
+                          <span class="remote-card-date">{formatDate(object.last_modified)}</span><span class="status-tag">{feedbackLabel(object.key)}</span>
                         </div>
                       </div>
                     {/each}
@@ -1583,21 +1629,52 @@
                     {/if}
                   </div>
                   <div class="remote-action-buttons">
-                    {#if remoteCursor}
-                      <button class="button-secondary button-compact" disabled={remoteLoading || busy} on:click={() => void loadRemoteImages(true)}>
-                        {remoteLoading ? '加载中…' : '加载下一页'}
-                      </button>
-                    {/if}
-                    <button class="button-primary" disabled={busy || !remoteSelected.size} on:click={() => void importRemoteImages()}>
-                      {batch ? `加入当前批次 (${remoteSelected.size} 张)` : `用所选截图创建批次 (${remoteSelected.size} 张)`}
+                    <label class="field"><span>导入到</span><select class="control" bind:value={remoteImportMode} disabled={busy}><option value="new">创建新批次</option><option value="append" disabled={!batch}>加入当前批次{batch ? ` ${batch.batch_id}` : '（先选择批次）'}</option></select></label>
+                    <label><input type="checkbox" bind:checked={generateAfterImport} disabled={busy} /> 导入后自动切片并生成候选</label>
+                    <button class="button-primary" disabled={busy || remoteLoading || !remoteSelected.size || (remoteImportMode === 'append' && !batch)} on:click={() => void importRemoteImages()}>
+                      {remoteImportMode === 'append' ? `加入当前批次 (${remoteSelected.size} 张)` : `创建批次 (${remoteSelected.size} 张)`}
                     </button>
                   </div>
                 </div>
               {:else}
-                <p class="remote-empty">输入允许的 prefix 后点击「加载对象」。只显示支持的图片格式和大小范围内的对象。</p>
+                <p class="remote-empty">{remoteLoading ? '正在扫描截图目录…' : '当前范围没有截图，可以扩大时间范围或刷新。'}</p>
               {/if}
             {/if}
+          </section><details class="set-import"><summary>本地文件 / 粘贴截图</summary>          <label class="file-pick" class:file-pick-ready={files.length > 0}>
+            <input
+              type="file"
+              multiple
+              accept="image/png,image/jpeg,image/webp"
+              on:change={(event) => appendFiles(Array.from((event.currentTarget as HTMLInputElement).files || []))}
+            />
+            <span class="file-pick-title">{files.length ? `已选 ${files.length} 张` : '选择截图'}</span>
+            <span class="file-pick-sub">{files.length ? '可继续添加，或直接创建 / 加入批次' : '也可 ⌘V / Ctrl+V 粘贴'}</span>
+          </label>
+          <div class="panel-actions">
+            <label class="field field-compact">
+              <span>Holdout</span>
+              <input type="number" min="0" max="0.5" step="0.05" bind:value={holdoutRatio} />
+            </label>
+            <button class="button-primary" disabled={busy || !files.length} on:click={importFiles}>
+              {busy ? '创建中…' : '创建批次'}
+            </button>
+            <button class="button-secondary" disabled={busy || !files.length || !batch} on:click={addFilesToBatch}>
+              {busy ? '处理中…' : '加入当前批次'}
+            </button>
+          </div>
+</details><details class="set-import"><summary>可选：平台已定稿截图集</summary>          <section class="set-import" aria-label="平台截图集导入">
+            <div class="set-import-form">
+              <label class="field">
+                <span>截图集版本</span>
+                <input class="control" type="number" min="1" step="1" bind:value={setVersionInput} placeholder="例如 3" />
+              </label>
+              <button class="button-primary" disabled={setImportBusy || !Number.isInteger(setVersionInput) || (setVersionInput ?? 0) < 1} on:click={() => void importScreenshotSet()}>
+                {setImportBusy ? '导入中…' : '导入截图集'}
+              </button>
+            </div>
+            <p class="set-import-hint">需配置 <code>OCRKIT_SCREENSHOT_SET_BASE_URL</code>、<code>OCRKIT_SCREENSHOT_SET_TOKEN</code> 与 Studio R2 读取；同一终态集合只导入一次，导入中断可重试续传。</p>
           </section>
+</details>
         </div>
         <aside class="panel panel-side">
           <h3>流程</h3>
@@ -1606,7 +1683,7 @@
             <li><b>2</b><span><strong>候选</strong> RapidOCR + Vision</span></li>
             <li><b>3</b><span><strong>复核</strong> 接受 / 拒绝</span></li>
             <li><b>4</b><span><strong>标签</strong> train / holdout</span></li>
-            <li><b>5</b><span><strong>训练</strong> CPU Smoke</span></li>
+            <li><b>5</b><span><strong>训练</strong> Kaggle GPU / CPU Smoke</span></li>
           </ol>
           {#if batch}
             <dl class="batch-stats">
@@ -1648,6 +1725,7 @@
         </div>
       </section>
     {:else if active === 'review'}
+      <section class="panel"><div class="panel-actions"><button class="button-primary" disabled={!batch || busy || !jevConfigured || jevState?.status === 'reviewing'} on:click={() => void startJev()}>{jevState?.status === 'reviewing' ? 'JEV 生成建议中…' : 'JEV 生成复核建议'}</button><span>{jevConfigured ? '建议需人工确认后成为标签，Holdout 保留独立人工复核。' : 'JEV 未配置，请设置本地模型目录。'}</span></div>{#if jevState}<p>JEV：{jevState.status} · 已处理 {jevState.processed ?? 0} · 已保存 {jevState.saved ?? 0} · 错误 {jevState.errors ?? 0}</p>{/if}{#if jevState?.log_tail}<pre class="log-tail">{jevState.log_tail}</pre>{/if}</section>
       <section class="review-layout">
         <aside class="review-list">
           <div class="filters">
@@ -1892,6 +1970,7 @@
                     <strong class="engine-text">{selected.vision_text || '无识别结果'}</strong>
                     {#if engineSelected(selected.vision_text)}<span class="engine-chosen">已选用</span>{/if}
                   </button>
+                  {#if selected.jev_suggestion}<button type="button" class="engine-pick" disabled={!selected.jev_suggestion.selected_option} on:click={() => applyEngineText(selected?.jev_suggestion?.selected_option)}><span class="engine-pick-head"><span class="engine-name">JEV · {selected.jev_suggestion.action}</span><span>{confidenceLabel(selected.jev_suggestion.confidence)}</span></span><strong class="engine-text">{selected.jev_suggestion.selected_option || selected.jev_suggestion.reason_code || '需要人工复核'}</strong><span>点击填入转录，再点击接受确认标签。</span></button>{/if}
                   <button
                     type="button"
                     class="engine-pick"
@@ -2048,8 +2127,8 @@
         <div class="training-head">
           <header class="panel-head">
             <p class="eyebrow">步骤 5</p>
-            <h2>Smoke 训练</h2>
-            <p>在当前批次 labels 上启动本地 CPU Smoke。失败 run 可从 checkpoint 恢复到新的 run。</p>
+            <h2>Kaggle 模型训练</h2>
+            <p>默认提交到 Kaggle GPU，查看日志，结束后自动下载模型。本地 CPU Smoke 用于快速验证训练脚本。</p>
           </header>
           <div class="panel-actions">
             <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshTraining()}>立即刷新</button>
@@ -2059,7 +2138,8 @@
           </div>
         </div>
 
-        <div class="training-config">
+        <div class="training-config"><label class="field"><span>训练环境</span><select class="control" bind:value={trainingBackend} disabled={busy || trainingIsRunning(training?.status)}><option value="kaggle">Kaggle GPU</option><option value="smoke">本地 CPU Smoke</option></select></label>
+          {#if trainingBackend === 'smoke'}
           <label class="field">
             <span>恢复 checkpoint</span>
             <select class="control" bind:value={resumeCheckpoint} disabled={!batch || busy || trainingIsRunning(training?.status)}>
@@ -2069,11 +2149,12 @@
               {/each}
             </select>
           </label>
+          {/if}
           <label class="field field-compact">
             <span>目标 Epoch</span>
             <input class="control" type="number" min="1" max="100" bind:value={trainingEpochs} disabled={!batch || busy || trainingIsRunning(training?.status)} />
           </label>
-          <p class="config-note">恢复会带入模型、优化器与 epoch 状态，不覆盖原 run；目标 Epoch 须高于 checkpoint 已完成进度。</p>
+          {#if trainingBackend === 'smoke'}<p class="config-note">恢复到新的 run，目标 Epoch 须高于已完成进度。</p>{/if}
         </div>
 
         {#if !batch}
@@ -2082,7 +2163,7 @@
           <div class="empty-card">
             <p class="eyebrow">就绪</p>
             <h3>尚未启动训练</h3>
-            <p>生成 labels 后配置 checkpoint 与 epoch，再点击「启动训练」。</p>
+            <p>生成 labels 后选择 Epoch，再点击「启动训练」。</p>
           </div>
         {:else}
           <div class="training-status" aria-live="polite">
@@ -2092,6 +2173,7 @@
               class:status-done={training.status === 'completed'}
               class:status-failed={training.status === 'failed' || training.status === 'completed_or_failed'}
             >{trainingStatusLabel(training.status)}</span>
+            {#if training.backend}<span class="status-meta">{training.backend}</span>{/if}{#if training.checkpoint}<span class="status-meta">本地模型：{training.checkpoint}</span>{/if}
             {#if training.pid}<span class="status-meta">PID {training.pid}</span>{/if}
             {#if trainingPolling}<span class="status-meta status-live">自动刷新 · {TRAINING_POLL_MS / 1000}s</span>{/if}
             {#if trainingUpdatedAt}<span class="status-meta">更新于 {trainingUpdatedAt}</span>{/if}
@@ -2126,7 +2208,7 @@
             <header class="panel-head">
               <p class="eyebrow">发布</p>
               <h2>发布到 R2</h2>
-              <p>仅在 Smoke 成功后可用。将重新评测、导出新的不可变版本、上传 R2 并下载校验，不覆盖历史模型。</p>
+              <p>训练完成后可启动；本地评测通过后继续发布。将重新评测、导出新的不可变版本、上传 R2 并下载校验，不覆盖历史模型。</p>
             </header>
             <div class="publish-status" aria-live="polite">
               <span
@@ -2142,8 +2224,8 @@
           {#if training?.status !== 'completed'}
             <div class="empty-card">
               <p class="eyebrow">门槛</p>
-              <h3>需要先完成 Smoke</h3>
-              <p>当前训练状态为「{trainingStatusLabel(training?.status || 'not_started')}」。发布按钮将在 Smoke 成功后启用。</p>
+              <h3>需要先完成训练</h3>
+              <p>当前训练状态为「{trainingStatusLabel(training?.status || 'not_started')}」。发布按钮将在训练成功后启用。</p>
             </div>
           {:else}
             <div class="publish-steps" aria-hidden="true">
@@ -2279,7 +2361,7 @@
               type="button"
               class="button-secondary button-compact"
               class:modal-selected={isSelected}
-              on:click={() => toggleRemoteSelection(previewModalObject.key)}
+              on:click={() => previewModalObject && toggleRemoteSelection(previewModalObject.key)}
             >
               {isSelected ? '✓ 已选中' : '+ 选中此截图'}
             </button>
