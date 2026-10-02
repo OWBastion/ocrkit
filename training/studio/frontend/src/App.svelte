@@ -201,7 +201,7 @@
   let toastTimer: ReturnType<typeof setTimeout> | null = null
   let lastFinalize: { train: number; holdout: number } | null = null
   let lastExportPath = ''
-  let setVersionInput = ''
+  let setVersionInput: number | undefined = undefined
   let setImportBusy = false
   let prioritizeFeedback = true
   const cropZoomSteps: CropZoom[] = ['auto', 1, 2, 3, 4]
@@ -1189,7 +1189,7 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ version, holdout_ratio: holdoutRatio }),
       })
-      setVersionInput = ''
+      setVersionInput = undefined
       message(`截图集 v${result.report.version} 已导入为批次 ${result.batch.batch_id}（${result.report.member_count} 张源图）。`)
       await refreshBatches(result.batch.batch_id)
       active = 'candidates'
@@ -1287,7 +1287,7 @@
                 <span>截图集版本</span>
                 <input class="control" type="number" min="1" step="1" bind:value={setVersionInput} placeholder="例如 3" />
               </label>
-              <button class="button-primary" disabled={setImportBusy || !setVersionInput.trim()} on:click={() => void importScreenshotSet()}>
+              <button class="button-primary" disabled={setImportBusy || !Number.isInteger(setVersionInput) || (setVersionInput ?? 0) < 1} on:click={() => void importScreenshotSet()}>
                 {setImportBusy ? '导入中…' : '导入截图集'}
               </button>
             </div>
