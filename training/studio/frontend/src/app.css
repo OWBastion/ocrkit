@@ -158,7 +158,6 @@
   }
   .panel,
   .training-panel,
-  .review-layout,
   .publish-panel {
     @apply rounded-[var(--radius-panel)] border border-ink/8 bg-white/70;
     box-shadow: var(--shadow-panel);
@@ -175,7 +174,6 @@
     backdrop-filter: none;
   }
   .panel-head h2,
-  .empty-detail h2,
   .empty-card h3,
   .action-card h3,
   .publish-panel h2 {
@@ -186,7 +184,6 @@
     @apply text-[1.15rem] sm:text-[1.25rem];
   }
   .panel-head p,
-  .empty-detail p,
   .empty-card p,
   .action-card p {
     @apply mt-2 max-w-2xl text-sm leading-6 text-ink/58;
@@ -252,16 +249,13 @@
   .field-compact { @apply w-28; }
   .control,
   .field input,
-  .field select,
-  .transcription-field textarea,
-  .filters select {
+  .field select {
     @apply rounded-[var(--radius-control)] border border-ink/12 bg-white px-3 py-2 text-ink shadow-sm;
     transition: border-color 140ms var(--ease-press), box-shadow 140ms var(--ease-press);
   }
   .control:hover,
   .field input:hover,
-  .field select:hover,
-  .filters select:hover {
+  .field select:hover {
     @apply border-ink/20;
   }
   .control:disabled,
@@ -306,13 +300,6 @@
   .button-ghost:disabled {
     @apply cursor-not-allowed opacity-35;
   }
-  .button-danger-hover:hover:not(:disabled) {
-    @apply border-ink/30 bg-ink/8 text-ink;
-  }
-  .button-danger-hover:active:not(:disabled) {
-    @apply bg-ink/15 text-ink;
-  }
-
   .remote-import {
     @apply mt-6 grid gap-3 rounded-[var(--radius-panel)] border border-ink/8 bg-paper/55 p-4;
   }
@@ -738,313 +725,24 @@
   .segmented-active:hover { @apply bg-ink text-paper; }
 
   /* Viewport-locked split: list scrolls inside the left pane so the detail pane stays on screen. */
-  .review-layout {
-    @apply grid gap-0 overflow-hidden lg:grid-cols-[minmax(16.5rem,0.62fr)_minmax(0,1.38fr)];
-    height: calc(100dvh - 11.5rem);
-    min-height: 28rem;
-    max-height: calc(100dvh - 11.5rem);
-  }
-  .review-list {
-    @apply flex min-h-0 flex-col overflow-hidden border-b border-ink/8 bg-white/45 lg:border-b-0 lg:border-r;
-  }
-  .filters {
-    @apply grid shrink-0 grid-cols-2 gap-2 p-3;
-  }
-  .filters .button-compact { @apply col-span-2; }
-  .countline {
-    @apply flex shrink-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 border-y border-ink/8 px-4 py-2.5 text-sm text-ink/50;
-  }
-  .countline b { @apply text-base font-semibold tabular-nums text-ink; }
-  .countline i { @apply not-italic text-ink/25; }
-  .candidate-scroll {
-    @apply min-h-0 flex-1 overflow-y-auto overscroll-contain;
-    overflow-anchor: none;
-    scrollbar-gutter: stable;
-  }
-  .candidate {
-    @apply flex w-full flex-col gap-1 border-b border-ink/6 px-4 py-3 text-left;
-    transition: background-color 120ms var(--ease-press), transform 100ms var(--ease-press);
-  }
-  .candidate:hover { @apply bg-clay/8; }
-  .candidate:active { transform: scale(0.985); }
-  .candidate-head {
-    @apply flex items-center justify-between gap-2;
-  }
-  .candidate-roi-pill {
-    @apply inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ink/6 px-2 py-0.5 text-[11px] font-semibold text-ink/75;
-  }
-  .candidate-roi-dot {
-    @apply h-1.5 w-1.5 rounded-full shadow-2xs;
-  }
-  .candidate-meta-tags {
-    @apply flex shrink-0 items-center gap-1;
-  }
   .status-tag {
     @apply rounded-full px-1.5 py-[1px] text-[10px] font-semibold tracking-tight;
   }
-  .status-tag-rejected {
-    @apply border border-ink/15 bg-ink/10 text-ink/70;
-  }
-  .status-tag-auto {
-    @apply border border-leaf/25 bg-leaf/12 text-leaf;
-  }
-  .status-tag-teacher {
-    @apply border border-clay/25 bg-clay/12 text-clay;
-  }
-  .ratio-tag {
-    @apply inline-flex items-center justify-center rounded-full border px-1.5 py-[1px] font-mono text-[10px] font-bold tabular-nums shadow-2xs;
-  }
-  .ratio-agree {
-    @apply border-leaf/30 bg-leaf/12 text-leaf;
-  }
-  .ratio-partial {
-    @apply border-clay/30 bg-clay/12 text-clay;
-  }
-  .ratio-conflict {
-    @apply border-clay/40 bg-clay/12 text-clay font-bold;
-  }
-  .candidate-conf-tag {
-    @apply rounded-full bg-ink/5 px-1.5 py-[1px] font-mono text-[10px] font-medium tabular-nums text-ink/50;
-  }
-  .candidate-conf-high {
-    @apply bg-leaf/15 text-leaf font-semibold;
-  }
-  .candidate-conf-mid {
-    @apply bg-clay/15 text-clay font-semibold;
-  }
-  .candidate-text {
-    @apply line-clamp-2 text-sm font-semibold leading-snug text-ink break-all;
-    letter-spacing: -0.01em;
-  }
-  .selected-row {
-    @apply bg-clay/14;
-    box-shadow: inset 3px 0 0 var(--color-clay);
-  }
-
-  .review-detail {
-    @apply relative flex min-h-0 flex-col overflow-hidden bg-paper/30;
-  }
-  .review-detail-scroll {
-    @apply flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain p-4 sm:gap-5 sm:p-6;
-    scrollbar-gutter: stable;
-  }
-  .review-actions-bar {
-    @apply sticky bottom-0 z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-ink/10 bg-white/95 px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.04)] backdrop-blur-md sm:px-6 sm:py-3.5;
-  }
-  .review-actions-meta {
-    @apply flex items-center gap-2.5;
-  }
-  .review-index-badge {
-    @apply rounded-full bg-ink/6 px-2.5 py-1 text-xs font-semibold tabular-nums text-ink/65;
-  }
-  .review-nav-group {
-    @apply flex items-center gap-1;
-  }
-  .review-actions-main {
-    @apply flex flex-wrap items-center justify-end gap-2.5;
-  }
-  .review-shortcut-hint {
-    @apply hidden text-[11px] font-medium text-ink/40 xl:inline-block mr-1;
-  }
-
-  @media (max-width: 1023px) {
-    .review-layout {
-      height: auto;
-      max-height: none;
-      min-height: 0;
-      grid-template-rows: minmax(14rem, 36dvh) minmax(26rem, auto);
-    }
-    .review-list {
-      max-height: 36dvh;
-    }
-    .review-detail {
-      height: calc(100dvh - 36dvh - 9rem);
-      min-height: 26rem;
-      max-height: calc(100dvh - 12rem);
-    }
-  }
-
-  .detail-header {
-    @apply flex flex-wrap items-center justify-between gap-4 border-b border-ink/8 pb-4;
-  }
-  .detail-header-left {
-    @apply flex min-w-0 flex-1 flex-col gap-2;
-  }
-  .roi-banner-pill {
-    @apply inline-flex flex-wrap items-center gap-2 self-start rounded-full border border-ink/12 bg-white/85 px-3 py-1 shadow-2xs backdrop-blur-md;
-  }
-  .roi-pill-dot {
-    @apply h-2 w-2 shrink-0 rounded-full shadow-2xs;
-  }
-  .roi-pill-name {
-    @apply text-xs font-bold tracking-tight text-ink;
-  }
-  .roi-pill-code {
-    @apply rounded bg-ink/6 px-1.5 py-[1px] font-mono text-[10px] text-ink/60;
-  }
-  .roi-pill-pos {
-    @apply rounded-full bg-clay/12 px-2 py-[1px] text-[10px] font-semibold text-clay;
-  }
-  .detail-subhead {
-    @apply flex flex-wrap items-baseline gap-2.5;
-  }
-  .detail-subhead h2 {
-    @apply text-lg font-bold tracking-tight text-ink;
-    letter-spacing: -0.02em;
-  }
-  .status-chip {
-    @apply rounded-full px-2 py-0.5 text-[11px] font-semibold;
-  }
-  .status-chip-pending {
-    @apply bg-clay/12 text-clay border border-clay/25;
-  }
-  .status-chip-accepted {
-    @apply bg-leaf/12 text-leaf border border-leaf/25;
-  }
-  .status-chip-rejected {
-    @apply bg-ink/10 text-ink/75 border border-ink/18;
-  }
-  .crop-id-code {
-    @apply rounded bg-ink/5 px-2 py-0.5 font-mono text-[11px] text-ink/50;
-  }
-
-  .detail-header-right {
-    @apply flex flex-wrap items-center gap-3;
-  }
-  .hud-minimap {
-    @apply flex flex-col items-center justify-center rounded-xl border border-ink/15 bg-black/90 p-1 shadow-sm;
-    width: 86px;
-    height: 48px;
-  }
-  .hud-screen-frame {
-    @apply relative h-full w-full overflow-hidden rounded-[4px] border border-white/20 bg-black/70;
-  }
-  .hud-label {
-    @apply absolute bottom-0.5 right-1 z-10 text-[7px] font-bold text-white/35 tracking-wider uppercase;
-  }
-  .hud-box {
-    @apply absolute rounded-[1px] border border-white/25 bg-white/10 transition-all duration-150;
-  }
-  .hud-box-active {
-    @apply z-20 border-white ring-2 ring-white/60 shadow-[0_0_8px_rgba(255,255,255,0.7)] scale-105;
-  }
-
-  .crop-meta {
-    @apply rounded-full bg-ink/5 px-2.5 py-1 text-xs font-medium tabular-nums tracking-wide text-ink/45;
-  }
-
-  .crop-panel {
-    @apply overflow-hidden rounded-[calc(var(--radius-panel)-0.15rem)] border border-ink/10 bg-white/80;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.65) inset;
-  }
-  .crop-toolbar {
-    @apply flex flex-wrap items-center justify-between gap-3 border-b border-ink/8 px-3 py-2.5;
-    background: color-mix(in oklch, var(--color-paper) 70%, white);
-    backdrop-filter: blur(14px) saturate(160%);
-  }
-  .crop-toolbar-left {
-    @apply flex items-center gap-2;
-  }
-  .crop-roi-tag {
-    @apply inline-flex items-center gap-1 rounded-full bg-ink/6 px-2 py-0.5 text-[10px] font-semibold text-ink/70;
-  }
-  .crop-roi-dot {
-    @apply h-1.5 w-1.5 rounded-full;
-  }
-  .crop-toolbar-label {
-    @apply text-[11px] font-semibold tracking-[0.14em] text-ink/40;
-  }
-  .crop-viewport {
-    @apply grid min-h-[10.5rem] place-items-center overflow-auto px-4 py-6 sm:min-h-[12.5rem] sm:px-6 sm:py-8;
-    background:
-      linear-gradient(color-mix(in oklch, var(--color-paper) 88%, transparent), color-mix(in oklch, var(--color-paper) 88%, transparent)),
-      repeating-conic-gradient(from 0deg, oklch(0.93 0.01 85) 0% 25%, oklch(0.97 0.008 85) 0% 50%) 0 0 / 16px 16px;
-  }
-  .crop-viewport-scroll { @apply justify-items-start content-center; }
   .crop-image {
     @apply block rounded-md border border-ink/10 bg-white;
     box-shadow: 0 10px 30px -18px rgba(40, 30, 10, 0.5);
     transition: box-shadow 180ms var(--ease-press);
   }
-  .crop-image-wide { @apply w-full max-w-full; }
   .crop-image-crisp {
     image-rendering: pixelated;
     image-rendering: crisp-edges;
   }
 
-  .detail-copy { @apply grid gap-0; }
-  .engine-hint-row {
-    @apply flex flex-wrap items-center justify-between gap-3;
-  }
-  .engine-hint { @apply text-sm leading-6 text-ink/55; }
-  .auto-review-hint { @apply mt-2 rounded-lg bg-leaf/10 px-3 py-2 text-sm leading-6 text-leaf; }
-  .engine-picks { @apply mt-3 grid gap-3 sm:grid-cols-2; }
-  .engine-pick {
-    @apply grid gap-2 rounded-[var(--radius-control)] border border-ink/12 bg-white px-4 py-3 text-left;
-    transition: transform 120ms var(--ease-press), background-color 140ms var(--ease-press), border-color 140ms var(--ease-press), box-shadow 140ms var(--ease-press);
-  }
-  .engine-pick:hover { @apply border-clay/50 bg-clay/6; }
-  .engine-pick:active { transform: scale(0.99); }
-  .engine-pick:disabled {
-    @apply cursor-not-allowed opacity-45;
-    transform: none;
-  }
-  .engine-pick:disabled:hover {
-    @apply border-ink/12 bg-white;
-  }
-  .engine-pick-active {
-    @apply border-clay bg-clay/12;
-    box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-clay) 45%, transparent);
-  }
-  .engine-pick-empty { @apply border-dashed; }
-  .engine-pick-head { @apply flex items-center justify-between gap-3; }
-  .engine-name { @apply text-[11px] font-semibold tracking-[0.12em] text-clay; }
-  .engine-conf {
-    @apply rounded-full bg-ink/8 px-2 py-0.5 text-xs font-medium tabular-nums text-ink/60;
-  }
-  .engine-conf-mid { @apply bg-clay/20 text-ink; }
-  .engine-conf-high { @apply bg-leaf/15 text-leaf; }
-  .engine-text { @apply break-all text-base font-medium leading-6 text-ink; }
-  .engine-chosen { @apply text-xs font-semibold tracking-wide text-leaf; }
-  .engine-ratio-badge {
-    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold shadow-2xs;
-  }
-  .engine-ratio-badge.ratio-agree {
-    @apply border-leaf/30 bg-leaf/12 text-leaf;
-  }
-  .engine-ratio-badge.ratio-partial {
-    @apply border-clay/30 bg-clay/12 text-clay;
-  }
-  .engine-ratio-badge.ratio-conflict {
-    @apply border-clay/40 bg-clay/12 text-clay;
-  }
-  .ratio-indicator-dot {
-    @apply h-2 w-2 rounded-full;
-  }
-  .ratio-agree .ratio-indicator-dot {
-    @apply bg-leaf;
-  }
-  .ratio-partial .ratio-indicator-dot {
-    @apply bg-clay;
-  }
-  .ratio-conflict .ratio-indicator-dot {
-    @apply bg-clay;
-  }
-
-  .transcription-field {
-    @apply mt-4 grid gap-2 text-sm font-medium text-ink/65;
-  }
-  .transcription-field textarea {
-    @apply min-h-24 w-full resize-y px-3 py-2.5 text-base font-normal leading-7;
-  }
   .actions {
     @apply mt-4 flex flex-wrap justify-end gap-2.5;
   }
 
   .empty { @apply p-5 text-sm leading-6 text-ink/50; }
-  .empty-detail {
-    @apply self-center rounded-[var(--radius-panel)] border border-dashed border-ink/12 bg-paper/50 p-8;
-  }
   .empty-card {
     @apply rounded-[var(--radius-panel)] border border-dashed border-ink/12 bg-paper/60 px-5 py-6;
   }
@@ -1108,13 +806,6 @@
   .set-import-hint code {
     @apply rounded bg-ink/5 px-1 py-0.5 font-mono text-[11px];
   }
-  .status-tag-feedback {
-    @apply border border-amber-600/30 bg-amber-500/15 text-amber-700;
-  }
-  .feedback-sort {
-    @apply flex items-center gap-1.5 text-xs text-ink/60;
-  }
-
   .training-head .panel-actions { @apply mt-0; }
   .training-config {
     @apply grid gap-3 rounded-[calc(var(--radius-panel)-0.15rem)] border border-ink/8 bg-paper/55 p-4 sm:grid-cols-[minmax(0,1.4fr)_8rem] sm:items-end;
@@ -1163,6 +854,101 @@
   .training-status {
     @apply flex flex-wrap items-center gap-x-3 gap-y-2 text-sm;
   }
+  /* Review: one card at a time. Suggestion first, alternatives as chips, actions pinned to the bottom. */
+  .review { @apply grid gap-3; }
+  .review-bar {
+    @apply flex flex-wrap items-center gap-2 rounded-[var(--radius-panel)] border border-ink/8 bg-white/70 p-2.5;
+    box-shadow: var(--shadow-panel);
+  }
+  .review-bar .control { @apply min-h-10 py-1.5 text-sm; }
+  .review-progress { @apply ml-auto flex min-w-36 flex-1 flex-col gap-1 text-xs text-ink/55 sm:max-w-xs; }
+  .review-progress b { @apply text-base font-semibold tabular-nums text-ink; }
+  .review-progress > div { @apply h-1 overflow-hidden rounded-full bg-ink/8; }
+  .review-progress > div > i { @apply block h-full rounded-full bg-leaf; transition: width 300ms var(--ease-press); }
+  .review-chip { @apply rounded-full bg-clay/20 px-2.5 py-1 text-xs font-semibold text-ink; }
+  .more { @apply relative; }
+  .more > summary { @apply grid h-10 w-10 cursor-pointer select-none list-none place-items-center rounded-full text-lg text-ink/60; }
+  .more > summary::-webkit-details-marker { display: none; }
+  .more > summary:hover { @apply bg-ink/6; }
+  .more-menu {
+    @apply absolute right-0 top-11 z-30 grid w-64 gap-2 rounded-2xl border border-ink/10 p-3 text-xs leading-5 text-ink/60;
+    background: color-mix(in oklch, white 88%, var(--color-paper));
+    backdrop-filter: blur(20px) saturate(170%);
+    box-shadow: 0 18px 48px -24px rgba(30, 22, 8, 0.55);
+  }
+  .review-body { @apply grid gap-3 lg:grid-cols-[17rem_minmax(0,1fr)] lg:items-start; }
+  .review-queue {
+    @apply hidden max-h-[calc(100dvh-13rem)] overflow-y-auto overscroll-contain rounded-[var(--radius-panel)] border border-ink/8 bg-white/60 lg:block;
+  }
+  .queue-item { @apply flex w-full items-center gap-2 border-b border-ink/6 px-3 py-2.5 text-left text-sm; }
+  .queue-item:hover { @apply bg-clay/8; }
+  .queue-item-current { @apply bg-clay/15; }
+  .queue-item i { @apply h-2 w-2 shrink-0 rounded-full; }
+  .queue-item span { @apply min-w-0 flex-1 truncate; }
+  .queue-item em { @apply not-italic text-xs text-ink/40; }
+  .review-card {
+    @apply grid gap-3 rounded-[var(--radius-panel)] border border-ink/8 bg-white/70 p-3 sm:p-5;
+    box-shadow: var(--shadow-panel);
+  }
+  .card-meta { @apply flex flex-wrap items-center gap-2 text-xs text-ink/55; }
+  .roi-chip { @apply inline-flex items-center gap-1.5 rounded-full bg-ink/6 px-2.5 py-1 font-semibold text-ink/75; }
+  .roi-chip i { @apply h-2 w-2 rounded-full; }
+  .tag { @apply rounded-full bg-ink/6 px-2 py-0.5 text-[11px] font-semibold text-ink/60; }
+  .tag-warn { @apply bg-amber-500/15 text-amber-700; }
+  .card-index { @apply ml-auto tabular-nums; }
+  .crop-stage {
+    @apply grid min-h-36 w-full cursor-zoom-in place-items-center overflow-auto rounded-[calc(var(--radius-panel)-0.2rem)] border border-ink/10 p-3 sm:min-h-44;
+    background:
+      linear-gradient(color-mix(in oklch, var(--color-paper) 88%, transparent), color-mix(in oklch, var(--color-paper) 88%, transparent)),
+      repeating-conic-gradient(from 0deg, oklch(0.93 0.01 85) 0% 25%, oklch(0.97 0.008 85) 0% 50%) 0 0 / 16px 16px;
+  }
+  .suggest { @apply flex flex-wrap items-center gap-2 text-sm text-ink/60; }
+  .suggest-source { @apply rounded-full bg-ink/8 px-2.5 py-1 text-xs font-semibold text-ink/70; }
+  .suggest-good .suggest-source { @apply bg-leaf/15 text-leaf; }
+  .suggest-warn .suggest-source { @apply bg-clay/25 text-ink; }
+  .suggest-bad .suggest-source { @apply bg-red-100 text-red-800; }
+  .transcription {
+    @apply min-h-12 w-full rounded-[var(--radius-control)] border border-ink/12 bg-white px-3.5 py-2 font-medium tracking-[-0.01em] text-ink shadow-sm;
+    font-size: max(1.25rem, 16px);
+  }
+  .alts { @apply flex flex-wrap gap-2; }
+  .alt {
+    @apply inline-flex min-h-10 items-center gap-2 rounded-full border border-ink/12 bg-white px-3.5 py-1.5 text-left text-sm font-medium text-ink;
+    transition: transform 120ms var(--ease-press), background-color 140ms var(--ease-press), border-color 140ms var(--ease-press);
+  }
+  .alt:hover { @apply border-clay/50 bg-clay/8; }
+  .alt:active { transform: scale(0.97); }
+  .alt small { @apply text-[11px] font-semibold text-ink/45; }
+  .card-actions {
+    @apply sticky bottom-0 z-10 -mx-3 -mb-3 flex items-center gap-2 rounded-b-[var(--radius-panel)] border-t border-ink/8 px-3 pt-3 sm:-mx-5 sm:-mb-5 sm:px-5;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+    background: color-mix(in oklch, var(--color-paper) 80%, white);
+    backdrop-filter: blur(20px) saturate(170%);
+  }
+  .card-actions button { @apply min-h-12; }
+  .card-actions .button-primary { @apply flex-[2]; }
+  .card-actions .button-secondary { @apply flex-1; }
+  .card-actions .button-ghost { @apply min-w-12 text-xl; }
+  .button-suggested { @apply border-red-300 bg-red-50 text-red-800; }
+  .review-done { @apply self-center p-6 text-center sm:p-10; }
+  .review-done h2 { @apply text-[1.35rem] font-semibold tracking-[-0.025em]; }
+  .review-done p { @apply mt-2 text-sm text-ink/58; }
+  .review-done .panel-actions { @apply justify-center; }
+
+  @media (max-width: 639px) {
+    .app-shell { padding-inline: 0.75rem; }
+    .flow-hint, .batch-revision { display: none; }
+    .app-chrome { @apply px-3 pb-1 pt-2; }
+    .brand h1 { @apply text-xl; }
+    .batch-picker { @apply min-w-0; }
+    .review-bar .segmented { @apply w-full; }
+    .review-bar .segmented-btn { @apply flex-1; }
+    .review-bar .control { @apply min-w-0 flex-1; }
+    .review-progress { @apply order-last w-full max-w-none basis-full; }
+    .more-menu { @apply fixed inset-x-3 bottom-3 top-auto w-auto; }
+    .panel-actions > * { @apply min-h-11; }
+  }
+
   .pipeline-panel { @apply mb-4; }
   .pipeline-stages { @apply mt-4 flex flex-wrap items-center gap-2 text-xs font-semibold text-ink/45; }
   .pipeline-stages li { @apply rounded-full bg-ink/6 px-3 py-1.5; }
@@ -1170,7 +956,8 @@
   .pipeline-stages li.stage-current { @apply bg-clay/25 text-ink; }
   .pipeline-log { @apply mt-3 max-h-60 overflow-auto rounded-[var(--radius-control)] bg-ink/5 p-3 font-mono text-[11px] leading-5 text-ink/80; white-space: pre-wrap; }
   .manual-import > summary { @apply cursor-pointer py-2 text-sm font-semibold text-ink/55; }
-  .field-check { @apply flex-row items-center gap-2; }
+  .field-check { @apply flex flex-row items-center gap-2; }
+  .field-check input { @apply h-5 w-5 p-0 accent-clay; }
   .status-pill {
     @apply rounded-full bg-ink/8 px-2.5 py-1 text-xs font-semibold tracking-wide text-ink/65;
   }
@@ -1218,6 +1005,11 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  .card-actions,
+  .more-menu {
+    backdrop-filter: none;
+    background: white;
+  }
   body {
     background: var(--color-paper);
   }
@@ -1225,9 +1017,6 @@
   .panel,
   .training-panel,
   .publish-panel,
-  .review-layout,
-  .crop-panel,
-  .crop-toolbar,
   .toast {
     backdrop-filter: none;
     background: white;
@@ -1243,7 +1032,6 @@
 @media (prefers-contrast: more) {
   .panel,
   .training-panel,
-  .review-layout,
   .button-secondary,
   .control,
   .field input,
@@ -1262,7 +1050,6 @@
   .button-secondary,
   .nav-item,
   .segmented-btn,
-  .engine-pick,
   .file-pick,
   .crop-image,
   .toast {

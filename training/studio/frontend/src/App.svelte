@@ -41,121 +41,20 @@
     currentKey?: string
     message?: string
   }
-  type RoiMeta = {
-    name: string
-    shortName: string
-    code: string
-    position: string
-    dotColor: string
-    rect: { x: number; y: number; w: number; h: number }
+  type RoiMeta = { name: string; dotColor: string }
+
+  // Regions Studio collects. The central banner is intentionally absent: it overlaps the side panels.
+  const ROI_INFO: Record<string, RoiMeta> = {
+    left_panel: { name: '左侧统计', dotColor: '#0284c7' },
+    achievement_panel: { name: '左下成就', dotColor: '#b45309' },
+    run_code_panel: { name: '运行代码', dotColor: '#6d28d9' },
+    run_code_right_panel: { name: '右侧代码', dotColor: '#7c3aed' },
+    right_panel: { name: '右上地图', dotColor: '#b91c1c' },
+    bottom_left_hero: { name: '左下英雄', dotColor: '#4338ca' },
   }
 
-  const ROI_META_LAYOUTS: Record<string, Record<string, RoiMeta>> = {
-    '1280x720-v6': {
-      left_panel: {
-      name: '左侧统计与进度',
-      shortName: '左侧统计',
-      code: 'left_panel',
-      position: '屏幕左侧',
-      dotColor: '#0284c7',
-      rect: { x: 2.7, y: 2.1, w: 14.5, h: 29.2 },
-      },
-      achievement_panel: {
-      name: '左下成就与称号',
-      shortName: '左下成就',
-      code: 'achievement_panel',
-      position: '屏幕左侧事件区下方',
-      dotColor: '#b45309',
-      rect: { x: 2.7, y: 39.6, w: 14.5, h: 10.4 },
-    },
-      run_code_panel: {
-      name: '房间运行代码',
-      shortName: '运行代码',
-      code: 'run_code_panel',
-      position: '屏幕左中部',
-      dotColor: '#6d28d9',
-        rect: { x: 2.3, y: 27.5, w: 14.8, h: 3.1 },
-      },
-      run_code_right_panel: {
-      name: '右侧运行代码',
-      shortName: '右侧代码',
-      code: 'run_code_right_panel',
-      position: '屏幕右上信息区',
-      dotColor: '#7c3aed',
-      rect: { x: 82.8, y: 12.2, w: 14.1, h: 2.5 },
-    },
-      center_banner: {
-      name: '中央通关横幅',
-      shortName: '中央横幅',
-      code: 'center_banner',
-      position: '屏幕正中央',
-      dotColor: '#15803d',
-      rect: { x: 11.7, y: 17.4, w: 78.9, h: 12.5 },
-    },
-      right_panel: {
-      name: '右上地图与难度',
-      shortName: '右上地图',
-      code: 'right_panel',
-      position: '屏幕右上角',
-      dotColor: '#b91c1c',
-      rect: { x: 81.3, y: 0, w: 18.4, h: 14.6 },
-    },
-      bottom_left_hero: {
-      name: '左下英雄状态',
-      shortName: '左下英雄',
-      code: 'bottom_left_hero',
-      position: '屏幕左下角',
-      dotColor: '#4338ca',
-      rect: { x: 2.3, y: 79.9, w: 23.4, h: 13.2 },
-      },
-    },
-    '1280x800-v1': {
-      left_panel: {
-        name: '左侧统计与进度', shortName: '左侧统计', code: 'left_panel', position: '屏幕左上至左中部', dotColor: '#0284c7',
-        rect: { x: 2.7, y: 1.9, w: 14.5, h: 26.3 },
-      },
-      achievement_panel: {
-        name: '左下成就与称号', shortName: '左下成就', code: 'achievement_panel', position: '屏幕左下统计区下方', dotColor: '#b45309',
-        rect: { x: 1.6, y: 35.0, w: 15.6, h: 7.5 },
-      },
-      run_code_panel: {
-        name: '左侧运行代码', shortName: '左侧代码', code: 'run_code_panel', position: '屏幕左侧统计区底部', dotColor: '#6d28d9',
-        rect: { x: 2.3, y: 24.8, w: 14.8, h: 2.8 },
-      },
-      run_code_right_panel: {
-        name: '右侧运行代码', shortName: '右侧代码', code: 'run_code_right_panel', position: '屏幕右上信息区', dotColor: '#7c3aed',
-        rect: { x: 82.8, y: 11.0, w: 14.1, h: 2.3 },
-      },
-      center_banner: {
-        name: '中央通关横幅', shortName: '中央横幅', code: 'center_banner', position: '屏幕顶部中央', dotColor: '#15803d',
-        rect: { x: 23.4, y: 1.3, w: 58.6, h: 11.3 },
-      },
-      right_panel: {
-        name: '右上地图与难度', shortName: '右上地图', code: 'right_panel', position: '屏幕右上角', dotColor: '#b91c1c',
-        rect: { x: 81.3, y: 0, w: 18.4, h: 15.0 },
-      },
-      bottom_left_hero: {
-        name: '左下英雄状态', shortName: '左下英雄', code: 'bottom_left_hero', position: '屏幕左下角', dotColor: '#4338ca',
-        rect: { x: 2.3, y: 77.5, w: 23.4, h: 21.3 },
-      },
-    },
-  }
-
-  const ROI_METAS = ROI_META_LAYOUTS['1280x720-v6']
-
-  function getRoiMetas(layoutVersion?: string): Record<string, RoiMeta> {
-    return ROI_META_LAYOUTS[layoutVersion || ''] || ROI_METAS
-  }
-
-  function getRoiInfo(code: string, layoutVersion?: string): RoiMeta {
-    return getRoiMetas(layoutVersion)[code] || {
-      name: code,
-      shortName: code,
-      code,
-      position: '切片区域',
-      dotColor: '#52525b',
-      rect: { x: 30, y: 30, w: 40, h: 40 },
-    }
+  function getRoiInfo(code: string): RoiMeta {
+    return ROI_INFO[code] || { name: code, dotColor: '#52525b' }
   }
 
   let batches: Batch[] = []
@@ -229,19 +128,15 @@
   let lastExportPath = ''
   let setVersionInput: number | undefined = undefined
   let setImportBusy = false
-  let prioritizeFeedback = true
-  const cropZoomSteps: CropZoom[] = ['auto', 1, 2, 3, 4]
   const TRAINING_POLL_MS = 2000
   const TOAST_MS = 4200
   const supportedClipboardTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
   function orderForReview(list: Row[]): Row[] {
-    if (!prioritizeFeedback) return list
     return [...list].sort((a, b) => Number(b.accuracy_feedback === 'inaccurate') - Number(a.accuracy_feedback === 'inaccurate'))
   }
 
   $: displayedRows = orderForReview(roiFilter === 'all' ? rows : rows.filter((row) => row.roi === roiFilter))
-  $: selectedRatio = selected ? getEngineRatio(selected) : null
 
   const nav = [
     ['import', '1', '准备'],
@@ -677,7 +572,9 @@
       }
     }
 
-    selected = null
+    const first = orderForReview(roiFilter === 'all' ? rows : rows.filter((row) => row.roi === roiFilter))[0]
+    if (first) selectCandidate(first)
+    else selected = null
   }
 
   async function importFiles() {
@@ -814,40 +711,91 @@
     }
   }
 
+  type Engine = { name: string; text: string; confidence?: number | null }
+  type Suggestion = { text: string; label: string; hint: string; tone: 'good' | 'warn' | 'bad' | 'muted'; reject: boolean }
+
+  const norm = (value?: string | null) => (value || '').normalize('NFKC').replace(/\s+/g, ' ').trim()
+
+  function enginesOf(row: Row): Engine[] {
+    const all: Engine[] = [
+      { name: 'RapidOCR', text: row.rapidocr_text || '', confidence: row.rapidocr_confidence },
+      { name: 'Vision', text: row.vision_text || '', confidence: row.vision_confidence },
+      { name: '上一版', text: row.teacher_text || '', confidence: row.teacher_confidence },
+    ]
+    return all.filter((engine) => norm(engine.text))
+  }
+
+  // One answer to start from. JEV settles disagreements between engines; it never overrides engines that already agree.
+  function suggestionFor(row: Row): Suggestion {
+    const engines = enginesOf(row)
+    const jev = row.jev_suggestion?.status === 'ok' ? row.jev_suggestion : undefined
+    const groups = new Map<string, Engine[]>()
+    for (const engine of engines) groups.set(norm(engine.text), [...(groups.get(norm(engine.text)) || []), engine])
+    const agreed = [...groups.values()].find((group) => group.length >= 2)
+    const best = [...engines].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))[0]
+    const jevText = jev?.action === 'accept' ? jev.selected_option || '' : ''
+    const text = agreed?.[0].text || jevText || row.suggested_transcription || best?.text || row.candidate_text || ''
+    const percent = confidenceLabel(jev?.confidence)
+    if (jev?.action === 'reject') return { text, label: `JEV ${percent}`, hint: 'JEV 认为这不是有效切片，建议拒绝', tone: 'bad', reject: true }
+    if (jev?.action === 'manual' && !agreed) return { text, label: `JEV ${percent}`, hint: 'JEV 认为候选都不对，请对照图片修改', tone: 'warn', reject: false }
+    if (agreed) return { text, label: `${agreed.length} 个引擎一致`, hint: agreed.map((engine) => engine.name).join(' · '), tone: 'good', reject: false }
+    if (jevText) return { text, label: `JEV ${percent}`, hint: '引擎有分歧，JEV 选了这一条', tone: 'good', reject: false }
+    if (best) return { text, label: `${best.name} ${confidenceLabel(best.confidence)}`, hint: '只有一个引擎有结果，请核对', tone: 'warn', reject: false }
+    return { text, label: '无建议', hint: '请对照图片手动输入', tone: 'muted', reject: false }
+  }
+
+  // Distinct other readings, each with who produced it.
+  function alternativesFor(row: Row, current?: string | null): { text: string; who: string }[] {
+    const found = new Map<string, { text: string; who: string[] }>()
+    const add = (text: string | null | undefined, who: string) => {
+      const key = norm(text)
+      if (!key) return
+      const entry = found.get(key) || { text: text as string, who: [] }
+      if (!entry.who.includes(who)) entry.who.push(who)
+      found.set(key, entry)
+    }
+    for (const engine of enginesOf(row)) add(engine.text, engine.name)
+    if (row.jev_suggestion?.status === 'ok' && row.jev_suggestion.action === 'accept') add(row.jev_suggestion.selected_option, 'JEV')
+    add(row.candidate_text, '候选')
+    return [...found.entries()].filter(([key]) => key !== norm(current)).map(([, entry]) => ({ text: entry.text, who: entry.who.join(' · ') }))
+  }
+
+  let transcriptionEl: HTMLInputElement | null = null
+  let focusedCrop = ''
+  $: if (selected && transcriptionEl && selected.crop !== focusedCrop && typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches) {
+    focusedCrop = selected.crop
+    transcriptionEl.focus()
+    transcriptionEl.select()
+  }
+
+  function onTranscriptionKey(event: KeyboardEvent) {
+    if (event.key !== 'Enter' || event.isComposing || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
+    event.preventDefault()
+    save('accepted')
+  }
+
+  function toggleCropZoom() {
+    cropZoom = cropZoom === 'auto' ? 2 : cropZoom === 2 ? 4 : 'auto'
+  }
+
+  async function trainCurrentBatch() {
+    if (!batch) return
+    trainingBackend = 'kaggle'
+    active = 'training'
+    await startTraining()
+  }
+
   function confidenceLabel(value?: number | null) {
     if (value == null || Number.isNaN(value)) return '—'
     return `${Math.round(value * 100)}%`
   }
 
-  function candidateConfidence(row: Row) {
-    return row.candidate_confidence ?? row.confidence
-  }
-
-  function isHumanReviewed(row: Row) {
-    return row.review_method === 'human' || (!row.review_method && row.review_status === 'accepted' && !row.auto_accept_reason)
-  }
-
-  function reviewConfidenceLabel(row: Row) {
-    return isHumanReviewed(row) ? `已确认 · 机器候选 ${confidenceLabel(candidateConfidence(row))}` : confidenceLabel(candidateConfidence(row))
-  }
-
-  function reviewConfidenceTitle(row: Row) {
-    const value = confidenceLabel(candidateConfidence(row))
-    if (isHumanReviewed(row)) {
-      return `人工已确认；原始机器候选置信度 ${value}`
-    }
-    return `机器候选置信度 ${value}`
-  }
-
   function selectCandidate(row: Row, event?: MouseEvent) {
-    selected = { ...row, transcription: row.transcription || row.suggested_transcription || row.candidate_text || '' }
+    selected = { ...row, transcription: row.transcription || suggestionFor(row).text }
     cropZoom = 'auto'
     cropNatural = { w: 0, h: 0 }
-    // Keep focus scroll inside the list pane; avoid jumping the whole page.
     const target = event?.currentTarget
-    if (target instanceof HTMLElement) {
-      target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    }
+    if (target instanceof HTMLElement) target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }
 
   function selectPrevCandidate() {
@@ -912,93 +860,44 @@
     return `width: ${width}px; height: ${height}px; max-width: none;`
   }
 
-  function cropZoomLabel(step: CropZoom) {
-    return step === 'auto' ? '自适应' : `${step}×`
-  }
-
   function applyEngineText(text?: string | null) {
     if (!selected || !text) return
     selected = { ...selected, transcription: text }
   }
 
-  function engineSelected(text?: string | null) {
-    return Boolean(selected?.transcription && text && selected.transcription === text)
-  }
+  let saveChain: Promise<unknown> = Promise.resolve()
 
-  function getEngineRatio(row: Row) {
-    const engineOutputs: { name: string; text: string }[] = []
-    if (row.rapidocr_text?.trim()) engineOutputs.push({ name: 'RapidOCR', text: row.rapidocr_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
-    if (row.vision_text?.trim()) engineOutputs.push({ name: 'Vision', text: row.vision_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
-    if (row.teacher_text?.trim()) engineOutputs.push({ name: '上一版模型', text: row.teacher_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
-
-    const total = engineOutputs.length
-    if (total === 0) {
-      return { matching: 0, total: 0, isAgreement: false, isConflict: false, tagClass: 'ratio-none', tooltip: '暂无引擎识别结果' }
-    }
-    if (total === 1) {
-      return { matching: 1, total: 1, isAgreement: true, isConflict: false, tagClass: 'ratio-single', tooltip: `单引擎结果 (${engineOutputs[0].name})` }
-    }
-
-    const counts = new Map<string, number>()
-    for (const item of engineOutputs) {
-      counts.set(item.text, (counts.get(item.text) || 0) + 1)
-    }
-    const maxMatching = Math.max(...counts.values())
-    const isAgreement = maxMatching === total
-    const isConflict = maxMatching < total
-
-    let tagClass = 'ratio-agree'
-    if (isAgreement) {
-      tagClass = 'ratio-agree'
-    } else if (maxMatching >= 2) {
-      tagClass = 'ratio-partial'
-    } else {
-      tagClass = 'ratio-conflict'
-    }
-
-    const agreeNames = engineOutputs.map((o) => o.name).join(' · ')
-    const tooltip = isAgreement
-      ? `${total}/${total} 引擎输出一致 (${agreeNames})`
-      : `${maxMatching}/${total} 引擎输出一致 · 存在分歧 (${agreeNames})`
-
-    return { matching: maxMatching, total, isAgreement, isConflict, tagClass, tooltip }
-  }
-
-  async function save(statusValue: 'accepted' | 'rejected') {
+  // Advance immediately; the write follows in order and the list is reloaded only if it fails.
+  function save(statusValue: 'accepted' | 'rejected') {
     if (!batch || !selected) return
-    busy = true
-    try {
-      const currentIndex = displayedRows.findIndex((row) => row.crop === selected?.crop)
-      // Prefer the items after the current one so review advances forward.
-      const followingCrops = currentIndex >= 0
-        ? displayedRows.slice(currentIndex + 1).map((row) => row.crop)
-        : []
-      const result = await request<{ row: Row; counts: ReviewCounts }>(`/api/batches/${batch.batch_id}/review`, {
+    const row = selected
+    const batchId = batch.batch_id
+    const transcription = (row.transcription || row.candidate_text || '').trim()
+    if (statusValue === 'accepted' && !transcription) return message('转写不能为空。', true)
+    const index = displayedRows.findIndex((item) => item.crop === row.crop)
+    const next = displayedRows[index + 1] ?? displayedRows[index - 1] ?? null
+    const wasPending = row.review_status === 'pending'
+    rows = status === 'pending'
+      ? rows.filter((item) => item.crop !== row.crop)
+      : rows.map((item) => item.crop === row.crop ? { ...item, review_status: statusValue, transcription: statusValue === 'accepted' ? transcription : undefined } : item)
+    if (batch.review && wasPending) {
+      batch = { ...batch, review: { ...batch.review, pending: Math.max(0, batch.review.pending - 1), [statusValue]: batch.review[statusValue] + 1 } }
+    }
+    const following = next && rows.find((item) => item.crop === next.crop)
+    if (following) selectCandidate(following)
+    else selected = null
+    const currentSplit = split
+    saveChain = saveChain
+      .then(() => request<{ row: Row; counts: ReviewCounts }>(`/api/batches/${batchId}/review`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          split,
-          crop: selected.crop,
-          status: statusValue,
-          transcription: selected.transcription || selected.candidate_text || '',
-        }),
+        body: JSON.stringify({ split: currentSplit, crop: row.crop, status: statusValue, transcription }),
+      }))
+      .then((result) => { if (batch?.batch_id === batchId) batch = { ...batch, review: result.counts } })
+      .catch((cause) => {
+        message(cause instanceof Error ? cause.message : '保存失败，已重新载入。', true)
+        void refreshReview()
       })
-      batch = { ...batch, review: result.counts }
-      await refreshReview({ preferCrops: followingCrops })
-      if (selected) {
-        message(statusValue === 'accepted' ? '已接受，已切换到下一条。' : '已拒绝，已切换到下一条。')
-      } else if ((batch.review?.pending ?? 0) > 0 && status === 'pending') {
-        message(statusValue === 'accepted' ? '已接受。当前筛选已到末尾。' : '已拒绝。当前筛选已到末尾。')
-      } else if ((batch.review?.pending ?? 0) === 0) {
-        message(statusValue === 'accepted' ? '已接受。待复核已全部处理完。' : '已拒绝。待复核已全部处理完。')
-      } else {
-        message(statusValue === 'accepted' ? '已接受。' : '已拒绝。')
-      }
-    } catch (cause) {
-      message(cause instanceof Error ? cause.message : '保存失败', true)
-    } finally {
-      busy = false
-    }
   }
 
   async function refreshVision() {
@@ -1451,14 +1350,16 @@
           <p>{pipelineRunning() ? '可以离开此页，任务在后台继续。' : `自动选取最近 ${remoteDays === 'all' ? '全部' : remoteDays + ' 天'}尚未用过的 R2 截图 → 切片与 OCR → 双引擎一致的 Train 直接采纳，其余交 JEV；高置信结果自动成为 Train 标签，Holdout 与不确定项留给你复核。`}</p>
         </header>
         {#if pipelineError}<p class="remote-empty">{pipelineError}</p>{/if}
-        {#if pipelineRunning() || pipeline?.status === 'completed' || pipeline?.status === 'failed'}
+        {#if pipeline && pipeline.status !== 'not_started'}
+          {#if pipelineRunning() || pipeline.status === 'failed'}
           <ol class="pipeline-stages">
             {#each pipelineStages as [name, label], index}
               <li class:stage-done={pipeline?.status === 'completed' || index < pipelineStageIndex} class:stage-current={pipelineRunning() && index === pipelineStageIndex}>{label}{#if pipelineRunning() && index === pipelineStageIndex && pipeline?.total}<span> {pipeline.completed ?? 0}/{pipeline.total}</span>{/if}</li>
             {/each}
           </ol>
+          {/if}
           {#if pipeline?.status === 'completed'}
-            <p class="status-meta">新截图 {pipeline.new_screenshots ?? 0} 张 · 双引擎一致自动采纳 {pipeline.agreement_adopted ?? 0}{#if pipeline.jev_adopted} · JEV 另采纳：接受 {pipeline.jev_adopted.accepted}、拒绝 {pipeline.jev_adopted.rejected}{:else} · JEV 未运行{/if}{#if pipeline.jev_errors} · JEV 错误 {pipeline.jev_errors}{/if}</p>
+            <p class="status-meta">新截图 {pipeline.new_screenshots ?? 0} 张 · 双引擎一致自动采纳 {pipeline.agreement_adopted ?? 0}{#if pipeline.jev_adopted} · JEV 另采纳 接受 {pipeline.jev_adopted.accepted} / 拒绝 {pipeline.jev_adopted.rejected}{:else} · JEV 未运行{/if}{#if pipeline.jev_errors} · JEV 错误 {pipeline.jev_errors}{/if}</p>
           {/if}
           {#if pipeline?.status === 'failed' && pipeline.log_tail}<pre class="pipeline-log">{pipeline.log_tail.slice(-3000)}</pre>{/if}
         {/if}
@@ -1849,336 +1750,112 @@
         </div>
       </section>
     {:else if active === 'review'}
-      <section class="panel"><div class="panel-actions"><button class="button-secondary" disabled={!batch || busy || !jevConfigured || jevState?.status === 'reviewing'} on:click={() => void startJev()}>{jevState?.status === 'reviewing' ? 'JEV 生成建议中…' : '重新运行 JEV'}</button><span>{jevConfigured ? 'JEV 高置信建议自动采纳为 Train 标签；Holdout 保留独立人工复核。' : 'JEV 未配置，请设置本地模型目录。'}</span></div>{#if jevState && jevState.status !== 'not_started'}<p class="status-meta">JEV：{jevState.status} · 已处理 {jevState.processed ?? 0} · 错误 {jevState.errors ?? 0}{#if jevState.jev_adopted} · 自动采纳 接受 {jevState.jev_adopted.accepted} / 拒绝 {jevState.jev_adopted.rejected}{/if}</p>{/if}{#if jevState?.status === 'failed' && jevState.log_tail}<pre class="pipeline-log">{jevState.log_tail.slice(-3000)}</pre>{/if}</section>
-      <section class="review-layout">
-        <aside class="review-list">
-          <div class="filters">
-            <select class="control" bind:value={split} on:change={() => refreshReview()}>
-              <option value="train">Train</option>
-              <option value="holdout">Holdout</option>
-            </select>
-            <select class="control" bind:value={status} on:change={() => refreshReview()}>
-              <option value="pending">待复核</option>
-              <option value="accepted">已接受</option>
-              <option value="auto_accepted">自动接受</option>
-              <option value="teacher_eligible">上一版模型建议</option>
-              <option value="rejected">已拒绝</option>
-              <option value="all">全部状态</option>
-            </select>
-            <select class="control col-span-2" bind:value={roiFilter} on:change={onRoiFilterChange}>
-              <option value="all">全部区域 ({rows.length})</option>
-              {#each Object.entries(getRoiMetas(batch?.layout_version)) as [key, meta]}
-                {@const count = rows.filter((r) => r.roi === key).length}
-                <option value={key}>{meta.shortName} ({count})</option>
-              {/each}
-            </select>
-            <button class="button-secondary button-compact col-span-2" on:click={() => refreshReview()}>刷新</button>
-            {#if batch?.screenshot_set}
-              <label class="feedback-sort col-span-2">
-                <input type="checkbox" bind:checked={prioritizeFeedback} />
-                平台标记「识别不准确」的源图优先复核
-              </label>
-            {/if}
-            {#if split === 'train' && (batch?.review?.teacher_eligible ?? 0) > 0}
-              <button class="button-primary button-compact col-span-2" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>
-                接受上一版模型 + RapidOCR 一致项 ({batch?.review?.teacher_eligible})
+      <section class="review">
+        <header class="review-bar">
+          <div class="segmented" role="group" aria-label="数据集">
+            {#each ['train', 'holdout'] as name}
+              <button type="button" class="segmented-btn" class:segmented-active={split === name} aria-pressed={split === name} on:click={() => { split = name; void refreshReview() }}>{name === 'train' ? 'Train' : 'Holdout'}</button>
+            {/each}
+          </div>
+          <select class="control" aria-label="状态" bind:value={status} on:change={() => refreshReview()}>
+            <option value="pending">待复核</option>
+            <option value="auto_accepted">自动接受（抽查）</option>
+            <option value="accepted">已接受</option>
+            <option value="rejected">已拒绝</option>
+            <option value="all">全部</option>
+          </select>
+          <select class="control" aria-label="区域" bind:value={roiFilter} on:change={onRoiFilterChange}>
+            <option value="all">全部区域</option>
+            {#each Object.entries(ROI_INFO) as [key, info]}
+              <option value={key}>{info.name} ({rows.filter((row) => row.roi === key).length})</option>
+            {/each}
+          </select>
+          <div class="review-progress">
+            <span><b>{batch?.review?.pending ?? 0}</b> 待复核 · 共 {batch?.review?.total ?? 0}</span>
+            <div><i style={`width: ${batch?.review?.total ? Math.round(((batch.review.total - batch.review.pending) / batch.review.total) * 100) : 0}%`}></i></div>
+          </div>
+          {#if jevState?.status === 'reviewing'}<span class="review-chip">JEV 处理中 {jevState.processed ?? 0}</span>{/if}
+          <details class="more">
+            <summary aria-label="更多操作">⋯</summary>
+            <div class="more-menu">
+              <p>{#if !jevConfigured}JEV 未配置{:else if jevState && jevState.status !== 'not_started'}JEV {jevState.status} · 已处理 {jevState.processed ?? 0} · 错误 {jevState.errors ?? 0}{#if jevState.jev_adopted} · 自动采纳 {jevState.jev_adopted.accepted + jevState.jev_adopted.rejected}{/if}{:else}JEV 尚未运行{/if}</p>
+              <button class="button-secondary button-compact" disabled={!batch || busy || !jevConfigured || jevState?.status === 'reviewing'} on:click={() => void startJev()}>重新运行 JEV</button>
+              {#if split === 'train' && (batch?.review?.teacher_eligible ?? 0) > 0}
+                <button class="button-secondary button-compact" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>接受上一版模型一致项（{batch?.review?.teacher_eligible}）</button>
+              {/if}
+              <button class="button-secondary button-compact" on:click={() => refreshReview()}>刷新</button>
+            </div>
+          </details>
+        </header>
+        <div class="review-body">
+          <aside class="review-queue" aria-label="待复核队列">
+            {#each displayedRows as row}
+              <button type="button" class="queue-item" class:queue-item-current={selected?.crop === row.crop} on:click={(event) => selectCandidate(row, event)}>
+                <i style={`background: ${getRoiInfo(row.roi).dotColor}`}></i>
+                <span>{row.transcription || suggestionFor(row).text || '无建议'}</span>
+                {#if row.review_status === 'accepted'}<em>✓</em>{:else if row.review_status === 'rejected'}<em>✕</em>{/if}
               </button>
-            {/if}
-          </div>
-          <div class="countline">
-            <b>{displayedRows.length}</b>
-            <span>条{roiFilter !== 'all' ? ` · ${getRoiInfo(roiFilter, batch?.layout_version).shortName}` : ''}</span>
-            <i>/</i>
-            <b>{batch?.review?.pending || 0}</b>
-            <span>待复核</span>
-            <i>/</i>
-            <b>{batch?.review?.total || 0}</b>
-            <span>总计</span>
-          </div>
-          <div class="candidate-scroll">
-            {#if displayedRows.length}
-              {#each displayedRows as row}
-                {@const roiInfo = getRoiInfo(row.roi, row.layout_version || batch?.layout_version)}
-                {@const ratio = getEngineRatio(row)}
-                <button
-                  type="button"
-                  class:selected-row={selected?.crop === row.crop}
-                  class="candidate"
-                  on:click={(event) => selectCandidate(row, event)}
-                >
-                  <div class="candidate-head">
-                    <span class="candidate-roi-pill">
-                      <span class="candidate-roi-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
-                      <span>{roiInfo.shortName}</span>
-                    </span>
-                    <div class="candidate-meta-tags">
-                      {#if row.accuracy_feedback === 'inaccurate'}
-                        <span class="status-tag status-tag-feedback" title="平台标记该源图识别不准确 · 建议重点复核">反馈有误</span>
-                      {/if}
-                      {#if row.auto_reject_reason}
-                        <span class="status-tag status-tag-rejected" title="自动排除 · 格式不匹配">排除</span>
-                      {:else if row.auto_accept_reason}
-                        <span class="status-tag status-tag-auto" title="自动接受 · 可抽查">自动</span>
-                      {:else if row.teacher_auto_accept_eligible}
-                        <span class="status-tag status-tag-teacher" title="上一版模型建议">建议</span>
-                      {/if}
-
-                      {#if ratio.total > 1}
-                        <span class={`ratio-tag ${ratio.tagClass}`} title={ratio.tooltip}>
-                          {ratio.matching}/{ratio.total}
-                        </span>
-                      {/if}
-
-                      <span
-                        class="candidate-conf-tag"
-                        class:candidate-conf-high={(candidateConfidence(row) ?? 0) >= 0.98}
-                        class:candidate-conf-mid={(candidateConfidence(row) ?? 0) >= 0.9 && (candidateConfidence(row) ?? 0) < 0.98}
-                        title={reviewConfidenceTitle(row)}
-                      >
-                        {reviewConfidenceLabel(row)}
-                      </span>
-                    </div>
-                  </div>
-                  <strong class="candidate-text">{row.candidate_text || '无候选文本'}</strong>
-                </button>
-              {/each}
+            {/each}
+          </aside>
+          <article class="review-card">
+            {#if selected && batch}
+              {@const info = getRoiInfo(selected.roi)}
+              {@const pick = suggestionFor(selected)}
+              {@const index = displayedRows.findIndex((row) => row.crop === selected?.crop)}
+              <div class="card-meta">
+                <span class="roi-chip"><i style={`background: ${info.dotColor}`}></i>{info.name}</span>
+                {#if selected.accuracy_feedback === 'inaccurate'}<span class="tag tag-warn">平台标记不准确</span>{/if}
+                {#if selected.auto_reject_reason}<span class="tag">自动排除</span>{:else if selected.auto_accept_reason}<span class="tag">自动接受</span>{/if}
+                <span class="card-index">{index + 1} / {displayedRows.length}</span>
+              </div>
+              <button type="button" class="crop-stage" aria-label="点击切换放大" on:click={toggleCropZoom}>
+                <img
+                  src={`/api/batches/${batch.batch_id}/crop?split=${split}&crop=${encodeURIComponent(selected.crop)}`}
+                  alt="待复核切片"
+                  class="crop-image"
+                  class:crop-image-crisp={cropDisplayScale() > 1.25}
+                  style={cropImageStyle()}
+                  on:load={onCropLoad}
+                />
+              </button>
+              <div class={`suggest suggest-${pick.tone}`}>
+                <span class="suggest-source">{pick.label}</span>
+                <span>{pick.hint}</span>
+              </div>
+              <input
+                class="transcription"
+                type="text"
+                aria-label="转写"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                enterkeyhint="done"
+                bind:this={transcriptionEl}
+                bind:value={selected.transcription}
+                on:keydown={onTranscriptionKey}
+              />
+              <div class="alts">
+                {#each alternativesFor(selected, selected.transcription) as alt}
+                  <button type="button" class="alt" on:click={() => { applyEngineText(alt.text); transcriptionEl?.focus() }}>{alt.text}<small>{alt.who}</small></button>
+                {/each}
+              </div>
+              <footer class="card-actions">
+                <button type="button" class="button-ghost" aria-label="上一条" title="上一条 (Alt + ↑)" disabled={displayedRows.length < 2} on:click={selectPrevCandidate}>‹</button>
+                <button type="button" class="button-secondary" class:button-suggested={pick.reject} title="拒绝 (Alt + ⌫)" on:click={() => save('rejected')}>拒绝</button>
+                <button type="button" class="button-primary" title="接受 (Enter)" on:click={() => save('accepted')}>接受</button>
+                <button type="button" class="button-ghost" aria-label="下一条" title="下一条 (Alt + ↓)" disabled={displayedRows.length < 2} on:click={selectNextCandidate}>›</button>
+              </footer>
+            {:else if (batch?.review?.pending ?? 0) === 0 && (batch?.review?.total ?? 0) > 0 && status === 'pending'}
+              <div class="review-done">
+                <h2>复核完成</h2>
+                <p>已接受 {batch?.review?.accepted} · 已拒绝 {batch?.review?.rejected}。可以直接训练。</p>
+                <div class="panel-actions"><button class="button-primary" disabled={busy} on:click={() => void trainCurrentBatch()}>生成标签并开始 Kaggle 训练</button></div>
+              </div>
             {:else}
-              <p class="empty">当前筛选无结果。若尚未生成候选，请回到上一步。</p>
+              <div class="review-done"><h2>没有符合筛选的切片</h2><p>换一个数据集、状态或区域；若还没有候选，回到「准备」。</p></div>
             {/if}
-          </div>
-        </aside>
-        <article class="review-detail">
-          {#if selected && batch}
-            {@const roiInfo = getRoiInfo(selected.roi, selected.layout_version || batch?.layout_version)}
-            {@const currentIndex = displayedRows.findIndex((r) => r.crop === selected?.crop)}
-            <div class="review-detail-scroll">
-              <header class="detail-header">
-                <div class="detail-header-left">
-                  <div class="roi-banner-pill">
-                    <span class="roi-pill-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
-                    <strong class="roi-pill-name">{roiInfo.name}</strong>
-                    <span class="roi-pill-code">{roiInfo.code}</span>
-                    <span class="roi-pill-pos">{roiInfo.position}</span>
-                  </div>
-                  <div class="detail-subhead">
-                    <h2>复核切片</h2>
-                    <span
-                      class="status-chip"
-                      class:status-chip-pending={selected.review_status === 'pending'}
-                      class:status-chip-accepted={selected.review_status === 'accepted' || selected.review_status === 'auto_accepted'}
-                      class:status-chip-rejected={selected.review_status === 'rejected'}
-                    >
-                      {selected.auto_reject_reason ? '自动排除' : selected.auto_accept_reason ? '自动接受' : selected.teacher_auto_accept_eligible ? '模型建议' : selected.review_status === 'pending' ? '待复核' : selected.review_status === 'accepted' ? '已接受' : '已拒绝'}
-                    </span>
-                    <code class="crop-id-code" title={selected.crop}>{selected.crop.split('/').pop() || selected.crop}</code>
-                  </div>
-                </div>
-
-                <div class="detail-header-right">
-                  <div class="hud-minimap" title={`游戏画面方位：${roiInfo.position} (${roiInfo.name})`}>
-                    <div class="hud-screen-frame">
-                      <span class="hud-label">HUD 方位</span>
-                      {#each Object.entries(getRoiMetas(selected.layout_version || batch?.layout_version)) as [key, meta]}
-                        <div
-                          class="hud-box"
-                          class:hud-box-active={selected.roi === key}
-                          style={`left: ${meta.rect.x}%; top: ${meta.rect.y}%; width: ${meta.rect.w}%; height: ${meta.rect.h}%; ${selected.roi === key ? `background-color: ${meta.dotColor}; border-color: ${meta.dotColor};` : ''}`}
-                          title={`${meta.name} (${meta.position})`}
-                        ></div>
-                      {/each}
-                    </div>
-                  </div>
-
-                  {#if cropNatural.w}
-                    <p class="crop-meta" aria-live="polite">
-                      {cropNatural.w}×{cropNatural.h}px · {cropZoom === 'auto' ? `自适应 ${cropDisplayScale().toFixed(1)}×` : `${cropZoom}×`}
-                    </p>
-                  {/if}
-                </div>
-              </header>
-
-              <section class="crop-panel" aria-label="切片预览">
-                <div class="crop-toolbar">
-                  <div class="crop-toolbar-left">
-                    <span class="crop-toolbar-label">切片预览</span>
-                    <span class="crop-roi-tag">
-                      <span class="crop-roi-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
-                      {roiInfo.shortName}
-                    </span>
-                  </div>
-                  <div class="segmented" role="group" aria-label="切片缩放">
-                    {#each cropZoomSteps as step}
-                      <button
-                        type="button"
-                        class="segmented-btn"
-                        class:segmented-active={cropZoom === step}
-                        aria-pressed={cropZoom === step}
-                        on:click={() => cropZoom = step}
-                      >{cropZoomLabel(step)}</button>
-                    {/each}
-                  </div>
-                </div>
-                <div class="crop-viewport" class:crop-viewport-scroll={cropZoom !== 'auto'}>
-                  <img
-                    src={`/api/batches/${batch.batch_id}/crop?split=${split}&crop=${encodeURIComponent(selected.crop)}`}
-                    alt="当前 OCR 切片"
-                    class="crop-image"
-                    class:crop-image-crisp={cropDisplayScale() > 1.25}
-                    class:crop-image-wide={cropIsWideStrip()}
-                    style={cropImageStyle()}
-                    on:load={onCropLoad}
-                  />
-                </div>
-              </section>
-
-              <div class="detail-copy">
-                <div class="engine-hint-row">
-                  <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
-                  {#if selectedRatio && selectedRatio.total > 1}
-                    <div
-                      class={`engine-ratio-badge ${selectedRatio.tagClass}`}
-                      title={selectedRatio.tooltip}
-                    >
-                      <span class="ratio-indicator-dot"></span>
-                      <strong class="ratio-value font-mono tabular-nums">{selectedRatio.matching}/{selectedRatio.total}</strong>
-                      <span class="ratio-text">{selectedRatio.isAgreement ? '一致' : '分歧'}</span>
-                    </div>
-                  {/if}
-                </div>
-                {#if selected.auto_reject_reason}
-                  <p class="auto-review-hint">这条切片未通过该 ROI 的内容格式检查，已自动排除，不会进入训练标签。若确认位置和内容都正确，可手动接受并填写转写。</p>
-                {:else if selected.auto_accept_reason}
-                  <p class="auto-review-hint">这条切片由自动规则接受，仍可修改转写或点击「拒绝」进行人工覆盖。</p>
-                {:else if selected.teacher_auto_accept_eligible}
-                  <p class="auto-review-hint">上一版模型与其他已返回引擎高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>
-                {/if}
-                {#if isHumanReviewed(selected)}
-                  <p class="auto-review-hint">人工已确认。原始机器候选置信度：{confidenceLabel(candidateConfidence(selected))}；该数值不代表人工标注置信度。</p>
-                {/if}
-                <div class="engine-picks" role="group" aria-label="多引擎识别结果">
-                  <button
-                    type="button"
-                    class="engine-pick"
-                    class:engine-pick-active={engineSelected(selected.rapidocr_text)}
-                    class:engine-pick-empty={!selected.rapidocr_text}
-                    disabled={!selected.rapidocr_text}
-                    on:click={() => applyEngineText(selected?.rapidocr_text)}
-                  >
-                    <span class="engine-pick-head">
-                      <span class="engine-name">RapidOCR</span>
-                      <span
-                        class="engine-conf"
-                        class:engine-conf-high={(selected.rapidocr_confidence ?? 0) >= 0.98}
-                        class:engine-conf-mid={(selected.rapidocr_confidence ?? 0) >= 0.9 && (selected.rapidocr_confidence ?? 0) < 0.98}
-                      >{confidenceLabel(selected.rapidocr_confidence)}</span>
-                    </span>
-                    <strong class="engine-text">{selected.rapidocr_text || '无识别结果'}</strong>
-                    {#if engineSelected(selected.rapidocr_text)}<span class="engine-chosen">已选用</span>{/if}
-                  </button>
-                  <button
-                    type="button"
-                    class="engine-pick"
-                    class:engine-pick-active={engineSelected(selected.vision_text)}
-                    class:engine-pick-empty={!selected.vision_text}
-                    disabled={!selected.vision_text}
-                    on:click={() => applyEngineText(selected?.vision_text)}
-                  >
-                    <span class="engine-pick-head">
-                      <span class="engine-name">Vision</span>
-                      <span
-                        class="engine-conf"
-                        class:engine-conf-high={(selected.vision_confidence ?? 0) >= 0.98}
-                        class:engine-conf-mid={(selected.vision_confidence ?? 0) >= 0.9 && (selected.vision_confidence ?? 0) < 0.98}
-                      >{confidenceLabel(selected.vision_confidence)}</span>
-                    </span>
-                    <strong class="engine-text">{selected.vision_text || '无识别结果'}</strong>
-                    {#if engineSelected(selected.vision_text)}<span class="engine-chosen">已选用</span>{/if}
-                  </button>
-                  {#if selected.jev_suggestion}<button type="button" class="engine-pick" disabled={!selected.jev_suggestion.selected_option} on:click={() => applyEngineText(selected?.jev_suggestion?.selected_option)}><span class="engine-pick-head"><span class="engine-name">JEV · {selected.jev_suggestion.action}</span><span>{confidenceLabel(selected.jev_suggestion.confidence)}</span></span><strong class="engine-text">{selected.jev_suggestion.selected_option || selected.jev_suggestion.reason_code || '需要人工复核'}</strong><span>点击填入转录，再点击接受确认标签。</span></button>{/if}
-                  <button
-                    type="button"
-                    class="engine-pick"
-                    class:engine-pick-active={engineSelected(selected.teacher_text)}
-                    class:engine-pick-empty={!selected.teacher_text}
-                    disabled={!selected.teacher_text}
-                    on:click={() => applyEngineText(selected?.teacher_text)}
-                  >
-                    <span class="engine-pick-head">
-                      <span class="engine-name">上一版模型{selected.teacher_model_version ? ` · ${selected.teacher_model_version}` : ''}</span>
-                      <span
-                        class="engine-conf"
-                        class:engine-conf-high={(selected.teacher_confidence ?? 0) >= 0.98}
-                        class:engine-conf-mid={(selected.teacher_confidence ?? 0) >= 0.9 && (selected.teacher_confidence ?? 0) < 0.98}
-                      >{confidenceLabel(selected.teacher_confidence)}</span>
-                    </span>
-                    <strong class="engine-text">{selected.teacher_text || '无识别结果'}</strong>
-                    {#if engineSelected(selected.teacher_text)}<span class="engine-chosen">已选用</span>{/if}
-                  </button>
-                </div>
-                <label class="transcription-field">
-                  <span>转写</span>
-                  <textarea bind:value={selected.transcription} aria-label="转写" rows="3"></textarea>
-                </label>
-              </div>
-            </div>
-
-            <footer class="review-actions-bar">
-              <div class="review-actions-meta">
-                {#if currentIndex >= 0}
-                  <span class="review-index-badge">第 {currentIndex + 1} / {rows.length} 条</span>
-                {/if}
-                <div class="review-nav-group">
-                  <button
-                    type="button"
-                    class="button-ghost button-compact"
-                    disabled={!rows.length || busy}
-                    on:click={selectPrevCandidate}
-                    title="上一条 (Alt + ↑)"
-                  >
-                    ‹ 上一条
-                  </button>
-                  <button
-                    type="button"
-                    class="button-ghost button-compact"
-                    disabled={!rows.length || busy}
-                    on:click={selectNextCandidate}
-                    title="下一条 (Alt + ↓)"
-                  >
-                    下一条 ›
-                  </button>
-                </div>
-              </div>
-
-              <div class="review-actions-main">
-                <span class="review-shortcut-hint">⌘/Ctrl+Enter 接受 · Alt+⌫ 拒绝</span>
-                <button
-                  type="button"
-                  class="button-secondary button-danger-hover"
-                  disabled={busy}
-                  on:click={() => save('rejected')}
-                  title="拒绝此切片 (Alt + Backspace)"
-                >
-                  拒绝
-                </button>
-                <button
-                  type="button"
-                  class="button-primary"
-                  disabled={busy}
-                  on:click={() => save('accepted')}
-                  title="接受此转写并切换到下一条 (Cmd/Ctrl + Enter)"
-                >
-                  接受并下一条
-                </button>
-              </div>
-            </footer>
-          {:else}
-            <div class="empty-detail">
-              <p class="eyebrow">步骤 3</p>
-              <h2>从左侧选择一条候选</h2>
-              <p>筛选 train / holdout 与状态，点条目后对照切片校正转写。</p>
-            </div>
-          {/if}
-        </article>
+          </article>
+        </div>
       </section>
     {:else if active === 'dataset'}
       <section class="dataset-layout">
@@ -2396,6 +2073,7 @@
         </section>
       </section>
     {/if}
+    {#if active === 'training'}
     <section class="publish-panel release-decision-panel" aria-label="候选与 stable 决策">
       <div class="publish-head">
         <header class="panel-head">
@@ -2445,6 +2123,7 @@
         </div>
       {/if}
     </section>
+    {/if}
     </div>
   </div>
 

@@ -482,3 +482,20 @@ def test_engine_agreement_skips_jev_and_is_adopted_for_train_only(tmp_path: Path
     assert by_crop["images/agree.png"]["transcription"] == "Samoa"
     assert by_crop["images/teacher.png"]["review_status"] == "pending"
     assert review_rows(batch, "holdout")[0]["review_status"] == "pending"
+
+
+def test_studio_does_not_collect_center_banner_but_production_layout_keeps_it(tmp_path: Path) -> None:
+    from app.core.roi_config import load_roi_config
+    from training.studio.core import DEFAULT_ROI_CONFIG, _load_studio_roi_config, drop_excluded_rois
+
+    assert "center_banner" in load_roi_config(DEFAULT_ROI_CONFIG).rois
+    assert "center_banner" not in _load_studio_roi_config(DEFAULT_ROI_CONFIG).rois
+
+    batch = _batch(tmp_path)
+    (batch / "dataset/review/train.jsonl").write_text("".join(json.dumps(row) + "\n" for row in [
+        {"crop": "images/a.png", "roi": "center_banner", "review_status": "accepted", "transcription": "x"},
+        {"crop": "images/b.png", "roi": "left_panel", "review_status": "pending"},
+    ]))
+    assert drop_excluded_rois(batch) == 1
+    assert [row["roi"] for row in review_rows(batch, "train")] == ["left_panel"]
+    assert (batch / "dataset/labels/train.txt").read_text() == ""

@@ -8,6 +8,7 @@ import os
 import shutil
 import uuid
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -42,6 +43,29 @@ DEFAULT_ROI_CONFIG = ROOT / "configs/roi_1280x720.yaml"
 ROI_CONFIG_VARIANTS = (DEFAULT_ROI_CONFIG, ROOT / "configs/roi_1280x800.yaml")
 PRIVATE_DATASET_ROOT = ROOT / "datasets/labeled/rec/studio"
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+# Overlaps the left/right panels and disturbs their candidates. Studio does not crop or review it;
+# production recognition still reads it from the shared layout config.
+STUDIO_EXCLUDED_ROIS = frozenset({"center_banner"})
+
+
+def _load_studio_roi_config(path: Path) -> Any:
+    config = load_roi_config(path)
+    return replace(config, rois={name: box for name, box in config.rois.items() if name not in STUDIO_EXCLUDED_ROIS})
+
+
+def drop_excluded_rois(batch_dir: Path) -> int:
+    """Remove review rows for ROIs Studio no longer collects (existing batches)."""
+    removed = 0
+    for split in ("train", "holdout"):
+        with _review_lock(batch_dir, split):
+            rows = review_rows(batch_dir, split)
+            kept = [row for row in rows if row.get("roi") not in STUDIO_EXCLUDED_ROIS]
+            if len(kept) != len(rows):
+                removed += len(rows) - len(kept)
+                _atomic_jsonl(batch_dir / "dataset/review" / f"{split}.jsonl", kept)
+    if removed:
+        _invalidate_labels(batch_dir / "dataset")
+    return removed
 
 
 def _atomic_json(path: Path, data: Any) -> None:
@@ -101,7 +125,7 @@ def _roi_config_options(config_path: Path) -> list[tuple[Path, Any]]:
     paths = [configured]
     if configured == DEFAULT_ROI_CONFIG.resolve():
         paths = [path.resolve() for path in ROI_CONFIG_VARIANTS]
-    return [(path, load_roi_config(path)) for path in paths]
+    return [(path, _load_studio_roi_config(path)) for path in paths]
 
 
 def _select_source_roi_config(
@@ -125,7 +149,7 @@ def _source_roi_config(
     configured = source.get("roi_config")
     if isinstance(configured, str) and configured:
         path = (ROOT / configured).resolve()
-        return path, load_roi_config(path)
+        return path, _load_studio_roi_config(path)
     file = source.get("file")
     if not isinstance(file, str) or not file:
         return options[0]
@@ -784,6 +808,7 @@ def generate_candidates(
             raise RuntimeError(
                 f"candidate output is incomplete: {dataset_dir}; create a new batch instead of overwriting private review data"
             )
+        drop_excluded_rois(batch_dir)
         rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
         deduplicated = deduplicate_review_rows(batch_dir)
         if deduplicated:

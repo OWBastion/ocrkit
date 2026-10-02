@@ -86,6 +86,17 @@ but stay pending for a human. Confident JEV decisions (confidence ≥ 0.9, a cho
 adopted automatically: they stay human-reviewed so the evaluation evidence is
 independent of the model that suggested labels. "打开时自动准备" in the panel
 starts the preparation as soon as Studio opens and new screenshots exist.
+Studio does not collect the central banner (`center_banner`) ROI: it overlaps the
+left/right panels. Production recognition still reads it from the shared layout
+config. Review shows one suggested answer per crop (JEV settles engine
+disagreements; it never overrides agreeing engines) and the UI works on a phone:
+
+```bash
+./studio.sh start --host 0.0.0.0   # then open http://<this-mac-ip>:7860 on the phone
+```
+
+Studio has no authentication; use it only on a trusted network.
+
 Manual R2 browsing, local uploads and platform screenshot sets remain under
 「手动选择 / 上传截图」and feed the same pipeline.
 
