@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 import re
 
+from .normalize import parse_time_to_seconds
+
 _DIFFICULTY = re.compile(r"(地狱|传奇|困难|普通|简单|无法跳过英雄)")
 _VERSION = re.compile(r"(?:版本|版木|股本|服本|本)\s*([0-9\.OoIlSB]+)")
 _MAP_SPLIT = re.compile(r"[：:]")
@@ -28,12 +30,29 @@ _CLASSIC_MAP_VARIANT = "classic"
 _CLASSIC_MAP_VARIANT_LABEL = re.compile(r"(?:经典版|经典)\s*[：:]")
 
 
+_MODE = re.compile(r"[\[［【]\s*([^\[\]［］【】]{1,24}?)\s*[\]］】]")
+# A garbled duration such as "1小时分37秒" must not be read as one hour, so each unit needs its own digits.
+_DURATION = r"((?:\d+\s*小时)?\s*(?:\d+\s*分)?\s*(?:\d+\s*秒)?)(?![小时分秒])"
+_RESTART_IN = re.compile(r"距自动重开\s*" + _DURATION)
+_UPTIME = re.compile(r"已运行\s*" + _DURATION)
+_SERVER_LOAD = re.compile(r"服务器负载\s*(\d+)")
+
+
 @dataclass
 class RightPanel:
     map_name: str | None
     difficulty: str | None
     version: str | None
     map_variant: str | None = None
+    mode: str | None = None
+    restart_in_seconds: float | None = None
+    uptime_seconds: float | None = None
+    server_load: int | None = None
+
+
+def _duration_seconds(pattern: re.Pattern[str], text: str) -> float | None:
+    match = pattern.search(text)
+    return parse_time_to_seconds(match.group(1)) if match and match.group(1).strip() else None
 
 
 def _normalize_map_text(text: str) -> str:
@@ -152,9 +171,15 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
         if len(digits) == 7:
             version = f"{digits[:2]}.{digits[2:6]}.{digits[6:]}"
 
+    mode_match = _MODE.search(text)
+    load_match = _SERVER_LOAD.search(text)
     return RightPanel(
         map_name=map_name,
         difficulty=difficulty,
         version=version,
         map_variant=map_variant,
+        mode=mode_match.group(1) if mode_match else None,
+        restart_in_seconds=_duration_seconds(_RESTART_IN, text),
+        uptime_seconds=_duration_seconds(_UPTIME, text),
+        server_load=int(load_match.group(1)) if load_match else None,
     )

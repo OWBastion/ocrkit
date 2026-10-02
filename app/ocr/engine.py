@@ -10,6 +10,8 @@ import numpy as np
 class OcrChunk:
     text: str
     score: float
+    # Bounding rectangle (x1, y1, x2, y2) in the coordinates of the image given to the engine, when known.
+    box: tuple[float, float, float, float] | None = None
 
 
 @dataclass

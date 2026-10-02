@@ -367,6 +367,12 @@ def test_by_object_ok_with_debug() -> None:
         "difficulty",
         "version",
         "run_code",
+        "event",
+        "ai_mark_detected",
+        "mode",
+        "restart_in_seconds",
+        "uptime_seconds",
+        "server_load",
     }
     assert payload["debug"] is not None
     assert object_store.last_bucket == "owbastion-codes-evidence"

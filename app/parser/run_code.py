@@ -16,6 +16,10 @@ _CANDIDATE_PATTERN = re.compile(
     rf"(?P<second>{_GROUP})\s*(?P<separator_two>{_SEPARATOR})\s*(?P<third>{_GROUP})(?!\d))",
     re.IGNORECASE,
 )
+_UNLABELED_PATTERN = re.compile(
+    rf"(?<!\d)(?P<first>{_GROUP})\s*(?P<separator_one>{_SEPARATOR})\s*"
+    rf"(?P<second>{_GROUP})\s*(?P<separator_two>{_SEPARATOR})\s*(?P<third>{_GROUP})(?!\d)"
+)
 _VALUE_PATTERN = re.compile(
     rf"\s*{_GROUP}\s*{_SEPARATOR}\s*{_GROUP}\s*{_SEPARATOR}\s*{_GROUP}\s*"
 )
@@ -32,7 +36,7 @@ class ParsedRunCode:
 def parse_run_code(text: str) -> ParsedRunCode:
     labels = list(_LABEL_PATTERN.finditer(text))
     if not labels:
-        return ParsedRunCode(value=None, status="missing")
+        return _parse_unlabeled(text)
 
     candidates = list(_CANDIDATE_PATTERN.finditer(text))
     if len(candidates) != len(labels):
@@ -58,6 +62,20 @@ def parse_run_code(text: str) -> ParsedRunCode:
         status="ok",
         normalization=tuple(normalization),
     )
+
+
+def _parse_unlabeled(text: str) -> ParsedRunCode:
+    """The current HUD prints the code without the 本局代码 label; accept only the strict three-group format."""
+    candidates = list(_UNLABELED_PATTERN.finditer(text))
+    codes = {"-".join(match.group(name) for name in ("first", "second", "third")) for match in candidates}
+    if not codes:
+        return ParsedRunCode(value=None, status="missing")
+    if len(codes) != 1:
+        return ParsedRunCode(value=None, status="ambiguous", warning="run_code.ambiguous")
+    normalization = ["label:absent"]
+    if any(match.group("separator_one") != "-" or match.group("separator_two") != "-" for match in candidates):
+        normalization.append("separator:canonical-hyphen")
+    return ParsedRunCode(value=codes.pop(), status="ok", normalization=tuple(normalization))
 
 
 def looks_like_run_code_value(text: str) -> bool:

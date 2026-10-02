@@ -142,6 +142,20 @@ matches; the platform owns catalog matching and business decisions. `achievement
 the first candidate for compatibility, and `achievement_unlocked` is `true` when at least one
 candidate is detected. The player name in the lower-left hero panel is not used for this
 signal. If no checked text is visible in the ROI, the title fields are empty/`null`.
+`event` is additive evidence for the single active event under the stats block: `name`,
+`duration_seconds` (from a title such as `心之钢（27 秒）`), the `description` lines, every
+number in them (`numbers`: `text`, `value`, `unit`) and the joined `text`. OCRKit reports what it
+read; the platform compares it with the game version and decides what it means. `event` is `null`
+when no event line is visible. Because the completion mark is an icon that OCR does not read, a
+line counts as an achievement when a bright check icon follows it (or a text mark is read), so
+event lines and `achievement_titles` (at most five) are told apart without a catalog.
+`ai_mark_detected` is `true` when the bottom-right watermark region reads as an AI-generation
+mark (for example `豆包AI生成`) and `false` otherwise; it is evidence, not a verdict.
+`mode` (the bracketed label under the map), `restart_in_seconds`, `uptime_seconds` and
+`server_load` come from the right panel; a duration with a missing unit digit is left `null`
+instead of guessed. `run_code` also accepts the unlabeled code printed by the current HUD
+(strict `dddd-dddd-dddd`, first digit 1-9) and marks it `label:absent`.
+
 `viewer_player` is the only player identity field suitable for account matching. The
 central completion banner is not an authoritative player source, so its player name is
 not included in `ChallengeData` or field evidence.

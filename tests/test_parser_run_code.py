@@ -9,15 +9,11 @@ def test_parse_run_code_normalizes_safe_separator_and_whitespace_variants() -> N
     assert parsed.normalization == ("separator:canonical-hyphen", "whitespace:trimmed")
 
 
-def test_parse_run_code_requires_the_visible_label_and_complete_numeric_groups() -> None:
-    no_label = parse_run_code(
-        "版本 26.0613.3 总计耗时 2小时20分38秒 总计阵亡/跳过 114/0 增益/减益/总计 29/49/106 4821-7354-1926"
-    )
+def test_parse_run_code_requires_complete_numeric_groups_with_or_without_the_label() -> None:
     malformed = parse_run_code("本局代码：4821-7354-192")
     leading_zero = parse_run_code("Run Code: 0821-7354-1926")
     merged = parse_run_code("本局代码：482173541926")
 
-    assert no_label.status == "missing"
     assert malformed.status == "invalid"
     assert leading_zero.status == "invalid"
     assert merged.status == "invalid"
@@ -50,3 +46,20 @@ def test_enforce_run_code_confidence_rejects_below_threshold_without_guessing() 
     assert parsed.value is None
     assert parsed.status == "low_confidence"
     assert parsed.warning == "run_code.low_confidence"
+
+
+def test_parse_run_code_accepts_the_unlabeled_code_of_the_current_hud() -> None:
+    parsed = parse_run_code("8385-4192-4002")
+
+    assert parsed.value == "8385-4192-4002"
+    assert parsed.status == "ok"
+    assert parsed.normalization == ("label:absent",)
+
+
+def test_unlabeled_run_code_stays_strict() -> None:
+    assert parse_run_code("版本 26.0613.3 29/49/106 114/0").status == "missing"
+    assert parse_run_code("0821-7354-1926").status == "missing"
+    assert parse_run_code("8385-4192-400").status == "missing"
+    assert parse_run_code("8385419240021").status == "missing"
+    conflicting = parse_run_code("8385-4192-4002 8385-4192-4003")
+    assert (conflicting.value, conflicting.status, conflicting.warning) == (None, "ambiguous", "run_code.ambiguous")

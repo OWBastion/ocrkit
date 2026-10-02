@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.schemas.response import ChallengeData
+from app.schemas.response import ChallengeData, EventData
 
 from .bottom_left_hero import BottomLeftHero
 from .center_summary import CenterSummary
@@ -15,6 +15,8 @@ def merge_result(
     right: RightPanel,
     achievement_panel_text: str | None = None,
     run_code: str | None = None,
+    event: EventData | None = None,
+    ai_mark_detected: bool | None = None,
 ) -> ChallengeData:
     duration_text = left.clear_time if left.clear_time_seconds is not None else center.duration_text
     duration_seconds = left.clear_time_seconds if left.clear_time_seconds is not None else center.duration_seconds
@@ -36,4 +38,10 @@ def merge_result(
         difficulty=right.difficulty,
         version=right.version,
         run_code=run_code,
+        event=event,
+        ai_mark_detected=ai_mark_detected,
+        mode=right.mode,
+        restart_in_seconds=right.restart_in_seconds,
+        uptime_seconds=right.uptime_seconds,
+        server_load=right.server_load,
     )
