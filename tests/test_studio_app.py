@@ -43,7 +43,8 @@ def test_studio_api_serves_local_frontend_and_rejects_unknown_batch(tmp_path: Pa
     (frontend / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
     client = TestClient(create_app(tmp_path / "work", frontend))
 
-    assert client.get("/api/health").json() == {"ok": "true", "service": "ocrkit-studio"}
+    health = client.get("/api/health").json()
+    assert (health["ok"], health["service"]) == ("true", "ocrkit-studio")
     assert client.get("/api/batches").json() == []
     assert client.get("/api/batches/not-a-batch/review").status_code == 404
     assert client.get("/").text == "<main>Studio</main>"

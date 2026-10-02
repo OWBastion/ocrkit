@@ -109,6 +109,7 @@
   let jevConfigured = false
   let jevState: JevState | null = null
   let jevPollTimer: ReturnType<typeof setInterval> | null = null
+  let build = ''
   let pipeline: PipelineState | null = null
   let pipelinePreview: PipelinePreview | null = null
   let pipelineError = ''
@@ -1267,6 +1268,7 @@
     try {
       try { autoPrepare = localStorage.getItem(AUTO_PREPARE_KEY) === '1' } catch {}
       await Promise.all([refreshBatches(), loadRemoteStatus(), request<{ configured: boolean }>('/api/jev/config').then((config) => { jevConfigured = config.configured }).catch(() => { jevConfigured = false })])
+      request<{ build: string }>('/api/health').then((health) => { build = health.build }).catch(() => {})
       await refreshPipeline()
       if (remoteConfig?.configured && !pipelineRunning()) {
         await loadPipelinePreview()
@@ -2138,6 +2140,7 @@
     </section>
     {/if}
     </div>
+    {#if build}<p class="build-tag" title="当前页面所连接的 Studio 来自哪个分支和提交">{build}</p>{/if}
   </div>
 
   {#if hoverPreviewObject}

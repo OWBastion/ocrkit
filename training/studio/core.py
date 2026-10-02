@@ -5,7 +5,6 @@ import fcntl
 from contextlib import contextmanager
 import json
 import os
-import re
 import shutil
 import uuid
 from collections import Counter
@@ -20,6 +19,7 @@ from app.core.roi_config import load_roi_config
 from app.image.loader import decode_image
 from app.image.quality import assess_input_quality
 from app.image.roi import crop_all_rois, select_roi_config
+from app.parser.ai_mark import is_ai_mark
 from training.scripts.finalize_rec_labels import finalize
 from training.scripts.prepare_rec_candidates import (
     best_rapid_candidate,
@@ -1416,7 +1416,6 @@ def export_dataset(batch_dir: Path, *, destination_root: Path = PRIVATE_DATASET_
     return {"export_dir": str(destination), **result}
 
 
-_AI_MARK = re.compile(r"AI|人工智能", re.IGNORECASE)
 REVIEW_CATEGORIES = frozenset({"event", "achievement", "other"})
 
 
@@ -1429,7 +1428,7 @@ def reject_ai_generated_sources(batch_dir: Path) -> int:
     for split in ("train", "holdout"):
         for row in review_rows(batch_dir, split):
             texts = (row.get(name) for name in ("candidate_text", "rapidocr_text", "vision_text", "teacher_text"))
-            if row.get("roi") == "ai_watermark" and any(isinstance(t, str) and "生成" in t and _AI_MARK.search(t) for t in texts):
+            if row.get("roi") == "ai_watermark" and any(isinstance(t, str) and is_ai_mark(t) for t in texts):
                 flagged.add(str(row.get("source_id")))
     if not flagged:
         return 0

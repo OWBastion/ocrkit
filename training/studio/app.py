@@ -329,6 +329,29 @@ def _checkpoint_from_training_state(batch_dir: Path) -> Path:
     return checkpoint
 
 
+def _build_label() -> str:
+    """Branch and commit of the checkout serving this instance, so a phone and a desktop can be compared."""
+    def run(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=5, check=True).stdout.strip()
+
+    try:
+        return f"{run('rev-parse', '--abbrev-ref', 'HEAD')}@{run('rev-parse', '--short', 'HEAD')}"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+def _lan_address() -> str | None:
+    """The Wi-Fi/Ethernet address; a VPN or proxy tunnel is the default route, so asking the route table is wrong."""
+    for interface in ("en0", "en1"):
+        try:
+            address = subprocess.run(["ipconfig", "getifaddr", interface], capture_output=True, text=True, timeout=3, check=True).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if address:
+            return address
+    return None
+
+
 def create_app(
     work_root: Path = DEFAULT_WORK_ROOT,
     frontend_dir: Path | None = FRONTEND_DIST,
@@ -395,7 +418,7 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"ok": "true", "service": "ocrkit-studio"}
+        return {"ok": "true", "service": "ocrkit-studio", "root": str(ROOT), "build": _build_label()}
 
     @app.get("/api/batches")
     def batches() -> list[dict[str, object]]:
@@ -1061,6 +1084,12 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
     import uvicorn
+
+    print(f"Studio ({_build_label()}) from {ROOT}", flush=True)
+    if not args.api_only:
+        print(f"  http://127.0.0.1:{args.port}", flush=True)
+        if args.host in {"0.0.0.0", "::"} and (lan := _lan_address()):
+            print(f"  http://{lan}:{args.port}  (phone on the same network)", flush=True)
 
     if args.reload:
         if not args.api_only or args.work_root != DEFAULT_WORK_ROOT:

@@ -528,3 +528,10 @@ def test_ai_watermark_rejects_the_rest_of_that_screenshot_but_keeps_the_mark_and
     assert row["category"] == "event"
     with pytest.raises(ValueError, match="category"):
         update_review_row(batch, "train", "images/left.png", "accepted", "x", "nope")
+
+
+def test_health_tells_which_checkout_is_serving(tmp_path: Path) -> None:
+    payload = TestClient(studio_app.create_app(tmp_path, None)).get("/api/health").json()
+    assert payload["service"] == "ocrkit-studio"
+    assert payload["root"] == str(studio_app.ROOT)
+    assert "@" in payload["build"] or payload["build"] == "unknown"

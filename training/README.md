@@ -59,9 +59,15 @@ provenance but never become labels. Human-reviewed crop transcriptions are the
 training labels.
 
 ```bash
-./studio.sh
-# Open http://127.0.0.1:5173
+./studio.sh                    # builds the UI, serves everything on http://127.0.0.1:7860
+./studio.sh --host 0.0.0.0     # same, also reachable from a phone on the same network
 ```
+
+There is one entry point and one port. The server prints the checkout and
+commit it runs from (also shown at the bottom of the page and in `/api/health`),
+and refuses to start when the port is already served, naming that instance, so
+a phone and a desktop cannot silently talk to different checkouts. `./studio.sh
+dev` (API plus Vite HMR on `5173`) is only for developing the UI.
 
 Studio opens on a one-click **准备** panel. It lists R2 screenshots from the last
 30 days that no local batch has used yet (by R2 object key) and one button runs
@@ -95,11 +101,7 @@ left/right panels. Production recognition still reads it from the shared layout
 config. Review shows one suggested answer per crop (JEV settles engine
 disagreements; it never overrides agreeing engines) and the UI works on a phone:
 
-```bash
-./studio.sh start --host 0.0.0.0   # then open http://<this-mac-ip>:7860 on the phone
-```
-
-Studio has no authentication; use it only on a trusted network.
+Studio has no authentication; use `--host 0.0.0.0` only on a trusted network.
 
 Manual R2 browsing, local uploads and platform screenshot sets remain under
 「手动选择 / 上传截图」and feed the same pipeline.
