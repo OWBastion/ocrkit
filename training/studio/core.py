@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
+from contextlib import contextmanager
 import json
 import os
 import shutil
@@ -648,6 +650,7 @@ def _inherit_manual_review(
     used: set[int] = set()
     inherited = {"accepted": 0, "rejected": 0, "unmatched": 0}
     for row in current_rows:
+        row.pop("jev_suggestion", None)
         matches = sorted(
             (
                 (score, index, previous)
@@ -890,6 +893,7 @@ def refresh_vision_candidates(
         rows = review_rows(batch_dir, split)
         refreshed: list[dict[str, Any]] = []
         for row in rows:
+            row.pop("jev_suggestion", None)
             crop = Path(str(row.get("crop", "")))
             if crop.is_absolute() or ".." in crop.parts:
                 raise ValueError(f"candidate contains an unsafe crop path: {crop}")
@@ -1031,6 +1035,7 @@ def refresh_teacher_candidates(
         rows = review_rows(batch_dir, split)
         refreshed: list[dict[str, Any]] = []
         for row in rows:
+            row.pop("jev_suggestion", None)
             was_accepted = row.get("review_status") == "accepted"
             was_rejected = row.get("review_status") == "rejected" and not row.get("auto_reject_reason")
             crop = Path(str(row.get("crop", "")))
@@ -1151,31 +1156,68 @@ def review_rows(batch_dir: Path, split: str, status: str = "all") -> list[dict[s
     return rows
 
 
+@contextmanager
+def _review_lock(batch_dir: Path, split: str):
+    if split not in {"train", "holdout"}:
+        raise ValueError("invalid review split")
+    with (batch_dir / "dataset/review" / f"{split}.lock").open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def save_jev_suggestion(batch_dir: Path, split: str, crop: str, suggestion: dict[str, Any]) -> bool:
+    """Store a digest-bound suggestion without adopting it as human truth."""
+    with _review_lock(batch_dir, split):
+        from training.jev.records import compute_input_digest, record_from_review_row
+
+        if split not in {"train", "holdout"}:
+            raise ValueError("invalid review split")
+        rows = review_rows(batch_dir, split)
+        for row in rows:
+            if row.get("crop") != crop or row.get("review_status") != "pending":
+                continue
+            dataset = (batch_dir / "dataset").resolve()
+            image = (dataset / crop).resolve()
+            if dataset not in image.parents or not image.is_file():
+                return False
+            record = record_from_review_row(batch_dir.name, split, load_manifest(batch_dir).get("layout_version"), hashlib.sha256(image.read_bytes()).hexdigest(), row)
+            if compute_input_digest(record) != suggestion.get("input_digest"):
+                return False
+            row["jev_suggestion"] = suggestion
+            _atomic_jsonl(batch_dir / "dataset/review" / f"{split}.jsonl", rows)
+            return True
+        return False
+
+
 def update_review_row(batch_dir: Path, split: str, crop: str, status: str, transcription: str | None) -> dict[str, Any]:
-    if status not in {"accepted", "rejected"}:
-        raise ValueError("review status must be accepted or rejected")
-    path = batch_dir / "dataset/review" / f"{split}.jsonl"
-    rows = review_rows(batch_dir, split)
-    for row in rows:
-        if row.get("crop") != crop:
-            continue
-        if status == "accepted" and not (transcription or "").strip():
-            raise ValueError("accepted candidates require a transcription")
-        previous_transcription = row.get("transcription")
-        was_auto_accepted = bool(row.get("auto_accept_reason"))
-        row["review_status"] = status
-        row["transcription"] = transcription.strip() if status == "accepted" and transcription else None
-        row["auto_accept_reason"] = (
-            row.get("auto_accept_reason")
-            if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription
-            else None
-        )
-        row["auto_reject_reason"] = None
-        row["review_method"] = "automatic" if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription else "human"
-        _atomic_jsonl(path, rows)
-        rebuild_negative_registry(batch_dir)
-        return row
-    raise ValueError("review candidate no longer exists")
+    with _review_lock(batch_dir, split):
+        if status not in {"accepted", "rejected"}:
+            raise ValueError("review status must be accepted or rejected")
+        path = batch_dir / "dataset/review" / f"{split}.jsonl"
+        rows = review_rows(batch_dir, split)
+        for row in rows:
+            if row.get("crop") != crop:
+                continue
+            if status == "accepted" and not (transcription or "").strip():
+                raise ValueError("accepted candidates require a transcription")
+            previous_transcription = row.get("transcription")
+            was_auto_accepted = bool(row.get("auto_accept_reason"))
+            row["review_status"] = status
+            row["transcription"] = transcription.strip() if status == "accepted" and transcription else None
+            row["auto_accept_reason"] = (
+                row.get("auto_accept_reason")
+                if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription
+                else None
+            )
+            row["auto_reject_reason"] = None
+            row["review_method"] = "automatic" if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription else "human"
+            _atomic_jsonl(path, rows)
+            rebuild_negative_registry(batch_dir)
+            return row
+        raise ValueError("review candidate no longer exists")
 
 
 def accept_teacher_suggestions(batch_dir: Path) -> dict[str, int]:
