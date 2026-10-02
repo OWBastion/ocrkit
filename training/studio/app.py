@@ -329,8 +329,7 @@ def _checkpoint_from_training_state(batch_dir: Path) -> Path:
     return checkpoint
 
 
-def _build_label() -> str:
-    """Branch and commit of the checkout serving this instance, so a phone and a desktop can be compared."""
+def _read_build_label() -> str:
     def run(*args: str) -> str:
         return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=5, check=True).stdout.strip()
 
@@ -338,6 +337,10 @@ def _build_label() -> str:
         return f"{run('rev-parse', '--abbrev-ref', 'HEAD')}@{run('rev-parse', '--short', 'HEAD')}"
     except (OSError, subprocess.SubprocessError):
         return "unknown"
+
+
+# Read once at import: it must name the code this process loaded, not whatever the checkout points to later.
+BUILD_LABEL = _read_build_label()
 
 
 def _lan_address() -> str | None:
@@ -418,7 +421,7 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"ok": "true", "service": "ocrkit-studio", "root": str(ROOT), "build": _build_label()}
+        return {"ok": "true", "service": "ocrkit-studio", "root": str(ROOT), "build": BUILD_LABEL}
 
     @app.get("/api/batches")
     def batches() -> list[dict[str, object]]:
@@ -1085,7 +1088,7 @@ def main() -> None:
     args = parser.parse_args()
     import uvicorn
 
-    print(f"Studio ({_build_label()}) from {ROOT}", flush=True)
+    print(f"Studio ({BUILD_LABEL}) from {ROOT}", flush=True)
     if not args.api_only:
         print(f"  http://127.0.0.1:{args.port}", flush=True)
         if args.host in {"0.0.0.0", "::"} and (lan := _lan_address()):

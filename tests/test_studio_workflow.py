@@ -534,7 +534,7 @@ def test_health_tells_which_checkout_is_serving(tmp_path: Path) -> None:
     payload = TestClient(studio_app.create_app(tmp_path, None)).get("/api/health").json()
     assert payload["service"] == "ocrkit-studio"
     assert payload["root"] == str(studio_app.ROOT)
-    assert "@" in payload["build"] or payload["build"] == "unknown"
+    assert payload["build"] == studio_app.BUILD_LABEL
 
 
 @pytest.mark.parametrize("name", ["generate_candidates", "recreate_candidates"])
