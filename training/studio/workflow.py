@@ -24,6 +24,7 @@ from training.studio.core import (
     generate_candidates,
     imported_object_keys,
     load_manifest,
+    merge_batch_datasets,
     review_counts,
     review_rows,
     save_jev_suggestion,
@@ -141,13 +142,31 @@ def run_prepare(work_root: Path, run_dir: Path, days: int, holdout_ratio: float,
     return 0
 
 
-def run_kaggle(batch_dir: Path, run_dir: Path, epochs: int) -> int:
+def run_kaggle(batch_dir: Path, run_dir: Path, epochs: int, base_checkpoint: Path | None = None, include_batches: tuple[str, ...] = (), base_name: str | None = None) -> int:
+    """Train on Kaggle from the chosen base weights over this batch plus any other finalized batches."""
     output = run_dir / "output"
-    command = [sys.executable, "-u", str(ROOT / "training/run_rec_kaggle.py"), "--labels-dir", str(batch_dir / "dataset"), "--epochs", str(epochs), "--output-dir", str(output)]
+    labels_dir = batch_dir / "dataset"
+    data: dict[str, object] = {"batches": [batch_dir.name, *include_batches]}
+    if include_batches:
+        merged = merge_batch_datasets([batch_dir, *(batch_dir.parent / batch for batch in include_batches)], run_dir / "dataset")
+        labels_dir = run_dir / "dataset"
+        data.update(train_samples=merged["train_samples"], holdout_samples=merged["holdout_samples"], per_batch=merged["batches"])
+    else:
+        lines = lambda path: len(path.read_text(encoding="utf-8").splitlines()) if path.is_file() else 0
+        data.update(train_samples=lines(labels_dir / "labels/train.txt"), holdout_samples=lines(labels_dir / "labels/holdout.txt"))
+    info: dict[str, object] = {
+        "base": {"kind": "official"} if base_checkpoint is None else {"kind": "checkpoint", "name": base_name or base_checkpoint.name, "path": str(base_checkpoint)},
+        "data": data,
+        "dataset_dir": str(labels_dir),
+    }
+    _write_result(run_dir, info)
+    command = [sys.executable, "-u", str(ROOT / "training/run_rec_kaggle.py"), "--labels-dir", str(labels_dir), "--epochs", str(epochs), "--output-dir", str(output)]
+    if base_checkpoint is not None:
+        command.extend(["--pretrained-checkpoint", str(base_checkpoint)])
     try:
         return subprocess.run(command, cwd=ROOT, check=False).returncode
     finally:
-        result: dict[str, object] = {"output_run_dir": str(output)}
+        result: dict[str, object] = {**info, "output_run_dir": str(output)}
         status_path = output / "status.json"
         if status_path.is_file():
             result.update(json.loads(status_path.read_text(encoding="utf-8")))
@@ -231,6 +250,9 @@ def main() -> int:
     parser.add_argument("--work-root", type=Path, default=DEFAULT_WORK_ROOT)
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--holdout-ratio", type=float, default=0.2)
+    parser.add_argument("--base-checkpoint", type=Path, help="Local .pdparams to train from instead of the official weights")
+    parser.add_argument("--base-name", help="Display name recorded for --base-checkpoint")
+    parser.add_argument("--include-batch", action="append", default=[], help="Another finalized batch whose labels join the training data")
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--image-tokens", type=int, default=70, choices=(10, 20, 35, 70, 140, 280))
@@ -247,7 +269,7 @@ def main() -> int:
             previous = json.loads(result_path.read_text(encoding="utf-8")) if result_path.is_file() else {}
             _write_result(args.run_dir, {**previous, "jev_adopted": adopt_jev_suggestions(args.batch_dir)})
         else:
-            exit_code = run_kaggle(args.batch_dir, args.run_dir, args.epochs)
+            exit_code = run_kaggle(args.batch_dir, args.run_dir, args.epochs, args.base_checkpoint, tuple(args.include_batch), args.base_name)
         return exit_code
     finally:
         result_path = args.run_dir / "result.json"

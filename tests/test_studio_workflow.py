@@ -622,3 +622,101 @@ def test_evaluate_api_requires_a_trained_checkpoint_and_blocks_duplicates(tmp_pa
     assert started.status_code == 200
     assert launched[0][2:5] == ["-m", "training.studio.workflow", "evaluate"]
     assert client.post(path).status_code == 409
+
+
+def _finalized_batch(root: Path, batch_id: str, sources: dict[str, tuple[str, str]], rows: dict[str, list[tuple[str, str]]]) -> Path:
+    """sources: id -> (sha, split); rows: split -> [(source id, text)]."""
+    batch = root / "batches" / batch_id
+    (batch / "dataset/labels").mkdir(parents=True)
+    (batch / "batch.json").write_text(json.dumps({"batch_id": batch_id, "sources": [{"id": i, "sha256": sha, "split": split} for i, (sha, split) in sources.items()]}))
+    for split, items in rows.items():
+        lines = []
+        for index, (source, text) in enumerate(items):
+            relative = f"images/{split}/{source}/left_panel/{index:03d}.png"
+            (batch / "dataset" / relative).parent.mkdir(parents=True, exist_ok=True)
+            (batch / "dataset" / relative).write_bytes(f"{batch_id}{relative}".encode())
+            lines.append(f"{relative}\t{text}\n")
+        (batch / "dataset/labels" / f"{split}.txt").write_text("".join(lines))
+    return batch
+
+
+def test_merge_keeps_the_first_batch_first_and_never_trains_on_a_held_out_screenshot(tmp_path: Path) -> None:
+    from training.studio.core import merge_batch_datasets, mergeable_batches
+
+    current = _finalized_batch(tmp_path, "b2", {"s1": ("sha-a", "train"), "s2": ("sha-b", "holdout")}, {"train": [("s1", "甲")], "holdout": [("s2", "乙")]})
+    older = _finalized_batch(
+        tmp_path, "b1",
+        {"s1": ("sha-b", "train"), "s2": ("sha-a", "train"), "s3": ("sha-c", "holdout")},
+        {"train": [("s1", "held out in b2"), ("s2", "duplicate of b2 train")], "holdout": [("s3", "丙")]},
+    )
+
+    merged = merge_batch_datasets([current, older], tmp_path / "merged")
+
+    train = (tmp_path / "merged/labels/train.txt").read_text().splitlines()
+    holdout = (tmp_path / "merged/labels/holdout.txt").read_text().splitlines()
+    assert [line.split("\t")[1] for line in train] == ["甲"]
+    assert sorted(line.split("\t")[1] for line in holdout) == ["丙", "乙"]
+    assert all(line.startswith("images/b2/") for line in train)
+    assert all((tmp_path / "merged" / line.split("\t")[0]).is_file() for line in train + holdout)
+    older_counts = next(b for b in merged["batches"] if b["batch_id"] == "b1")
+    assert older_counts["dropped_held_out_elsewhere"] == 1
+    assert older_counts["dropped_duplicate_source"] == 1
+    assert (merged["batch_id"], merged["train_samples"], merged["holdout_samples"]) == ("b2", 1, 2)
+    assert json.loads((tmp_path / "merged/merge_manifest.json").read_text())["train_samples"] == 1
+    assert [b["batch_id"] for b in mergeable_batches(tmp_path, exclude="b2")] == ["b1"]
+
+
+def test_kaggle_training_choices_are_listed_validated_and_passed_to_the_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _batch(tmp_path)  # batches/example is the batch being trained
+    _finalized_batch(tmp_path, "older", {"s1": ("sha-1", "train"), "s2": ("sha-2", "holdout")}, {"train": [("s1", "甲")], "holdout": [("s2", "乙")]})
+    weights = tmp_path / "batches/older/runs/kaggle-1/output/checkpoint/best_accuracy.pdparams"
+    weights.parent.mkdir(parents=True)
+    weights.write_bytes(b"weights")
+    (weights.parents[1] / "run.json").write_text(json.dumps({"evaluation": {"field_accuracy": 0.976}}))
+    launched = []
+    monkeypatch.setattr(studio_app, "finalize_dataset", lambda directory: None)
+    monkeypatch.setattr(studio_app.subprocess, "Popen", lambda command, **kwargs: launched.append(command) or SimpleNamespace(pid=1))
+    monkeypatch.setattr(studio_app.os, "waitpid", lambda pid, flags: (0, 0))
+    client = TestClient(studio_app.create_app(tmp_path, None))
+
+    options = client.get("/api/batches/example/training/options").json()
+    assert options["data_batches"] == [{"batch_id": "older", "train": 1, "holdout": 1}]
+    assert options["base_weights"] == [{"path": "older:runs/kaggle-1/output/checkpoint/best_accuracy.pdparams", "name": "older · kaggle-1 · 固定截图 97.6%"}]
+
+    path = "/api/batches/example/training/kaggle"
+    assert client.post(path, json={"include_batches": ["missing"]}).status_code == 422
+    assert client.post(path, json={"base_checkpoint": "older:../../x.pdparams"}).status_code == 422
+    assert launched == []
+
+    started = client.post(path, json={"epochs": 2, "base_checkpoint": options["base_weights"][0]["path"], "include_batches": ["older"]})
+    assert started.status_code == 200
+    command = launched[0]
+    assert command[command.index("--base-checkpoint") + 1] == str(weights.resolve())
+    assert command[command.index("--base-name") + 1] == "older · kaggle-1 · 固定截图 97.6%"
+    assert command[command.index("--include-batch") + 1] == "older"
+
+
+def test_kaggle_worker_trains_on_the_merged_dataset_from_the_chosen_weights(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    current = _finalized_batch(tmp_path, "b2", {"s1": ("a", "train"), "s2": ("b", "holdout")}, {"train": [("s1", "甲")], "holdout": [("s2", "乙")]})
+    _finalized_batch(tmp_path, "b1", {"s1": ("c", "train"), "s2": ("d", "holdout")}, {"train": [("s1", "丙")], "holdout": [("s2", "丁")]})
+    run = tmp_path / "run"
+    run.mkdir()
+    weights = tmp_path / "base.pdparams"
+    weights.write_bytes(b"w")
+    calls = []
+
+    def execute(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(workflow.subprocess, "run", execute)
+    assert workflow.run_kaggle(current, run, 4, weights, ("b1",), "上一次 · 97.6%") == 0
+
+    command = calls[0]
+    assert command[command.index("--labels-dir") + 1] == str(run / "dataset")
+    assert command[command.index("--pretrained-checkpoint") + 1] == str(weights)
+    result = json.loads((run / "result.json").read_text())
+    assert result["base"] == {"kind": "checkpoint", "name": "上一次 · 97.6%", "path": str(weights)}
+    assert (result["data"]["batches"], result["data"]["train_samples"], result["data"]["holdout_samples"]) == (["b2", "b1"], 2, 2)
+    assert result["dataset_dir"] == str(run / "dataset")
+    assert len((run / "dataset/labels/train.txt").read_text().splitlines()) == 2

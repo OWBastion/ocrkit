@@ -157,6 +157,10 @@ def git_metadata(path: Path) -> tuple[str | None, bool]:
 
 
 def read_dataset_provenance(dataset_root: Path) -> dict[str, Any]:
+    merge_manifest = dataset_root / "merge_manifest.json"
+    if merge_manifest.is_file():
+        merged = json.loads(merge_manifest.read_text(encoding="utf-8"))
+        return {"batch_id": merged["batch_id"], "merged_batches": [item["batch_id"] for item in merged["batches"]]}
     # Studio batches carry provenance in the batch manifest beside `dataset/`;
     # only set identity travels into run metadata (object keys stay local).
     batch_manifest = dataset_root.parent / "batch.json"

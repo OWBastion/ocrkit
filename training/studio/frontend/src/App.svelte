@@ -16,6 +16,8 @@
     kaggle_kernel?: string
     checkpoint?: string
     field_accuracy?: number | null
+    base?: { kind: 'official' | 'checkpoint'; name?: string }
+    data?: { batches: string[]; train_samples?: number; holdout_samples?: number }
     pid?: number
     log?: string
     log_tail?: string
@@ -30,6 +32,7 @@
     comparison?: { field_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null }; run_code_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null } }
   }
   type ResumeCheckpoint = { path: string; name: string }
+  type TrainingOptions = { base_weights: { path: string; name: string }[]; data_batches: { batch_id: string; train: number; holdout: number }[] }
   type RemoteConfig = { configured: boolean; bucket: string; allowed_prefixes: string[]; max_objects?: number; max_object_bytes?: number }
   type RemoteObject = { key: string; size: number; etag?: string | null; last_modified?: string | null }
   type RemoteSortField = 'date' | 'size' | 'name'
@@ -82,6 +85,9 @@
   let releaseBusy = false
   let publishConfirmed = false
   let resumeCheckpoints: ResumeCheckpoint[] = []
+  let trainingOptions: TrainingOptions | null = null
+  let baseWeights = ''
+  let includedBatches = new Set<string>()
   let resumeCheckpoint = ''
   let trainingEpochs = 10
   let trainingUpdatedAt = ''
@@ -1043,8 +1049,27 @@
     }
   }
 
+  // Which weights to start from and which finalized batches to learn from; every choice is shown on the run afterwards.
+  async function refreshTrainingOptions() {
+    if (!batch) return
+    trainingOptions = await request<TrainingOptions>(`/api/batches/${batch.batch_id}/training/options`)
+    if (baseWeights && !trainingOptions.base_weights.some((weights) => weights.path === baseWeights)) baseWeights = ''
+    includedBatches = new Set([...includedBatches].filter((id) => trainingOptions?.data_batches.some((item) => item.batch_id === id)))
+    if (!includedBatches.size && !trainingOptionsTouched) includedBatches = new Set(trainingOptions.data_batches.map((item) => item.batch_id))
+  }
+
+  let trainingOptionsTouched = false
+
+  function toggleIncludedBatch(id: string) {
+    trainingOptionsTouched = true
+    const next = new Set(includedBatches)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    includedBatches = next
+  }
+
   async function loadTrainingStep() {
-    await Promise.all([refreshTraining(), refreshResumeCheckpoints(), refreshPublication(), refreshReleaseComparison({ silent: true })])
+    await Promise.all([refreshTraining(), refreshResumeCheckpoints(), refreshTrainingOptions(), refreshPublication(), refreshReleaseComparison({ silent: true })])
     if (trainingIsRunning(training?.status)) startTrainingPoll()
   }
 
@@ -1144,7 +1169,7 @@
       await request<TrainingState>(`/api/batches/${batch.batch_id}/training/${trainingBackend}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(trainingBackend === 'kaggle' ? { epochs: trainingEpochs } : { resume_checkpoint: resumeCheckpoint || null, epochs: trainingEpochs }),
+        body: JSON.stringify(trainingBackend === 'kaggle' ? { epochs: trainingEpochs, base_checkpoint: baseWeights || null, include_batches: [...includedBatches] } : { resume_checkpoint: resumeCheckpoint || null, epochs: trainingEpochs }),
       })
       message(`${trainingBackend === 'kaggle' ? 'Kaggle' : 'CPU Smoke'} 训练已启动，日志将自动刷新。`)
       followLog = true
@@ -1986,6 +2011,23 @@
             <input class="control" type="number" min="1" max="100" bind:value={trainingEpochs} disabled={!batch || busy || trainingIsRunning(training?.status)} />
           </label>
           {#if trainingBackend === 'smoke'}<p class="config-note">恢复到新的 run，目标 Epoch 须高于已完成进度。</p>{/if}
+          {#if trainingBackend === 'kaggle' && trainingOptions}
+            <label class="field">
+              <span>基础权重</span>
+              <select class="control" bind:value={baseWeights} disabled={busy || trainingIsRunning(training?.status)}>
+                <option value="">官方 PP-OCRv6 预训练（从头训练）</option>
+                {#each trainingOptions.base_weights as weights}<option value={weights.path}>接着训练：{weights.name}</option>{/each}
+              </select>
+            </label>
+            <fieldset class="field data-choice" disabled={busy || trainingIsRunning(training?.status)}>
+              <span>训练数据</span>
+              <label class="check"><input type="checkbox" checked disabled /> 当前批次 {batch?.batch_id}</label>
+              {#each trainingOptions.data_batches as item}
+                <label class="check"><input type="checkbox" checked={includedBatches.has(item.batch_id)} on:change={() => toggleIncludedBatch(item.batch_id)} /> {item.batch_id} · train {item.train} / holdout {item.holdout}</label>
+              {/each}
+            </fieldset>
+            <p class="config-note">本次：{baseWeights ? '接着已有权重训练' : '从官方预训练权重重新训练'}，使用 {1 + includedBatches.size} 个批次的标签。同一张截图只会出现在训练或保留集之一。</p>
+          {/if}
         </div>
 
         {#if !batch}
@@ -2005,6 +2047,8 @@
               class:status-failed={training.status === 'failed' || training.status === 'completed_or_failed'}
             >{trainingStatusLabel(training.status)}</span>
             {#if training.backend}<span class="status-meta">{training.backend}</span>{/if}{#if training.checkpoint}<span class="status-meta">本地模型：{training.checkpoint}</span>{/if}
+            {#if training.base}<span class="status-meta">基础权重：{training.base.kind === 'official' ? '官方预训练（从头）' : training.base.name}</span>{/if}
+            {#if training.data}<span class="status-meta">训练数据：{training.data.batches.length} 个批次 · train {training.data.train_samples ?? '—'} / holdout {training.data.holdout_samples ?? '—'}</span>{/if}
             {#if training.field_accuracy != null}<span class="status-meta">固定截图准确率 {(training.field_accuracy * 100).toFixed(2)}%</span>{/if}
             {#if training.pid}<span class="status-meta">PID {training.pid}</span>{/if}
             {#if trainingPolling}<span class="status-meta status-live">自动刷新 · {TRAINING_POLL_MS / 1000}s</span>{/if}

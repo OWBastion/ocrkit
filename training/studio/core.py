@@ -1467,3 +1467,83 @@ def generate_candidates(batch_dir: Path, **kwargs: Any) -> dict[str, Any]:
 
 def recreate_candidates(batch_dir: Path, **kwargs: Any) -> dict[str, Any]:
     return _apply_automatic_rules(batch_dir, _recreate_candidates(batch_dir, **kwargs))
+
+
+def _label_lines(path: Path) -> list[tuple[str, str]]:
+    if not path.is_file():
+        return []
+    return [tuple(line.split("\t", 1)) for line in path.read_text(encoding="utf-8").splitlines() if "\t" in line]  # type: ignore[misc]
+
+
+def mergeable_batches(work_root: Path, *, exclude: str | None = None) -> list[dict[str, Any]]:
+    """Batches whose reviewed labels exist for both splits, newest first."""
+    found: list[dict[str, Any]] = []
+    for manifest_path in sorted((work_root / "batches").glob("*/batch.json"), reverse=True):
+        batch_dir = manifest_path.parent
+        if batch_dir.name == exclude:
+            continue
+        train = len(_label_lines(batch_dir / "dataset/labels/train.txt"))
+        holdout = len(_label_lines(batch_dir / "dataset/labels/holdout.txt"))
+        if train and holdout:
+            found.append({"batch_id": batch_dir.name, "train": train, "holdout": holdout})
+    return found
+
+
+def merge_batch_datasets(batch_dirs: list[Path], output_dir: Path) -> dict[str, Any]:
+    """Combine the reviewed labels of several batches into one training dataset.
+
+    The first batch has priority. A screenshot never ends up in both splits: when any batch holds it out, its crops
+    are dropped from every training split, and a screenshot present in several batches is trained on once.
+    """
+    held_out: set[str] = set()
+    sha_by_source: dict[tuple[str, str], str] = {}
+    for batch_dir in batch_dirs:
+        for source in load_manifest(batch_dir).get("sources", []):
+            sha_by_source[(batch_dir.name, str(source["id"]))] = str(source["sha256"])
+            if source.get("split") == "holdout":
+                held_out.add(str(source["sha256"]))
+
+    output_dir.mkdir(parents=True, exist_ok=False)
+    (output_dir / "labels").mkdir()
+    rows: dict[str, list[str]] = {"train": [], "holdout": []}
+    trained_by: dict[str, str] = {}
+    held_by: dict[str, str] = {}
+    batches: list[dict[str, Any]] = []
+    for batch_dir in batch_dirs:
+        counts = {"batch_id": batch_dir.name, "train": 0, "holdout": 0, "dropped_held_out_elsewhere": 0, "dropped_duplicate_source": 0}
+        for split in ("train", "holdout"):
+            for relative, text in _label_lines(batch_dir / f"dataset/labels/{split}.txt"):
+                parts = relative.split("/")
+                sha = sha_by_source.get((batch_dir.name, parts[2] if len(parts) > 3 else ""), "")
+                if split == "train" and sha in held_out:
+                    counts["dropped_held_out_elsewhere"] += 1
+                    continue
+                if sha:
+                    owner = (trained_by if split == "train" else held_by).setdefault(sha, batch_dir.name)
+                    if owner != batch_dir.name:
+                        counts["dropped_duplicate_source"] += 1
+                        continue
+                source_image = batch_dir / "dataset" / relative
+                if not source_image.is_file():
+                    continue
+                target = output_dir / "images" / batch_dir.name / Path(relative).relative_to("images")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(source_image, target)
+                except OSError:
+                    shutil.copy2(source_image, target)
+                rows[split].append(f"{target.relative_to(output_dir).as_posix()}\t{text}")
+                counts[split] += 1
+        batches.append(counts)
+    for split, lines in rows.items():
+        (output_dir / "labels" / f"{split}.txt").write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "created_at": datetime.now(UTC).isoformat(),
+        "batch_id": batch_dirs[0].name,
+        "batches": batches,
+        "train_samples": len(rows["train"]),
+        "holdout_samples": len(rows["holdout"]),
+    }
+    _atomic_json(output_dir / "merge_manifest.json", manifest)
+    return manifest

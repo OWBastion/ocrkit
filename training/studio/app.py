@@ -40,6 +40,7 @@ from training.studio.core import (
     generate_candidates,
     imported_object_keys,
     load_manifest,
+    mergeable_batches,
     refresh_vision_candidates,
     refresh_teacher_candidates,
     review_counts,
@@ -72,6 +73,8 @@ class ReviewUpdate(BaseModel):
 
 class TrainingStart(BaseModel):
     resume_checkpoint: str | None = None
+    base_checkpoint: str | None = None
+    include_batches: list[str] = Field(default_factory=list, max_length=50)
     epochs: int = Field(default=10, ge=1, le=100)
 
 
@@ -181,6 +184,33 @@ def _resume_checkpoint(work_root: Path, batch_dir: Path, value: str | None) -> P
     if not _has_complete_checkpoint(candidate):
         raise HTTPException(status_code=422, detail="resume checkpoint is incomplete or no longer exists")
     return candidate
+
+
+def _list_base_weights(work_root: Path) -> list[dict[str, str]]:
+    """Weights of earlier training runs that a new Kaggle run can start from."""
+    weights: list[dict[str, str]] = []
+    for manifest in sorted((work_root / "batches").glob("*/batch.json"), reverse=True):
+        batch = manifest.parent
+        for params in sorted(batch.glob("runs/*/output/checkpoint/best_accuracy.pdparams"), reverse=True):
+            run = params.parents[2].name
+            detail = ""
+            try:
+                accuracy = json.loads((params.parents[1] / "run.json").read_text(encoding="utf-8"))["evaluation"]["field_accuracy"]
+                detail = f" · 固定截图 {accuracy:.1%}"
+            except (OSError, KeyError, TypeError, ValueError):
+                pass
+            weights.append({"path": f"{batch.name}:{params.relative_to(batch).as_posix()}", "name": f"{batch.name} · {run}{detail}"})
+        for params in sorted(batch.glob("runs/smoke-*/checkpoints/best_accuracy.pdparams"), reverse=True):
+            weights.append({"path": f"{batch.name}:{params.relative_to(batch).as_posix()}", "name": f"{batch.name} · {params.parents[1].name} (CPU Smoke)"})
+    return weights
+
+
+def _resolve_base_weights(work_root: Path, token: str) -> tuple[Path, str]:
+    for option in _list_base_weights(work_root):
+        if option["path"] == token:
+            batch_id, relative = token.split(":", 1)
+            return (work_root / "batches" / batch_id / relative).resolve(), option["name"]
+    raise HTTPException(status_code=422, detail="the chosen base weights no longer exist")
 
 
 def _list_resume_checkpoints(work_root: Path, batch_dir: Path) -> list[dict[str, str]]:
@@ -297,7 +327,15 @@ def _reject_active_workflow(state_path: Path, active_status: str = "training") -
         raise HTTPException(status_code=409, detail="a workflow is already running for this batch")
 
 
-def _launch_workflow(batch_dir: Path, backend: str, *, epochs: int = 10, image_tokens: int = 70) -> dict[str, object]:
+def _launch_workflow(
+    batch_dir: Path,
+    backend: str,
+    *,
+    epochs: int = 10,
+    image_tokens: int = 70,
+    base: tuple[Path, str] | None = None,
+    include_batches: list[str] | None = None,
+) -> dict[str, object]:
     active_status = "reviewing" if backend == "jev" else "training"
     root = batch_dir / ("jev" if backend == "jev" else "runs")
     run_dir = root / f"{backend}-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
@@ -305,6 +343,10 @@ def _launch_workflow(batch_dir: Path, backend: str, *, epochs: int = 10, image_t
     log_path = run_dir / ("jev.log" if backend == "jev" else "training.log")
     command = [sys.executable, "-u", "-m", "training.studio.workflow", backend, "--batch-dir", str(batch_dir), "--run-dir", str(run_dir)]
     command.extend(["--image-tokens", str(image_tokens)] if backend == "jev" else ["--epochs", str(epochs)])
+    if base is not None:
+        command.extend(["--base-checkpoint", str(base[0]), "--base-name", base[1]])
+    for other in include_batches or []:
+        command.extend(["--include-batch", other])
     with log_path.open("ab") as log:
         process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     state: dict[str, object] = {"pid": process.pid, "status": active_status, "backend": backend, "command": command, "log": str(log_path), "epochs": epochs}
@@ -875,14 +917,24 @@ def create_app(
         batch_dir = _batch_dir(work_root, batch_id)
         request = request or TrainingStart()
         if request.resume_checkpoint is not None:
-            raise HTTPException(status_code=422, detail="Kaggle starts from its configured base checkpoint; resume is only supported for Smoke")
+            raise HTTPException(status_code=422, detail="resume is only supported for Smoke; choose base weights instead")
+        base = _resolve_base_weights(work_root, request.base_checkpoint) if request.base_checkpoint else None
+        available = {item["batch_id"] for item in mergeable_batches(work_root, exclude=batch_id)}
+        unknown = [other for other in request.include_batches if other not in available]
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"batch has no finalized labels to train on: {unknown[0]}")
         with _WORKFLOW_START_LOCK:
             _reject_active_workflow(batch_dir / "runs/latest.json")
             try:
                 finalize_dataset(batch_dir)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
-            return _launch_workflow(batch_dir, "kaggle", epochs=request.epochs)
+            return _launch_workflow(batch_dir, "kaggle", epochs=request.epochs, base=base, include_batches=request.include_batches)
+
+    @app.get("/api/batches/{batch_id}/training/options")
+    def training_options(batch_id: str) -> dict[str, object]:
+        _batch_dir(work_root, batch_id)
+        return {"base_weights": _list_base_weights(work_root), "data_batches": mergeable_batches(work_root, exclude=batch_id)}
 
     @app.post("/api/batches/{batch_id}/training/evaluate")
     def evaluate_trained_checkpoint(batch_id: str) -> dict[str, object]:
