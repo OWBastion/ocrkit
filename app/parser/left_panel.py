@@ -37,6 +37,11 @@ def parse_left_panel(text: str) -> LeftPanel:
         compact,
     )
     clear_time = time_match.group(1).strip() if time_match else None
+    if not clear_time or parse_time_to_seconds(clear_time) is None:
+        # The congratulation banner can cover the label and an icon can split it from the value, yet the value is
+        # still read. It is the last complete time in the stats block.
+        values = list(_CLEAR_TIME_VALUE.finditer(compact))
+        clear_time = values[-1].group(0).strip() if values else clear_time
     return LeftPanel(
         heroes_completed=heroes_completed,
         heroes_total=heroes_total,
@@ -47,6 +52,10 @@ def parse_left_panel(text: str) -> LeftPanel:
         clear_time_seconds=parse_time_to_seconds(clear_time or "") if clear_time else None,
     )
 
+
+_CLEAR_TIME_VALUE = re.compile(
+    r"(?:[0-9OoIlSB]+\s*小时\s*)?[0-9OoIlSB]+\s*分\s*[0-9OoIlSB]+(?:\.[0-9]+)?\s*秒"
+)
 
 _ACHIEVEMENT_CHECK = re.compile(
     r"(?P<title>[^✓✔√☑☒\n]+?)\s*"

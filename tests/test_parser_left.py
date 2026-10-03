@@ -90,3 +90,24 @@ def test_parse_left_panel_does_not_treat_player_name_as_achievement() -> None:
 
 def test_parse_achievement_titles_accepts_unseen_titles_and_multiple_checks() -> None:
     assert parse_achievement_titles("新称号甲 ✓ 新称号乙 ✔") == ("新称号甲", "新称号乙")
+
+
+def test_clear_time_is_read_when_the_banner_hides_its_label() -> None:
+    # From recent screenshots: the "祝贺" banner overlaps the stats block and cuts "通关总计耗时" short.
+    text = "下一个英雄 挑战完成 总计阵亡/跳过 98/0 增益/减益/总计 31/29/85 心之钢/移速/减伤/治疗% 贺ER 1小时53分10秒 1001-6090-7475"
+    parsed = parse_left_panel(text)
+
+    assert (parsed.clear_time, parsed.clear_time_seconds) == ("1小时53分10秒", 6790.0)
+    assert (parsed.total_deaths, parsed.total_skips) == (98, 0)
+
+
+def test_clear_time_is_read_when_an_icon_glyph_sits_between_label_and_value() -> None:
+    parsed = parse_left_panel("总计阵亡/跳过 159/0 通关总计耗时 图 2小时25分42秒")
+
+    assert parsed.clear_time_seconds == 8742.0
+
+
+def test_a_labeled_clear_time_still_wins_and_partial_values_are_not_invented() -> None:
+    assert parse_left_panel("通关总计耗时 40分19秒 8832-4542-5798").clear_time_seconds == 2419.0
+    assert parse_left_panel("通关总计耗时 总计阵亡/跳过 12/0").clear_time_seconds is None
+    assert parse_left_panel("祝贺 3小时 7秒 1234-5678-9012").clear_time_seconds is None
