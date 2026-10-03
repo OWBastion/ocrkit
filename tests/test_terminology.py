@@ -193,7 +193,7 @@ class _TerminologyEngine:
     def recognize(self, image: np.ndarray):
         from app.ocr.engine import OcrResult
 
-        if image.shape[:2] == (370, 370):  # left_panel preprocessed at 2x
+        if image.shape[:2] == (420, 370):  # left_panel preprocessed at 2x
             return OcrResult(text=self.left_panel_text, confidence=0.93, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 

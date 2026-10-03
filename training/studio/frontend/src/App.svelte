@@ -50,6 +50,7 @@
     run_code_panel: { name: '运行代码', dotColor: '#6d28d9' },
     run_code_right_panel: { name: '右侧代码', dotColor: '#7c3aed' },
     right_panel: { name: '右上地图', dotColor: '#b91c1c' },
+    server_load_panel: { name: '服务器负载', dotColor: '#be123c' },
     bottom_left_hero: { name: '玩家名', dotColor: '#4338ca' },
     ai_watermark: { name: 'AI 标记', dotColor: '#0f766e' },
   }

@@ -380,3 +380,16 @@ def test_prepare_candidates_omits_terminology_without_catalog(tmp_path: Path) ->
 
     row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
     assert row["terminology"] is None
+
+
+def test_known_irrelevant_text_is_rejected_by_roi_but_real_fields_are_not() -> None:
+    from training.scripts.prepare_rec_candidates import candidate_rejection_reason
+
+    assert candidate_rejection_reason("bottom_left_hero", ["631 | 631", "631/631"]) == "bottom_left_hero.not_player_name"
+    assert candidate_rejection_reason("bottom_left_hero", ["八月八月八"]) is None
+    for overlay in ("FPS: 144.", "VRM: 4972 MB", "延迟: 45 MS", "IND: 32 MS", "12:37 AM", "C"):
+        assert candidate_rejection_reason("right_panel", [overlay]) == "right_panel.performance_overlay"
+    for field in ("皇家赛道：地狱", "[随机事件5.0]", "版本26.0926.1", "服务器负载147", "已运行3小时21分22秒"):
+        assert candidate_rejection_reason("right_panel", [field]) is None
+    # Only the listed ROIs are filtered.
+    assert candidate_rejection_reason("left_panel", ["FPS: 144"]) is None

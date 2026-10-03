@@ -119,8 +119,8 @@ decimal places; `cropped` and the related warnings indicate a ratio mismatch aga
 configured layout and do not make an approval decision. `blur_score` is a normalized blur
 risk from 0 to 1, where higher means blurrier.
 
-Layout v7/v2 regions: `left_panel` (stats, without the code row), `run_code_panel`, `run_code_right_panel`,
-`right_panel` (map, mode, timers, version, run code, server load), `bottom_left_hero` (player name only),
+Layout v7/v2 regions: `left_panel` (stats; reaches the clear-time row of older HUD revisions), `run_code_panel`, `run_code_right_panel`,
+`right_panel` (map, mode, timers, version), `server_load_panel`, `bottom_left_hero` (hero card, the name is its last token),
 `achievement_panel` (the stack under the stats block: at most one event, then up to five achievement unlocks;
 achievements move up when no event is shown, so the ROI is tall and lines are told apart by content), and
 `ai_watermark` (bottom-right generation mark; empty on genuine screenshots). Event/achievement/AI-mark

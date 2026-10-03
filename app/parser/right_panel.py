@@ -50,6 +50,11 @@ class RightPanel:
     server_load: int | None = None
 
 
+def parse_server_load(text: str) -> int | None:
+    match = _SERVER_LOAD.search(text)
+    return int(match.group(1)) if match else None
+
+
 def _duration_seconds(pattern: re.Pattern[str], text: str) -> float | None:
     match = pattern.search(text)
     return parse_time_to_seconds(match.group(1)) if match and match.group(1).strip() else None
@@ -172,7 +177,6 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
             version = f"{digits[:2]}.{digits[2:6]}.{digits[6:]}"
 
     mode_match = _MODE.search(text)
-    load_match = _SERVER_LOAD.search(text)
     return RightPanel(
         map_name=map_name,
         difficulty=difficulty,
@@ -181,5 +185,5 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
         mode=mode_match.group(1) if mode_match else None,
         restart_in_seconds=_duration_seconds(_RESTART_IN, text),
         uptime_seconds=_duration_seconds(_UPTIME, text),
-        server_load=int(load_match.group(1)) if load_match else None,
+        server_load=parse_server_load(text),
     )

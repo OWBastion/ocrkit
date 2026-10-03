@@ -37,3 +37,11 @@ def test_event_and_achievement_stack_starts_below_the_stats_block(name: str) -> 
     assert run_code.y1 >= left.y1
     assert achievement.y1 >= left.y2
     assert achievement.y2 - achievement.y1 >= 6 * 16
+
+
+@pytest.mark.parametrize("name", ["roi_1280x720.yaml", "roi_1280x800.yaml"])
+def test_left_panel_reaches_the_duration_row_of_the_older_hud(name: str) -> None:
+    # Older HUD revisions print the clear-time value (and a hero-progress header above it) down to y≈222, and
+    # the checked-in challenge fixtures are scored with this layout. Cutting the panel higher drops every duration.
+    config = load_roi_config(Path(__file__).parents[1] / "configs" / name)
+    assert config.rois["left_panel"].y2 >= 222
