@@ -720,3 +720,16 @@ def test_kaggle_worker_trains_on_the_merged_dataset_from_the_chosen_weights(tmp_
     assert (result["data"]["batches"], result["data"]["train_samples"], result["data"]["holdout_samples"]) == (["b2", "b1"], 2, 2)
     assert result["dataset_dir"] == str(run / "dataset")
     assert len((run / "dataset/labels/train.txt").read_text().splitlines()) == 2
+
+
+def test_earlier_local_training_results_can_be_chosen_as_the_base(tmp_path: Path) -> None:
+    legacy = tmp_path / "checkpoints/rec_pp_ocrv6_small/best_accuracy.pdparams"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(b"weights")
+    work_root = tmp_path / "studio"
+    work_root.mkdir()
+
+    options = studio_app._list_base_weights(work_root)
+
+    assert options == [{"path": "legacy:rec_pp_ocrv6_small/best_accuracy.pdparams", "name": "历史模型 · rec_pp_ocrv6_small/best_accuracy.pdparams"}]
+    assert studio_app._resolve_base_weights(work_root, options[0]["path"]) == (legacy.resolve(), options[0]["name"])
