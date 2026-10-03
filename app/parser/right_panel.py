@@ -7,7 +7,7 @@ import re
 from .normalize import parse_time_to_seconds
 
 _DIFFICULTY = re.compile(r"(地狱|传奇|困难|普通|简单|无法跳过英雄)")
-_VERSION = re.compile(r"(?:版本|版木|股本|服本|本)\s*([0-9\.OoIlSB]+)")
+_VERSION = re.compile(r"(?:版本|版木|股本|服本|本)\s*([0-9\.,OoIlSB]+)")
 _MAP_SPLIT = re.compile(r"[：:]")
 _MAP_TEXT_CLEAN = str.maketrans(
     {
@@ -30,6 +30,7 @@ _CLASSIC_MAP_VARIANT = "classic"
 _CLASSIC_MAP_VARIANT_LABEL = re.compile(r"(?:经典版|经典)\s*[：:]")
 
 
+_MODE_NAMES = ("随机事件", "镜中回响")
 _MODE = re.compile(r"[\[［【]\s*([^\[\]［］【】]{1,24}?)\s*[\]］】]")
 # A garbled duration such as "1小时分37秒" must not be read as one hour, so each unit needs its own digits.
 _DURATION = r"((?:\d+\s*小时)?\s*(?:\d+\s*分)?\s*(?:\d+\s*秒)?)(?![小时分秒])"
@@ -48,6 +49,16 @@ class RightPanel:
     restart_in_seconds: float | None = None
     uptime_seconds: float | None = None
     server_load: int | None = None
+
+
+def _complete_mode(raw: str) -> str:
+    """Restore a mode name whose first characters were lost to the bracket, e.g. "机事件5.0"."""
+    name = re.sub(r"\s+", "", raw)
+    for known in _MODE_NAMES:
+        for cut in range(1, len(known)):
+            if name.startswith(known[cut:]):
+                return known[:cut] + name
+    return name
 
 
 def parse_server_load(text: str) -> int | None:
@@ -171,7 +182,7 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
     version = None
     vm = _VERSION.search(text)
     if vm:
-        version = vm.group(1).translate(str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "S": "5", "B": "8"}))
+        version = vm.group(1).translate(str.maketrans({",": ".", "O": "0", "o": "0", "I": "1", "l": "1", "S": "5", "B": "8"}))
         digits = version.replace(".", "")
         if len(digits) == 7:
             version = f"{digits[:2]}.{digits[2:6]}.{digits[6:]}"
@@ -182,7 +193,7 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
         difficulty=difficulty,
         version=version,
         map_variant=map_variant,
-        mode=re.sub(r"\s+", "", mode_match.group(1)) if mode_match else None,
+        mode=_complete_mode(mode_match.group(1)) if mode_match else None,
         restart_in_seconds=_duration_seconds(_RESTART_IN, text),
         uptime_seconds=_duration_seconds(_UPTIME, text),
         server_load=parse_server_load(text),

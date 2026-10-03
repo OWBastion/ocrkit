@@ -111,3 +111,8 @@ def test_a_labeled_clear_time_still_wins_and_partial_values_are_not_invented() -
     assert parse_left_panel("通关总计耗时 40分19秒 8832-4542-5798").clear_time_seconds == 2419.0
     assert parse_left_panel("通关总计耗时 总计阵亡/跳过 12/0").clear_time_seconds is None
     assert parse_left_panel("祝贺 3小时 7秒 1234-5678-9012").clear_time_seconds is None
+
+
+def test_parse_left_panel_percent_misread_as_slash() -> None:
+    out = parse_left_panel("挑战完成 总计阵亡/跳过 90%0 增益/减益/总计 35/57/114")
+    assert (out.total_deaths, out.total_skips) == (90, 0)
