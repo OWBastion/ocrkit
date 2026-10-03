@@ -16,6 +16,9 @@
     kaggle_kernel?: string
     checkpoint?: string
     field_accuracy?: number | null
+    verdict?: string | null
+    reasons?: string[] | null
+    override?: { reason: string } | null
     base?: { kind: 'official' | 'checkpoint'; name?: string }
     data?: { batches: string[]; train_samples?: number; holdout_samples?: number }
     pid?: number
@@ -1150,6 +1153,23 @@
     }
   }
 
+  let overrideReason = ''
+
+  async function acceptOverride() {
+    if (!batch) return
+    busy = true
+    try {
+      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: overrideReason.trim() }),
+      })
+      overrideReason = ''
+      message('已按负责人决定放行；未通过的原因和理由已记入评测证据，现在可以发布。')
+      await refreshTraining()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '放行失败', true) } finally { busy = false }
+  }
+
   async function evaluateTrained() {
     if (!batch) return
     busy = true
@@ -2054,6 +2074,19 @@
             {#if trainingPolling}<span class="status-meta status-live">自动刷新 · {TRAINING_POLL_MS / 1000}s</span>{/if}
             {#if trainingUpdatedAt}<span class="status-meta">更新于 {trainingUpdatedAt}</span>{/if}
           </div>
+
+          {#if training.backend === 'evaluate' && training.status === 'failed' && training.verdict === 'failed'}
+            <div class="empty-card override-card">
+              <p class="eyebrow">与线上模型的成对评测未通过</p>
+              <ul class="reason-list">{#each training.reasons ?? [] as reason}<li>{reason}</li>{/each}</ul>
+              <label class="field"><span>负责人放行理由（连同上面的原因一起记入发布记录，至少 10 个字）</span>
+                <textarea class="control" rows="3" bind:value={overrideReason} placeholder="例如：同一份测试数据下与线上打平，退步仅 1 个被遮挡的样本，且候选针对新版 HUD 训练"></textarea>
+              </label>
+              <div class="panel-actions"><button class="button-secondary" disabled={busy || overrideReason.trim().length < 10} on:click={() => void acceptOverride()}>按负责人决定放行</button></div>
+            </div>
+          {:else if training.override}
+            <p class="config-note">已按负责人决定放行：{training.override.reason}</p>
+          {/if}
 
           {#if training.command?.length}
             <div class="training-command">

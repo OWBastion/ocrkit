@@ -206,3 +206,20 @@ def test_run_code_fixtures_must_be_exact_regardless_of_the_comparison() -> None:
     evidence["evaluation"]["fixture"]["run_code"] = {"field_accuracy": 0.9}  # type: ignore[index]
 
     assert "run-code fixture accuracy is below the release gate" in _compare(evidence)["reasons"]
+
+
+def test_an_overridden_comparison_is_eligible_only_with_its_recorded_reason() -> None:
+    evidence = _evidence()
+    comparison = _comparison(evidence)
+    comparison.update(verdict="overridden", reasons=["regresses deaths: 58/61 vs 59/61 on fixtures"],
+                      override={"reason": "owner decision", "accepted_at": "2026-10-03T00:00:00+00:00", "overridden_reasons": comparison["reasons"]})
+
+    report = _compare(evidence)
+
+    assert report["eligible"] is True
+    assert report["override"]["reason"] == "owner decision"
+
+    comparison["override"] = {"reason": "  ", "overridden_reasons": []}
+    assert "the failed comparison was overridden without a recorded reason" in _compare(evidence)["reasons"]
+    del comparison["override"]
+    assert _compare(evidence)["eligible"] is False

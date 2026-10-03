@@ -129,11 +129,14 @@ def compare_manifests(
         reasons.append("run-code fixture accuracy is below the release gate")
 
     verdict = comparison.get("verdict") if isinstance(comparison, dict) else None
-    if verdict not in {"passed", "no_baseline", "failed"}:
+    override = comparison.get("override") if isinstance(comparison, dict) and isinstance(comparison.get("override"), dict) else None
+    if verdict not in {"passed", "no_baseline", "failed", "overridden"}:
         reasons.append("missing paired comparison evidence; evaluate the candidate again")
     elif verdict == "failed":
         reasons.extend(str(reason) for reason in comparison.get("reasons") or ["paired comparison failed"])
-    if verdict in {"passed", "no_baseline", "failed"}:
+    elif verdict == "overridden" and not (override and str(override.get("reason", "")).strip()):
+        reasons.append("the failed comparison was overridden without a recorded reason")
+    if verdict in {"passed", "no_baseline", "failed", "overridden"}:
         compared = (comparison.get("stable") or {}).get("manifest_key") if isinstance(comparison.get("stable"), dict) else None
         if compared != stable_manifest_key:
             reasons.append("the candidate was compared with a different model than the one in service now; evaluate it again")
@@ -153,4 +156,5 @@ def compare_manifests(
             "evidence": stable_manifest.get("release_evidence", {}) if isinstance(stable_manifest, dict) else {},
         },
         "comparison": _paired(comparison),
+        "override": override,
     }

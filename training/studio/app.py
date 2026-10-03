@@ -88,6 +88,10 @@ class PrepareStart(BaseModel):
     image_tokens: Literal[10, 20, 35, 70, 140, 280] = 70
 
 
+class AcceptOverride(BaseModel):
+    reason: str = Field(min_length=10, max_length=500)
+
+
 class PublishStart(BaseModel):
     confirmed: bool = False
 
@@ -952,6 +956,19 @@ def create_app(
             if find_trained_checkpoint(batch_dir / "runs") is None:
                 raise HTTPException(status_code=422, detail="this batch has no trained checkpoint to evaluate")
             return _launch_workflow(batch_dir, "evaluate")
+
+    @app.post("/api/batches/{batch_id}/training/accept")
+    def accept_failed_comparison(batch_id: str, request: AcceptOverride) -> dict[str, object]:
+        """Accept a candidate whose comparison with the model in service failed, on the owner's written decision."""
+        from training.studio.workflow import accept_failed_evaluation
+
+        batch_dir = _batch_dir(work_root, batch_id)
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(batch_dir / "runs/latest.json")
+            try:
+                return accept_failed_evaluation(batch_dir, request.reason)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/batches/{batch_id}/training/smoke")
     def start_smoke(batch_id: str, request: TrainingStart | None = None) -> dict[str, object]:

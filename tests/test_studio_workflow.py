@@ -733,3 +733,52 @@ def test_earlier_local_training_results_can_be_chosen_as_the_base(tmp_path: Path
 
     assert options == [{"path": "legacy:rec_pp_ocrv6_small/best_accuracy.pdparams", "name": "历史模型 · rec_pp_ocrv6_small/best_accuracy.pdparams"}]
     assert studio_app._resolve_base_weights(work_root, options[0]["path"]) == (legacy.resolve(), options[0]["name"])
+
+
+def test_accepting_a_failed_comparison_records_the_decision_and_completes_the_run(tmp_path: Path) -> None:
+    batch = _batch(tmp_path)
+    output = batch / "runs/kaggle-1/output"
+    (output / "checkpoint").mkdir(parents=True)
+    (output / "checkpoint/best_accuracy.pdparams").write_bytes(b"weights")
+    (output / "status.json").write_text(json.dumps({"status": "failed", "error": "x", "kaggle_kernel": "k"}))
+    evaluation = output / "evaluation-20260101-000000"
+    evaluation.mkdir()
+    (evaluation / "fixture_report.json").write_text(json.dumps({"field_accuracy": 0.97, "status": "failed", "run_code": {"field_accuracy": 1.0}}))
+    (evaluation / "holdout_report.json").write_text(json.dumps({"accuracy": 0.95, "status": "failed"}))
+    (evaluation / "comparison_report.json").write_text(json.dumps({"verdict": "failed", "reasons": ["regresses deaths: 58/61 vs 59/61 on fixtures"], "stable": {"version": "v1", "manifest_key": "k"}}))
+    (batch / "runs/kaggle-1/result.json").write_text(json.dumps({"base": {"kind": "official"}, "dataset_dir": str(batch / "dataset")}))
+
+    with pytest.raises(ValueError, match="why"):
+        workflow.accept_failed_evaluation(batch, "ok")
+    state = workflow.accept_failed_evaluation(batch, "owner decision: new HUD coverage outweighs one occluded sample")
+
+    comparison = json.loads((output / "evaluation/comparison_report.json").read_text())
+    assert comparison["verdict"] == "overridden"
+    assert comparison["override"]["overridden_reasons"] == ["regresses deaths: 58/61 vs 59/61 on fixtures"]
+    assert "owner decision" in comparison["override"]["reason"]
+    assert json.loads((output / "evaluation/fixture_report.json").read_text())["status"] == "passed"
+    assert json.loads((output / "evaluation/holdout_report.json").read_text())["status"] == "passed"
+    assert json.loads((output / "status.json").read_text())["status"] == "success"
+    latest = json.loads((batch / "runs/latest.json").read_text())
+    assert (latest["status"], latest["exit_code"]) == ("completed", 0)
+    assert state["checkpoint"] == str(output / "checkpoint/best_accuracy")
+    assert studio_app._checkpoint_from_training_state(batch) == output / "checkpoint/best_accuracy"
+    with pytest.raises(ValueError, match="no failed evaluation"):
+        workflow.accept_failed_evaluation(batch, "a second acceptance has nothing to accept")
+
+
+def test_only_a_failed_comparison_can_be_overridden(tmp_path: Path) -> None:
+    from training.scripts.accept_comparison_override import accept
+
+    (tmp_path / "comparison_report.json").write_text(json.dumps({"verdict": "passed"}))
+    with pytest.raises(ValueError, match="failed comparison"):
+        accept(tmp_path, "there is nothing to override here")
+
+
+def test_accept_api_requires_a_reason_and_a_failed_evaluation(tmp_path: Path) -> None:
+    _batch(tmp_path)
+    client = TestClient(studio_app.create_app(tmp_path, None))
+    path = "/api/batches/example/training/accept"
+
+    assert client.post(path, json={"reason": "short"}).status_code == 422
+    assert client.post(path, json={"reason": "a reason that is long enough"}).status_code == 422  # no trained checkpoint yet

@@ -958,6 +958,8 @@
   .pipeline-log { @apply mt-3 max-h-60 overflow-auto rounded-[var(--radius-control)] bg-ink/5 p-3 font-mono text-[11px] leading-5 text-ink/80; white-space: pre-wrap; }
   .manual-import > summary { @apply cursor-pointer py-2 text-sm font-semibold text-ink/55; }
   .field-check { @apply flex flex-row items-center gap-2; }
+  .override-card { @apply grid gap-3; }
+  .reason-list { @apply list-disc pl-5 text-sm text-ink/70; }
   .data-choice { @apply gap-1.5 border-0 p-0; }
   .check { @apply flex items-center gap-2 text-sm font-normal text-ink/70; }
   .check input { @apply h-4 w-4 p-0 accent-clay; }

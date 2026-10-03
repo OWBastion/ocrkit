@@ -185,33 +185,8 @@ def find_trained_checkpoint(runs_dir: Path) -> Path | None:
     return None
 
 
-def run_evaluate(batch_dir: Path, run_dir: Path) -> int:
-    """Score an already trained checkpoint against the release gate without training again.
-
-    A run whose training succeeded but whose evaluation failed keeps its checkpoint under ``partial``; when this
-    evaluation passes, that run is completed the same way a passing Kaggle run would have been.
-    """
-    base = find_trained_checkpoint(batch_dir / "runs")
-    if base is None:
-        raise ValueError("no trained checkpoint found for this batch")
-    output = base.parent if base.name == "partial" else base
-    evaluation = output / f"evaluation-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
-    print(f"Evaluating {base / 'checkpoint/best_accuracy'} (no training)", flush=True)
-    dataset = batch_dir / "dataset"
-    training_result = output.parent / "result.json"
-    if training_result.is_file():
-        dataset = Path(json.loads(training_result.read_text(encoding="utf-8")).get("dataset_dir") or dataset)
-    command = [str(ROOT / "training/evaluate_rec_checkpoint.sh"), str((base / "checkpoint/best_accuracy").resolve()), str(evaluation.resolve())]
-    if (dataset / "labels/holdout.txt").is_file():
-        command.extend(["--holdout-labels", str((dataset / "labels/holdout.txt").resolve()), "--holdout-images-root", str(dataset.resolve())])
-    status = subprocess.run(command, cwd=ROOT, check=False).returncode
-    report_path = evaluation / "fixture_report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
-    inherited = {key: value for key, value in (json.loads(training_result.read_text(encoding="utf-8")) if training_result.is_file() else {}).items() if key in {"base", "data", "dataset_dir"}}
-    _write_result(run_dir, {**inherited, "evaluated_checkpoint": str(base / "checkpoint/best_accuracy"), "field_accuracy": report.get("field_accuracy"), "evaluation_dir": str(evaluation)})
-    if status:
-        return status
-
+def _complete_run(output: Path, base: Path, evaluation: Path, report: dict[str, object], comparison: dict[str, object]) -> Path:
+    """Make a trained run the one a passing Kaggle run would have produced, with ``evaluation`` as its evaluation."""
     stamp = datetime.now(UTC).strftime("%H%M%S")
     if base != output:
         if (base / "evaluation").exists():
@@ -232,20 +207,109 @@ def run_evaluate(batch_dir: Path, run_dir: Path) -> int:
             "location": "local",
             "report": f"{final.name}/fixture_report.json",
             "field_accuracy": report.get("field_accuracy"),
-            "run_code_accuracy": report.get("run_code", {}).get("field_accuracy"),
+            "run_code_accuracy": (report.get("run_code") or {}).get("field_accuracy") if isinstance(report.get("run_code"), dict) else None,
+            "verdict": comparison.get("verdict"),
+            "against": (comparison.get("stable") or {}).get("version") if isinstance(comparison.get("stable"), dict) else None,
         }
         metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     status_path = output / "status.json"
     kernel = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
     status_path.write_text(json.dumps({**kernel, "status": "success", "error": None}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return final
+
+
+def _read_json(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def run_evaluate(batch_dir: Path, run_dir: Path) -> int:
+    """Score an already trained checkpoint against the model in service without training again.
+
+    A run whose training succeeded but whose evaluation failed keeps its checkpoint under ``partial``; when this
+    evaluation passes, that run is completed the same way a passing Kaggle run would have been.
+    """
+    base = find_trained_checkpoint(batch_dir / "runs")
+    if base is None:
+        raise ValueError("no trained checkpoint found for this batch")
+    output = base.parent if base.name == "partial" else base
+    evaluation = output / f"evaluation-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+    print(f"Evaluating {base / 'checkpoint/best_accuracy'} (no training)", flush=True)
+    dataset = batch_dir / "dataset"
+    training_result = _read_json(output.parent / "result.json")
+    if training_result.get("dataset_dir"):
+        dataset = Path(str(training_result["dataset_dir"]))
+    command = [str(ROOT / "training/evaluate_rec_checkpoint.sh"), str((base / "checkpoint/best_accuracy").resolve()), str(evaluation.resolve())]
+    if (dataset / "labels/holdout.txt").is_file():
+        command.extend(["--holdout-labels", str((dataset / "labels/holdout.txt").resolve()), "--holdout-images-root", str(dataset.resolve())])
+    status = subprocess.run(command, cwd=ROOT, check=False).returncode
+    report = _read_json(evaluation / "fixture_report.json")
+    comparison = _read_json(evaluation / "comparison_report.json")
+    inherited = {key: value for key, value in training_result.items() if key in {"base", "data", "dataset_dir"}}
+    _write_result(run_dir, {
+        **inherited,
+        "evaluated_checkpoint": str(base / "checkpoint/best_accuracy"),
+        "field_accuracy": report.get("field_accuracy"),
+        "evaluation_dir": str(evaluation),
+        "verdict": comparison.get("verdict"),
+        "reasons": comparison.get("reasons"),
+    })
+    if status:
+        return status
+
+    _complete_run(output, base, evaluation, report, comparison)
     _write_result(run_dir, {
         **inherited,
         "evaluated_checkpoint": str(output / "checkpoint/best_accuracy"),
         "checkpoint": str(output / "checkpoint/best_accuracy"),
         "output_run_dir": str(output),
         "field_accuracy": report.get("field_accuracy"),
+        "verdict": comparison.get("verdict"),
     })
     return 0
+
+
+def accept_failed_evaluation(batch_dir: Path, reason: str) -> dict[str, object]:
+    """Accept the newest failed evaluation on the owner's explicit decision and complete that run.
+
+    The reasons it failed for stay in the evidence beside the decision (see accept_comparison_override).
+    """
+    from training.scripts.accept_comparison_override import accept
+
+    base = find_trained_checkpoint(batch_dir / "runs")
+    if base is None:
+        raise ValueError("no trained checkpoint found for this batch")
+    output = base.parent if base.name == "partial" else base
+    evaluation = next(
+        (path for path in sorted(output.glob("evaluation-*"), reverse=True) if _read_json(path / "comparison_report.json").get("verdict") == "failed"),
+        None,
+    )
+    if evaluation is None:
+        raise ValueError("there is no failed evaluation to accept; evaluate the checkpoint first")
+    comparison = accept(evaluation, reason)
+    report = _read_json(evaluation / "fixture_report.json")
+    _complete_run(output, base, evaluation, report, comparison)
+
+    run_dir = batch_dir / "runs" / f"accept-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+    run_dir.mkdir(parents=True)
+    inherited = {key: value for key, value in _read_json(output.parent / "result.json").items() if key in {"base", "data", "dataset_dir"}}
+    result = {
+        **inherited,
+        "evaluated_checkpoint": str(output / "checkpoint/best_accuracy"),
+        "checkpoint": str(output / "checkpoint/best_accuracy"),
+        "output_run_dir": str(output),
+        "field_accuracy": report.get("field_accuracy"),
+        "verdict": "overridden",
+        "override": comparison["override"],
+        "workflow_status": "completed",
+        "exit_code": 0,
+    }
+    _write_result(run_dir, result)
+    state = {"pid": 0, "status": "completed", "exit_code": 0, "backend": "evaluate", "command": [], "log": str(run_dir / "accept.log"), **result}
+    (run_dir / "accept.log").write_text(f"Accepted on the owner's decision: {comparison['override']['reason']}\n", encoding="utf-8")
+    temporary = batch_dir / "runs/.latest.json.tmp"
+    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(batch_dir / "runs/latest.json")
+    return {**state, **result}
 
 
 def main() -> int:
