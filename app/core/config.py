@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     model_release_channel_key: str = ""
     model_cache_dir: Path = Path("/var/lib/ocrkit/models")
     model_download_timeout_seconds: int = 30
+    jobs_db_path: Path = Path(".runtime/jobs.sqlite3")
+    platform_base_url: str = "https://api.owbastion.com"
 
     model_config = SettingsConfigDict(env_prefix="OCRKIT_", extra="ignore")
 

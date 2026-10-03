@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from threading import Lock
 
 from fastapi import Request
 
@@ -22,6 +23,7 @@ class AppContext:
     layout_version: str = "1280x720-v6"
     roi_variants: tuple[RoiConfig, ...] = ()
     terminology: TerminologyCatalog | None = None
+    inference_lock: Lock = field(default_factory=Lock)
 
 
 def get_context(request: Request) -> AppContext:
