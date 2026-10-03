@@ -32,6 +32,50 @@ git submodule update --init --recursive
 - `POST /api/v1/ocr/challenge` (`multipart/form-data` with `file`, optional `debug=true`)
 - `POST /api/v1/ocr/challenge/by-object` (`application/json` with `object_key`, optional `bucket`, `version_id`, `debug`)
 
+### Asynchronous platform jobs
+
+`POST /api/v1/ocr/challenge/jobs` accepts multipart `file` and UUID `job_id`, using
+`Authorization: Bearer <OCRKIT_API_TOKEN>`. It returns HTTP 202
+`{"jobId":"<UUID>","status":"accepted"}` after committing the image to a private local
+SQLite spool; acceptance does not wait for inference. The same ID and image can be
+submitted again without starting a second recognition. A different image for an
+existing ID returns 409. Invalid IDs/images are rejected; a full queue returns 503.
+The synchronous endpoints remain available for smoke checks and training consumers.
+
+One background inference worker shares the engine lock with synchronous requests.
+Inference and object downloads run outside the ASGI event loop, so health checks and
+new admissions remain responsive. Queued jobs older than 10 minutes fail with
+`OCR_JOB_EXPIRED` before inference starts. This is a queue deadline, not an inference
+execution timeout: the synchronous engine cannot be safely interrupted. The platform
+may expire a submission at its own 15-minute deadline and ignore a later callback.
+
+OCRKit posts JSON to the fixed configured `OCRKIT_PLATFORM_BASE_URL` HTTPS origin at
+`/v1/ocrkit/jobs/{jobId}/result`, authenticated by the same service token:
+
+```json
+{"contractVersion":"1","result":{"request_id":"<jobId>","ok":true}}
+```
+
+`result` is the complete existing `ChallengeResponse`. On recognition failure the
+body instead contains `errorCode: "OCR_RECOGNITION_FAILED"`; queued expiration uses
+`errorCode: "OCR_JOB_EXPIRED"`. Caller-supplied callback URLs are not supported and
+HTTP redirects are rejected. Any 2xx acknowledges delivery, including 204 for an
+already completed or stale platform job. Other responses and network failures retry
+with exponential delay capped at 60 seconds, using a 10-second callback timeout;
+callback retries reuse the persisted result and do not run OCR again.
+
+`OCRKIT_JOBS_DB_PATH` defaults to `.runtime/jobs.sqlite3`. Compose stores it in the
+persistent `ocrkit-jobs` volume. Run one Uvicorn process and one service replica per
+spool; startup takes an exclusive file lock and rejects a second process. Restart
+resumes persisted images/results. A crash during inference can rerun that unfinished
+recognition, while committed results are delivered without repeating inference.
+
+The queue accepts at most 100 pending jobs and 10,000 retained IDs. Images are cleared
+with SQLite secure deletion when recognition finishes; results are cleared on callback
+acknowledgement. Only the ID/image hash remain for deduplication. All records, including
+undelivered results, expire 24 hours after acceptance. Keep this volume private: it is
+transient OCR delivery state, and is not platform business data or training material.
+
 Set `OCRKIT_AGENTS_API_BASE_URL` to the platform origin to load active title labels from
 `/v1/agents/titles` at startup. `OCRKIT_AGENTS_API_TIMEOUT_SECONDS` bounds that request.
 

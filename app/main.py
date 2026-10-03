@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
+from starlette.concurrency import run_in_threadpool
+
 from fastapi import FastAPI
 
 from app.api.routes_ocr import router as ocr_router
@@ -12,6 +16,7 @@ from app.ocr.rapidocr_engine import RapidOcrEngine
 from app.model_artifacts import ModelArtifactStore, load_release_channel
 from app.parser.terminology import load_terminology_rules
 from app.storage.r2_client import R2ObjectStore
+from app.jobs import OcrJobs
 
 
 def _create_ocr_engine(model_config_path=None) -> OcrEngine:
@@ -88,7 +93,16 @@ def create_context() -> AppContext:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, version=settings.app_version)
+    @asynccontextmanager
+    async def lifespan(app):
+        app.state.jobs = OcrJobs(settings.jobs_db_path, app.state.ctx, settings.platform_base_url, settings.api_token)
+        app.state.jobs.start()
+        try:
+            yield
+        finally:
+            await run_in_threadpool(app.state.jobs.close)
+
+    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
     app.state.ctx = create_context()
     app.include_router(ocr_router)
 

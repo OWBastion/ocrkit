@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from hmac import compare_digest
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+
+from app.jobs import JobConflict, JobFull, recognize_payload
 
 from app.core.config import settings
 from app.core.context import AppContext, get_context
 from app.core.errors import ErrorBody, ErrorResponse
 from app.image.loader import SUPPORTED_MIME, decode_image
 from app.schemas.response import ChallengeResponse
-from app.service import extract_structured
 from app.storage.r2_client import (
     ObjectAccessDeniedError,
     ObjectDownloadError,
@@ -90,7 +92,7 @@ async def recognize_challenge(
             detail=ErrorBody(code="INVALID_IMAGE", message="Unsupported content type").model_dump(),
         )
 
-    payload = await file.read()
+    payload = await file.read(settings.max_upload_bytes + 1)
     if len(payload) > settings.max_upload_bytes:
         raise HTTPException(
             status_code=400,
@@ -98,27 +100,14 @@ async def recognize_challenge(
         )
 
     try:
-        image = decode_image(payload)
+        await run_in_threadpool(decode_image, payload)
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=ErrorBody(code="INVALID_IMAGE", message=str(exc)).model_dump(),
         ) from exc
 
-    return extract_structured(
-        image=image,
-        roi_config=ctx.roi_config,
-        map_names=ctx.map_names,
-        map_aliases=ctx.map_aliases,
-        engine=ctx.ocr_engine,
-        include_debug=_allow_debug(debug),
-        request_id=_request_id(request),
-        engine_name=ctx.engine_name,
-        model_version=ctx.model_version,
-        layout_version=ctx.layout_version,
-        roi_variants=ctx.roi_variants,
-        terminology=ctx.terminology,
-    )
+    return await run_in_threadpool(recognize_payload, ctx, payload, _request_id(request), _allow_debug(debug))
 
 
 @router.post("/challenge/by-object", response_model=ChallengeResponse, responses={400: {"model": ErrorResponse}})
@@ -138,7 +127,7 @@ async def recognize_challenge_by_object(
 
     try:
         bucket = ctx.object_store.resolve_bucket(req.bucket)
-        payload = ctx.object_store.get_object_bytes(
+        payload = await run_in_threadpool(ctx.object_store.get_object_bytes,
             bucket=bucket,
             object_key=req.object_key.strip(),
             version_id=req.version_id,
@@ -171,24 +160,36 @@ async def recognize_challenge_by_object(
         )
 
     try:
-        image = decode_image(payload)
+        await run_in_threadpool(decode_image, payload)
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=ErrorBody(code="INVALID_IMAGE", message=str(exc)).model_dump(),
         ) from exc
 
-    return extract_structured(
-        image=image,
-        roi_config=ctx.roi_config,
-        map_names=ctx.map_names,
-        map_aliases=ctx.map_aliases,
-        engine=ctx.ocr_engine,
-        include_debug=_allow_debug(req.debug),
-        request_id=_request_id(request),
-        engine_name=ctx.engine_name,
-        model_version=ctx.model_version,
-        layout_version=ctx.layout_version,
-        roi_variants=ctx.roi_variants,
-        terminology=ctx.terminology,
-    )
+    return await run_in_threadpool(recognize_payload, ctx, payload, _request_id(request), _allow_debug(req.debug))
+
+
+@router.post("/challenge/jobs", status_code=202)
+async def accept_challenge_job(
+    request: Request,
+    job_id: UUID = Form(...),
+    file: UploadFile = File(...),
+    _: None = Depends(_require_service_token),
+) -> dict[str, str]:
+    if file.content_type not in SUPPORTED_MIME:
+        raise HTTPException(status_code=400, detail="Unsupported content type")
+    payload = await file.read(settings.max_upload_bytes + 1)
+    if len(payload) > settings.max_upload_bytes:
+        raise HTTPException(status_code=400, detail="Image exceeds upload limit")
+    try:
+        await run_in_threadpool(decode_image, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid image") from exc
+    try:
+        await run_in_threadpool(request.app.state.jobs.accept, str(job_id), payload)
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail="Job ID already has different image") from exc
+    except JobFull as exc:
+        raise HTTPException(status_code=503, detail="OCR queue is full") from exc
+    return {"jobId": str(job_id), "status": "accepted"}

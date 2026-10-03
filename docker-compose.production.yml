@@ -15,10 +15,13 @@ services:
       OCRKIT_MODEL_MANIFEST_KEY: ${OCRKIT_MODEL_MANIFEST_KEY:-}
       OCRKIT_MODEL_RELEASE_CHANNEL_KEY: ${OCRKIT_MODEL_RELEASE_CHANNEL_KEY:-models/pp-ocrv6-small/channels/stable.json}
       OCRKIT_MODEL_CACHE_DIR: /var/lib/ocrkit/models
+      OCRKIT_JOBS_DB_PATH: /var/lib/ocrkit/jobs/jobs.sqlite3
+      OCRKIT_PLATFORM_BASE_URL: ${OCRKIT_PLATFORM_BASE_URL:-https://api.owbastion.com}
       OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS: ${OCRKIT_MODEL_DOWNLOAD_TIMEOUT_SECONDS:-30}
       OCRKIT_R2_READ_TIMEOUT_SECONDS: ${OCRKIT_R2_READ_TIMEOUT_SECONDS:-10}
     volumes:
       - ocrkit-models:/var/lib/ocrkit/models
+      - ocrkit-jobs:/var/lib/ocrkit/jobs
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health')"]
       interval: 10s
@@ -36,3 +39,4 @@ services:
 
 volumes:
   ocrkit-models:
+  ocrkit-jobs:
