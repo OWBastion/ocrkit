@@ -46,3 +46,10 @@ def test_release_accepts_an_explicit_studio_checkpoint() -> None:
     assert "candidate.json" in text
     assert "stable channel requires explicit promotion" in text
     assert "compatibility_gate.py" in text
+
+
+def test_release_caches_the_model_in_service_under_the_training_workspace() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+
+    assert 'OCRKIT_MODEL_CACHE_DIR="${OCRKIT_MODEL_CACHE_DIR:-${work_dir}/cache/model-in-service}"' in text
+    assert text.index("OCRKIT_MODEL_CACHE_DIR") < text.index("compatibility_gate.py")

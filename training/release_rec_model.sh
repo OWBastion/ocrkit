@@ -11,6 +11,8 @@ if [[ -f "${root_dir}/.env" ]]; then
 fi
 
 work_dir="${root_dir}/training/.work"
+# The compatibility gate loads the model in service; the service's default cache is a production path.
+export OCRKIT_MODEL_CACHE_DIR="${OCRKIT_MODEL_CACHE_DIR:-${work_dir}/cache/model-in-service}"
 training_python="${work_dir}/venv/bin/python"
 paddle2onnx_bin="${work_dir}/venv/bin/paddle2onnx"
 checkpoint="${work_dir}/checkpoints/rec_pp_ocrv6_small/best_accuracy"
