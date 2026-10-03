@@ -186,7 +186,7 @@
     const review = batch.review
     if (!review || review.total === 0) return '下一步：生成候选'
     if (review.pending > 0) return `下一步：复核剩余 ${review.pending} 条`
-    return '下一步：生成标签，然后可启动训练'
+    return '下一步：选择训练方式并启动训练'
   }
 
   async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -799,7 +799,7 @@
     if (!batch) return
     trainingBackend = 'kaggle'
     active = 'training'
-    await startTraining()
+    await loadTrainingStep()
   }
 
   function confidenceLabel(value?: number | null) {
@@ -1310,7 +1310,7 @@
     if (!batch) return message('还没有批次。', true)
     trainingBackend = 'kaggle'
     active = 'training'
-    await startTraining()
+    await loadTrainingStep()
   }
 
   $: pipelineBatch = batches.find((item) => item.batch_id === (pipeline?.batch_id || pipelinePreview?.latest_batch)) || null
@@ -1434,7 +1434,7 @@
           {#if pipelineBatch?.review && pipelineBatch.review.pending > 0 && !pipelineRunning()}
             <button class="button-primary" on:click={() => void reviewPipelineBatch()}>开始复核（{pipelineBatch.review.pending} 条）</button>
           {:else if pipelineBatch?.review && pipelineBatch.review.total > 0 && !pipelineRunning()}
-            <button class="button-primary" disabled={busy} on:click={() => void trainPipelineBatch()}>生成标签并开始 Kaggle 训练</button>
+            <button class="button-primary" disabled={busy} on:click={() => void trainPipelineBatch()}>选择训练方式</button>
           {/if}
           <button class={pipelineBatch?.review?.total && !pipelineRunning() ? 'button-secondary' : 'button-primary'} disabled={pipelineRunning() || !remoteConfig?.configured || (!!pipelinePreview && pipelinePreview.new === 0)} on:click={() => void startPipeline()}>
             {pipelineRunning() ? '准备中…' : pipelinePreview?.new ? `准备 ${pipelinePreview.new} 张新截图` : '准备新截图'}
@@ -1923,7 +1923,7 @@
               <div class="review-done">
                 <h2>复核完成</h2>
                 <p>已接受 {batch?.review?.accepted} · 已拒绝 {batch?.review?.rejected}。可以直接训练。</p>
-                <div class="panel-actions"><button class="button-primary" disabled={busy} on:click={() => void trainCurrentBatch()}>生成标签并开始 Kaggle 训练</button></div>
+                <div class="panel-actions"><button class="button-primary" disabled={busy} on:click={() => void trainCurrentBatch()}>选择训练方式</button></div>
               </div>
             {:else}
               <div class="review-done"><h2>没有符合筛选的切片</h2><p>换一个数据集、状态或区域；若还没有候选，回到「准备」。</p></div>
@@ -2056,7 +2056,7 @@
           <div class="empty-card">
             <p class="eyebrow">就绪</p>
             <h3>尚未启动训练</h3>
-            <p>生成 labels 后选择 Epoch，再点击「启动训练」。</p>
+            <p>选择基础权重、训练数据和 Epoch，再点击「启动训练」；标签会在启动时自动生成。</p>
           </div>
         {:else}
           <div class="training-status" aria-live="polite">
