@@ -100,7 +100,16 @@ def discover_candidate_artifact(artifact_root: Path) -> tuple[Path, str] | None:
 
 def create_artifact_ocr(artifact_dir: Path) -> Any:
     candidate_artifact_version(artifact_dir)
-    return RapidOCR(config_path=str(artifact_dir / "rapidocr.yaml"), params={"Global.use_cls": False})
+    # The packaged rapidocr.yaml carries absolute paths from where it was built; the artifact directory is authoritative.
+    return RapidOCR(
+        config_path=str(artifact_dir / "rapidocr.yaml"),
+        params={
+            "Global.use_cls": False,
+            "Det.model_path": str(artifact_dir / "det.onnx"),
+            "Rec.model_path": str(artifact_dir / "rec.onnx"),
+            "Rec.rec_keys_path": str(artifact_dir / "rec_dict.txt"),
+        },
+    )
 
 
 def best_rapid_candidate(result: Any) -> tuple[str | None, float | None]:

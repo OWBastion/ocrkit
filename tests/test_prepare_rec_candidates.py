@@ -393,3 +393,16 @@ def test_known_irrelevant_text_is_rejected_by_roi_but_real_fields_are_not() -> N
         assert candidate_rejection_reason("right_panel", [field]) is None
     # Only the listed ROIs are filtered.
     assert candidate_rejection_reason("left_panel", ["FPS: 144"]) is None
+
+
+def test_artifact_ocr_loads_models_from_artifact_dir_not_paths_baked_into_config(tmp_path: Path, monkeypatch) -> None:
+    for name in ("rapidocr.yaml", "det.onnx", "rec.onnx", "rec_dict.txt"):
+        (tmp_path / name).write_text("x", encoding="utf-8")
+    seen: dict = {}
+    monkeypatch.setattr(prepare_module, "RapidOCR", lambda **kwargs: seen.update(kwargs))
+
+    prepare_module.create_artifact_ocr(tmp_path)
+
+    assert seen["params"]["Det.model_path"] == str(tmp_path / "det.onnx")
+    assert seen["params"]["Rec.model_path"] == str(tmp_path / "rec.onnx")
+    assert seen["params"]["Rec.rec_keys_path"] == str(tmp_path / "rec_dict.txt")
