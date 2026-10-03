@@ -157,9 +157,76 @@ def run_kaggle(batch_dir: Path, run_dir: Path, epochs: int) -> int:
         _write_result(run_dir, result)
 
 
+def find_trained_checkpoint(runs_dir: Path) -> Path | None:
+    """The newest Kaggle run that has a trained checkpoint, whether or not its evaluation passed."""
+    for run in sorted(runs_dir.glob("kaggle-*"), reverse=True):
+        for base in (run / "output", run / "output/partial"):
+            if (base / "checkpoint/best_accuracy.pdparams").is_file():
+                return base
+    return None
+
+
+def run_evaluate(batch_dir: Path, run_dir: Path) -> int:
+    """Score an already trained checkpoint against the release gate without training again.
+
+    A run whose training succeeded but whose evaluation failed keeps its checkpoint under ``partial``; when this
+    evaluation passes, that run is completed the same way a passing Kaggle run would have been.
+    """
+    base = find_trained_checkpoint(batch_dir / "runs")
+    if base is None:
+        raise ValueError("no trained checkpoint found for this batch")
+    output = base.parent if base.name == "partial" else base
+    evaluation = output / f"evaluation-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+    print(f"Evaluating {base / 'checkpoint/best_accuracy'} (no training)", flush=True)
+    status = subprocess.run(
+        [str(ROOT / "training/evaluate_rec_checkpoint.sh"), str((base / "checkpoint/best_accuracy").resolve()), str(evaluation.resolve())],
+        cwd=ROOT,
+        check=False,
+    ).returncode
+    report_path = evaluation / "fixture_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
+    _write_result(run_dir, {"evaluated_checkpoint": str(base / "checkpoint/best_accuracy"), "field_accuracy": report.get("field_accuracy"), "evaluation_dir": str(evaluation)})
+    if status:
+        return status
+
+    stamp = datetime.now(UTC).strftime("%H%M%S")
+    if base != output:
+        if (base / "evaluation").exists():
+            (base / "evaluation").rename(base / "evaluation-failed")
+        for child in list(base.iterdir()):
+            target = output / child.name
+            if target.exists():
+                target.rename(output / f"{child.name}-previous-{stamp}")
+            child.rename(target)
+        base.rmdir()
+    elif (output / "evaluation").exists():
+        (output / "evaluation").rename(output / f"evaluation-previous-{stamp}")
+    final = evaluation.rename(output / "evaluation")
+    metadata_path = output / "run.json"
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["evaluation"] = {
+            "location": "local",
+            "report": f"{final.name}/fixture_report.json",
+            "field_accuracy": report.get("field_accuracy"),
+            "run_code_accuracy": report.get("run_code", {}).get("field_accuracy"),
+        }
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    status_path = output / "status.json"
+    kernel = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
+    status_path.write_text(json.dumps({**kernel, "status": "success", "error": None}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_result(run_dir, {
+        "evaluated_checkpoint": str(output / "checkpoint/best_accuracy"),
+        "checkpoint": str(output / "checkpoint/best_accuracy"),
+        "output_run_dir": str(output),
+        "field_accuracy": report.get("field_accuracy"),
+    })
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("kind", choices=("prepare", "jev", "kaggle"))
+    parser.add_argument("kind", choices=("prepare", "jev", "kaggle", "evaluate"))
     parser.add_argument("--batch-dir", type=Path)
     parser.add_argument("--work-root", type=Path, default=DEFAULT_WORK_ROOT)
     parser.add_argument("--days", type=int, default=30)
@@ -172,6 +239,8 @@ def main() -> int:
     try:
         if args.kind == "prepare":
             exit_code = run_prepare(args.work_root, args.run_dir, args.days, args.holdout_ratio, args.image_tokens)
+        elif args.kind == "evaluate":
+            exit_code = run_evaluate(args.batch_dir, args.run_dir)
         elif args.kind == "jev":
             exit_code = run_jev(args.batch_dir, args.run_dir, args.image_tokens)
             result_path = args.run_dir / "result.json"

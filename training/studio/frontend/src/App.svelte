@@ -15,6 +15,7 @@
     output_run_dir?: string
     kaggle_kernel?: string
     checkpoint?: string
+    field_accuracy?: number | null
     pid?: number
     log?: string
     log_tail?: string
@@ -1124,6 +1125,18 @@
     }
   }
 
+  async function evaluateTrained() {
+    if (!batch) return
+    busy = true
+    try {
+      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/evaluate`, { method: 'POST' })
+      message('已开始评测已有检查点，不会重新训练。')
+      followLog = true
+      await refreshTraining()
+      startTrainingPoll()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '评测启动失败', true) } finally { busy = false }
+  }
+
   async function startTraining() {
     if (!batch) return message('先选择批次。', true)
     busy = true
@@ -1949,6 +1962,7 @@
           </header>
           <div class="panel-actions">
             <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshTraining()}>立即刷新</button>
+            <button class="button-secondary" disabled={!batch || busy || trainingIsRunning(training?.status)} on:click={() => void evaluateTrained()} title="对最近一次已训练出的检查点重新跑评测门槛，不会重新训练">只评测已有检查点</button>
             <button class="button-primary" disabled={!batch || busy || trainingIsRunning(training?.status)} on:click={startTraining}>
               {busy ? '启动中…' : trainingIsRunning(training?.status) ? '训练中…' : '启动训练'}
             </button>
@@ -1991,6 +2005,7 @@
               class:status-failed={training.status === 'failed' || training.status === 'completed_or_failed'}
             >{trainingStatusLabel(training.status)}</span>
             {#if training.backend}<span class="status-meta">{training.backend}</span>{/if}{#if training.checkpoint}<span class="status-meta">本地模型：{training.checkpoint}</span>{/if}
+            {#if training.field_accuracy != null}<span class="status-meta">固定截图准确率 {(training.field_accuracy * 100).toFixed(2)}%</span>{/if}
             {#if training.pid}<span class="status-meta">PID {training.pid}</span>{/if}
             {#if trainingPolling}<span class="status-meta status-live">自动刷新 · {TRAINING_POLL_MS / 1000}s</span>{/if}
             {#if trainingUpdatedAt}<span class="status-meta">更新于 {trainingUpdatedAt}</span>{/if}

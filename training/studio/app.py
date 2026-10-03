@@ -323,7 +323,7 @@ def _checkpoint_from_training_state(batch_dir: Path) -> Path:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     if state.get("status") != "completed" or state.get("exit_code") != 0:
         raise HTTPException(status_code=422, detail="latest training run has not passed")
-    checkpoint = Path(str(state["checkpoint"])) if state.get("backend") == "kaggle" and state.get("checkpoint") else Path(str(state["log"])).parent / "checkpoints/best_accuracy"
+    checkpoint = Path(str(state["checkpoint"])) if state.get("backend") in {"kaggle", "evaluate"} and state.get("checkpoint") else Path(str(state["log"])).parent / "checkpoints/best_accuracy"
     if not checkpoint.with_suffix(".pdparams").is_file():
         raise HTTPException(status_code=422, detail="latest training run has no best_accuracy checkpoint")
     return checkpoint
@@ -883,6 +883,18 @@ def create_app(
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             return _launch_workflow(batch_dir, "kaggle", epochs=request.epochs)
+
+    @app.post("/api/batches/{batch_id}/training/evaluate")
+    def evaluate_trained_checkpoint(batch_id: str) -> dict[str, object]:
+        """Score the newest already trained checkpoint against the release gate; nothing is trained again."""
+        from training.studio.workflow import find_trained_checkpoint
+
+        batch_dir = _batch_dir(work_root, batch_id)
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(batch_dir / "runs/latest.json")
+            if find_trained_checkpoint(batch_dir / "runs") is None:
+                raise HTTPException(status_code=422, detail="this batch has no trained checkpoint to evaluate")
+            return _launch_workflow(batch_dir, "evaluate")
 
     @app.post("/api/batches/{batch_id}/training/smoke")
     def start_smoke(batch_id: str, request: TrainingStart | None = None) -> dict[str, object]:

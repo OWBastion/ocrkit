@@ -552,3 +552,73 @@ def test_generating_or_recreating_candidates_applies_the_same_automatic_rules(tm
     assert summary["agreement_adopted"] == 1
     assert review_rows(batch, "train")[0]["review_status"] == "accepted"
     assert review_rows(batch, "holdout")[0]["review_status"] == "pending"
+
+
+def _kaggle_run(batch: Path, *, passed: bool) -> Path:
+    output = batch / "runs/kaggle-20260101-000000-abcd1234/output"
+    base = output if passed else output / "partial"
+    (base / "checkpoint").mkdir(parents=True)
+    (base / "checkpoint/best_accuracy.pdparams").write_bytes(b"weights")
+    (base / "run.json").write_text(json.dumps({"status": "success"}))
+    (base / "evaluation").mkdir()
+    (base / "evaluation/fixture_report.json").write_text(json.dumps({"field_accuracy": 0.92}))
+    (output / "status.json").write_text(json.dumps({"status": "failed", "error": "RuntimeError: local checkpoint evaluation failed", "kaggle_kernel": "k"}))
+    return output
+
+
+def test_evaluate_scores_the_stored_checkpoint_without_training_and_completes_a_failed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = _batch(tmp_path)
+    output = _kaggle_run(batch, passed=False)
+    run = tmp_path / "evaluate-run"
+    run.mkdir()
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        evaluation = Path(command[2])
+        evaluation.mkdir()
+        (evaluation / "fixture_report.json").write_text(json.dumps({"field_accuracy": 0.976, "run_code": {"field_accuracy": 1.0}}))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(workflow.subprocess, "run", fake_run)
+    assert workflow.run_evaluate(batch, run) == 0
+
+    assert len(calls) == 1 and calls[0][0].endswith("evaluate_rec_checkpoint.sh")
+    assert calls[0][1] == str((output / "partial/checkpoint/best_accuracy").resolve())
+    assert not (output / "partial").exists()
+    assert (output / "checkpoint/best_accuracy.pdparams").is_file()
+    assert json.loads((output / "evaluation/fixture_report.json").read_text())["field_accuracy"] == 0.976
+    assert json.loads((output / "evaluation-failed/fixture_report.json").read_text())["field_accuracy"] == 0.92
+    assert json.loads((output / "status.json").read_text()) == {"status": "success", "error": None, "kaggle_kernel": "k"}
+    assert json.loads((output / "run.json").read_text())["evaluation"]["field_accuracy"] == 0.976
+    result = json.loads((run / "result.json").read_text())
+    assert result["checkpoint"] == str(output / "checkpoint/best_accuracy")
+
+
+def test_evaluate_that_fails_the_gate_leaves_the_failed_run_untouched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = _batch(tmp_path)
+    output = _kaggle_run(batch, passed=False)
+    run = tmp_path / "evaluate-run"
+    run.mkdir()
+    monkeypatch.setattr(workflow.subprocess, "run", lambda command, **kwargs: SimpleNamespace(returncode=1))
+
+    assert workflow.run_evaluate(batch, run) == 1
+    assert (output / "partial/checkpoint/best_accuracy.pdparams").is_file()
+    assert json.loads((output / "status.json").read_text())["status"] == "failed"
+    assert "checkpoint" not in json.loads((run / "result.json").read_text())
+
+
+def test_evaluate_api_requires_a_trained_checkpoint_and_blocks_duplicates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = _batch(tmp_path)
+    launched = []
+    monkeypatch.setattr(studio_app.subprocess, "Popen", lambda command, **kwargs: launched.append(command) or SimpleNamespace(pid=777))
+    monkeypatch.setattr(studio_app.os, "waitpid", lambda pid, flags: (0, 0))
+    client = TestClient(studio_app.create_app(tmp_path, None))
+    path = "/api/batches/example/training/evaluate"
+
+    assert client.post(path).status_code == 422
+    _kaggle_run(batch, passed=False)
+    started = client.post(path)
+    assert started.status_code == 200
+    assert launched[0][2:5] == ["-m", "training.studio.workflow", "evaluate"]
+    assert client.post(path).status_code == 409
