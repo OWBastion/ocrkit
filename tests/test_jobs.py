@@ -66,6 +66,7 @@ def test_result_survives_restart_callback_retry_without_recognition(tmp_path, mo
     assert calls == [job_id]
     assert requests[0].full_url == f'https://platform.example/v1/ocrkit/jobs/{job_id}/result'
     assert requests[0].get_header('Authorization') == 'Bearer secret'
+    assert requests[0].get_header('User-agent') == 'OWBastion-OCRKit/1.0'
     assert requests[0].data == requests[1].data
     with jobs.connect() as db:
         row = db.execute('SELECT image, result, done FROM jobs').fetchone()

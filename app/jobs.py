@@ -164,7 +164,7 @@ class OcrJobs:
             return False
         request = Request(
             f"{self.base_url}/v1/ocrkit/jobs/{row['id']}/result", data=row["result"].encode(),
-            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}, method="POST",
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json", "User-Agent": "OWBastion-OCRKit/1.0"}, method="POST",
         )
         try:
             with build_opener(NoRedirect()).open(request, timeout=10) as response:
