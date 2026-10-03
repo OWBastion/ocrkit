@@ -171,7 +171,7 @@ def extract_structured(
         max((confidences.get(name, 0.0) for name in run_code_rois), default=0.0),
     )
     ai_mark_detected = is_ai_mark(raw_text["ai_watermark"]) if "ai_watermark" in raw_text else None
-    bottom_left = parse_bottom_left_hero(normalized_text.get("bottom_left_hero", ""))
+    bottom_left = parse_bottom_left_hero(normalized_text.get("bottom_left_hero", ""), chunks_by_roi.get("bottom_left_hero", []))
     right = parse_right_panel(normalized_text.get("right_panel", ""), map_names, map_aliases)
     if right.server_load is None:
         right.server_load = parse_server_load(normalized_text.get("server_load_panel", ""))

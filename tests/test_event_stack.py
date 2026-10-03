@@ -61,7 +61,7 @@ def test_achievements_move_up_when_there_is_no_event_and_are_capped_at_five() ->
 
 
 def test_text_marker_still_counts_without_an_icon() -> None:
-    stack = parse_event_stack([OcrChunk("新称号 ✓", 0.9, (0, 0, 10, 10))], np.zeros((187, 280), np.uint8), SCALE)
+    stack = parse_event_stack([_chunk("新称号 ✓", 3)], np.zeros((187, 280), np.uint8), SCALE)
     assert stack.achievements == ("新称号",)
 
 
@@ -125,3 +125,43 @@ def test_mode_ignores_spacing_the_hud_and_ocr_disagree_about() -> None:
 
     assert parse_right_panel("[2026 镜中回响]", []).mode == "2026镜中回响"
     assert parse_right_panel("[随机事件 5.0]", []).mode == "随机事件5.0"
+
+
+def test_text_elsewhere_in_the_tall_region_is_not_an_achievement() -> None:
+    # From a recent screenshot: a world sign at the far left, a name plate on the right, with a bright letter
+    # after the sign text that looks like a check icon.
+    gray = np.full((187, 280), 30, dtype=np.uint8)
+    gray[163:173, 24:34] = 255
+    chunks = [
+        OcrChunk("TERI", 0.9, (0 * SCALE, 161 * SCALE, 21 * SCALE, 175 * SCALE)),
+        OcrChunk("好男人从不", 0.9, (226 * SCALE, 108 * SCALE, 280 * SCALE, 122 * SCALE)),
+    ]
+    stack = parse_event_stack(chunks, gray, SCALE)
+
+    assert stack.achievements == () and stack.event is None
+
+
+def test_the_stack_must_start_at_the_top_and_have_no_gaps() -> None:
+    chunks = [_chunk("成就甲", 6), _chunk("成就乙", 22), _chunk("远处的文字", 120)]
+    stack = parse_event_stack(chunks, _stack_image((6, 22, 120)), SCALE)
+
+    assert stack.achievements == ("成就甲", "成就乙")
+    assert parse_event_stack([_chunk("太低了", 90)], _stack_image((90,)), SCALE).achievements == ()
+
+
+def test_achievements_centred_under_a_wide_event_are_kept() -> None:
+    def centred(text: str, y: int) -> OcrChunk:
+        return OcrChunk(text=text, score=0.95, box=(100 * SCALE, y * SCALE, 150 * SCALE, (y + 14) * SCALE))
+
+    chunks = [_chunk("作弊：我要验牌(10秒)", 3, x2=190), _chunk("下个事件必为增益", 35), centred("生命守护生命", 66), centred("把他们上市", 82)]
+    stack = parse_event_stack(chunks, _stack_image((66, 82)) * 0 + _centred_icons(), SCALE)
+
+    assert stack.achievements == ("生命守护生命", "把他们上市")
+    assert stack.event is not None and stack.event.name == "作弊：我要验牌"
+
+
+def _centred_icons() -> np.ndarray:
+    gray = np.full((187, 280), 30, dtype=np.uint8)
+    for y in (66, 82):
+        gray[y + 2:y + 12, 165:175] = 255
+    return gray

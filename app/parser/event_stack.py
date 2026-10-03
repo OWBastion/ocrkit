@@ -20,6 +20,27 @@ _CHECK_REGION_HEIGHTS = 2.2
 _CHECK_MIN_PIXELS = 15
 _CHECK_MAX_FILL = 0.35
 
+# The stack (event, then achievements) runs down from the top of the region with at most a blank line between its
+# parts. Its x position varies: achievements are centred under a wide event but left-aligned without one. Text
+# elsewhere in the tall region (signs, name plates, chat) neither starts at the top nor continues the stack.
+_STACK_MAX_START_Y = 40.0
+
+
+def _stack_lines(chunks: list[OcrChunk], scale: float) -> list[OcrChunk]:
+    column = sorted((chunk for chunk in chunks if chunk.box is not None), key=lambda chunk: chunk.box[1])  # type: ignore[index]
+    kept: list[OcrChunk] = []
+    previous_bottom: float | None = None
+    for chunk in column:
+        top, bottom = chunk.box[1] / scale, chunk.box[3] / scale  # type: ignore[index]
+        if previous_bottom is None:
+            if top > _STACK_MAX_START_Y:
+                break
+        elif top - previous_bottom > 2.5 * (bottom - top):
+            break
+        kept.append(chunk)
+        previous_bottom = bottom
+    return kept
+
 
 @dataclass(frozen=True)
 class EventStack:
@@ -46,7 +67,7 @@ def parse_event_stack(chunks: list[OcrChunk], roi_gray: np.ndarray, scale: float
     """Split the stack under the stats block: checked lines are achievements, the rest belong to the event."""
     achievements: list[str] = []
     event_lines: list[OcrChunk] = []
-    for chunk in chunks:
+    for chunk in _stack_lines(chunks, scale):
         text_marked = chunk.text.strip()[-1:] in _MARKER
         icon_marked = chunk.box is not None and has_check_mark(roi_gray, tuple(value / scale for value in chunk.box))
         if text_marked or icon_marked:

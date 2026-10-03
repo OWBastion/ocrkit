@@ -120,7 +120,7 @@ def test_extract_uses_viewer_player_only(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "app.service.parse_bottom_left_hero",
-        lambda text: BottomLeftHero("viewer-player"),
+        lambda text, chunks=(): BottomLeftHero("viewer-player"),
     )
     monkeypatch.setattr(
         "app.service.parse_left_panel",
