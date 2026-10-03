@@ -12,7 +12,7 @@ OCRKit must not decide whether a player deserves a title, whether a submission s
 
 ## Contribution to the organization goal
 
-Serves the [organization product goal](https://github.com/OWBastion/.github/blob/main/docs/product-goal.md) by keeping score verification light for players: recognize known Bastion screenshots well enough that ordinary players rarely need more than a screenshot, and surface uncertainty so human review stays targeted. It does not grow into general OCR or visual understanding.
+Serves the [organization product goal](../.github/docs/product-goal.md) by keeping score verification light for players: recognize known Bastion screenshots well enough that ordinary players rarely need more than a screenshot, and surface uncertainty so human review stays targeted. It does not grow into general OCR or visual understanding.
 
 ## Start here
 
