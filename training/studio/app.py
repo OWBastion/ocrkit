@@ -202,14 +202,19 @@ def _list_base_weights(work_root: Path) -> list[dict[str, str]]:
             weights.append({"path": f"{batch.name}:{params.relative_to(batch).as_posix()}", "name": f"{batch.name} · {run}{detail}"})
         for params in sorted(batch.glob("runs/smoke-*/checkpoints/best_accuracy.pdparams"), reverse=True):
             weights.append({"path": f"{batch.name}:{params.relative_to(batch).as_posix()}", "name": f"{batch.name} · {params.parents[1].name} (CPU Smoke)"})
+    legacy_root = _legacy_checkpoint_root(work_root)
+    for params in sorted(legacy_root.glob("*/best_accuracy.pdparams"), reverse=True) if legacy_root.is_dir() else []:
+        relative = params.relative_to(legacy_root).as_posix()
+        weights.append({"path": f"legacy:{relative}", "name": f"历史模型 · {relative}"})
     return weights
 
 
 def _resolve_base_weights(work_root: Path, token: str) -> tuple[Path, str]:
     for option in _list_base_weights(work_root):
         if option["path"] == token:
-            batch_id, relative = token.split(":", 1)
-            return (work_root / "batches" / batch_id / relative).resolve(), option["name"]
+            owner, relative = token.split(":", 1)
+            root = _legacy_checkpoint_root(work_root) if owner == "legacy" else work_root / "batches" / owner
+            return (root / relative).resolve(), option["name"]
     raise HTTPException(status_code=422, detail="the chosen base weights no longer exist")
 
 
