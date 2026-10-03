@@ -42,6 +42,11 @@ together. The receiver must be ready before the platform dispatches a new job.
 The existing service token authenticates both admission and callbacks. Configure
 `OCRKIT_PLATFORM_BASE_URL` to the platform HTTPS origin and retain the `ocrkit-jobs`
 volume across restarts. Use one service replica and one Uvicorn worker per spool.
+Register the callback operation in the platform API Shield configuration. If the
+zone blocks the deployment host's region, extend the existing OCR service rule
+to allow only that host's source IP, the platform hostname, POST, and the
+`/v1/ocrkit/jobs/{jobId}/result` path. Keep Bearer authentication enabled in the
+receiver; recognition intake remains restricted to the existing Worker callers.
 The spool contains private screenshots until inference completes, results until the
 platform acknowledges, and ID hashes for up to 24 hours. Do not copy it into training
 artifacts or public backups. Shutdown waits for current synchronous inference; it
