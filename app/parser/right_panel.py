@@ -182,7 +182,7 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
         difficulty=difficulty,
         version=version,
         map_variant=map_variant,
-        mode=mode_match.group(1) if mode_match else None,
+        mode=re.sub(r"\s+", "", mode_match.group(1)) if mode_match else None,
         restart_in_seconds=_duration_seconds(_RESTART_IN, text),
         uptime_seconds=_duration_seconds(_UPTIME, text),
         server_load=parse_server_load(text),

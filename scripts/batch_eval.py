@@ -48,6 +48,7 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
             engine_name=context.engine_name,
             model_version=context.model_version,
             layout_version=context.layout_version,
+            roi_variants=context.roi_variants,
         )
         elapsed = (time.perf_counter() - started) * 1000
         actual = response.data.model_dump() if response.data else {}
@@ -77,7 +78,7 @@ def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = Non
                     }
                     for name, expected_value in expected.items()
                 },
-                "layout_version": getattr(response, "layout_version", context.layout_version),
+                "layout_version": response.quality.layout_version if response.quality else context.layout_version,
                 "quality_warnings": list(getattr(getattr(response, "quality", None), "warnings", [])),
                 "elapsed_ms": round(elapsed, 2),
             }

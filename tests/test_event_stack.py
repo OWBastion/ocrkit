@@ -118,3 +118,10 @@ def test_garbled_duration_is_not_guessed() -> None:
     assert panel.restart_in_seconds is None
     assert panel.uptime_seconds is None
     assert panel.server_load is None
+
+
+def test_mode_ignores_spacing_the_hud_and_ocr_disagree_about() -> None:
+    from app.parser.right_panel import parse_right_panel
+
+    assert parse_right_panel("[2026 镜中回响]", []).mode == "2026镜中回响"
+    assert parse_right_panel("[随机事件 5.0]", []).mode == "随机事件5.0"

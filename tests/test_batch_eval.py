@@ -26,6 +26,7 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
         engine_name="rapidocr",
         model_version="builtin",
         layout_version="1280x720-v3",
+        roi_variants=("16:10 layout",),
     )
 
     class StubEngine:
@@ -42,8 +43,12 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
             "engine_name": "rapidocr",
             "model_version": "builtin",
             "layout_version": "1280x720-v3",
+            "roi_variants": ("16:10 layout",),
         }
-        return SimpleNamespace(data=SimpleNamespace(model_dump=lambda: {"map_name": "Hanamura"}))
+        return SimpleNamespace(
+            data=SimpleNamespace(model_dump=lambda: {"map_name": "Hanamura"}),
+            quality=SimpleNamespace(layout_version="1280x800-v2", warnings=[]),
+        )
 
     monkeypatch.setattr(batch_eval, "extract_structured", extract_stub)
     model_config = tmp_path / "rapidocr.yaml"
@@ -51,6 +56,8 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
     result = batch_eval.evaluate(cases_path, tmp_path, model_config)
 
     assert captured["config_path"] == model_config
+    # Scored like the service: 16:10 screenshots use their own layout, and the layout actually selected is reported.
+    assert result["results"][0]["layout_version"] == "1280x800-v2"
     assert context.ocr_engine.__class__ is StubEngine
     assert result["matched_fields"] == 1
     assert result["total_fields"] == 1
