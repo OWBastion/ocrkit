@@ -197,14 +197,18 @@ def run_evaluate(batch_dir: Path, run_dir: Path) -> int:
     output = base.parent if base.name == "partial" else base
     evaluation = output / f"evaluation-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     print(f"Evaluating {base / 'checkpoint/best_accuracy'} (no training)", flush=True)
-    status = subprocess.run(
-        [str(ROOT / "training/evaluate_rec_checkpoint.sh"), str((base / "checkpoint/best_accuracy").resolve()), str(evaluation.resolve())],
-        cwd=ROOT,
-        check=False,
-    ).returncode
+    dataset = batch_dir / "dataset"
+    training_result = output.parent / "result.json"
+    if training_result.is_file():
+        dataset = Path(json.loads(training_result.read_text(encoding="utf-8")).get("dataset_dir") or dataset)
+    command = [str(ROOT / "training/evaluate_rec_checkpoint.sh"), str((base / "checkpoint/best_accuracy").resolve()), str(evaluation.resolve())]
+    if (dataset / "labels/holdout.txt").is_file():
+        command.extend(["--holdout-labels", str((dataset / "labels/holdout.txt").resolve()), "--holdout-images-root", str(dataset.resolve())])
+    status = subprocess.run(command, cwd=ROOT, check=False).returncode
     report_path = evaluation / "fixture_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
-    _write_result(run_dir, {"evaluated_checkpoint": str(base / "checkpoint/best_accuracy"), "field_accuracy": report.get("field_accuracy"), "evaluation_dir": str(evaluation)})
+    inherited = {key: value for key, value in (json.loads(training_result.read_text(encoding="utf-8")) if training_result.is_file() else {}).items() if key in {"base", "data", "dataset_dir"}}
+    _write_result(run_dir, {**inherited, "evaluated_checkpoint": str(base / "checkpoint/best_accuracy"), "field_accuracy": report.get("field_accuracy"), "evaluation_dir": str(evaluation)})
     if status:
         return status
 
@@ -235,6 +239,7 @@ def run_evaluate(batch_dir: Path, run_dir: Path) -> int:
     kernel = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
     status_path.write_text(json.dumps({**kernel, "status": "success", "error": None}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _write_result(run_dir, {
+        **inherited,
         "evaluated_checkpoint": str(output / "checkpoint/best_accuracy"),
         "checkpoint": str(output / "checkpoint/best_accuracy"),
         "output_run_dir": str(output),

@@ -1,20 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  printf 'usage: %s <checkpoint_base> <output_dir>\n' "$0" >&2
+usage() {
+  printf 'usage: %s <checkpoint_base> <output_dir> [--holdout-labels <labels.txt> --holdout-images-root <directory>]\n' "$0" >&2
   exit 1
+}
+if [[ $# -lt 2 ]]; then
+  usage
+fi
+checkpoint="$1"
+artifact_dir="$2"
+shift 2
+holdout_labels=""
+holdout_images_root=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --holdout-labels) [[ $# -ge 2 ]] || usage; holdout_labels="$2"; shift 2 ;;
+    --holdout-images-root) [[ $# -ge 2 ]] || usage; holdout_images_root="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+if [[ -n "${holdout_labels}" && -z "${holdout_images_root}" ]]; then
+  usage
 fi
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The comparison needs the model storage settings to find the model in service; without them it would silently
+# compare with nothing.
+if [[ -f "${root_dir}/.env" ]]; then
+  while IFS='=' read -r key value; do
+    [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    [[ -v "${key}" ]] && continue
+    export "${key}=${value}"
+  done < "${root_dir}/.env"
+fi
 work_dir="${root_dir}/training/.work"
 paddleocr_dir="${work_dir}/PaddleOCR"
 training_python="${work_dir}/venv/bin/python"
 paddle2onnx_bin="${work_dir}/venv/bin/paddle2onnx"
-checkpoint="$1"
-artifact_dir="$2"
 config_path="${paddleocr_dir}/configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml"
-min_field_accuracy="0.9604221635883905"
 
 for path in "${paddleocr_dir}" "${training_python}" "${paddle2onnx_bin}" "${checkpoint}.pdparams" "${config_path}"; do
   if [[ ! -e "${path}" ]]; then
@@ -52,7 +76,8 @@ uv run python training/scripts/prepare_rapidocr_config.py \
   --template "${root_dir}/configs/ocr.yaml" \
   --artifact-dir "${artifact_dir}" \
   --output "${artifact_dir}/rapidocr.yaml"
-OCRKIT_MODEL_MANIFEST_KEY= uv run python scripts/batch_eval.py \
-  --model-config "${artifact_dir}/rapidocr.yaml" \
-  --report "${artifact_dir}/fixture_report.json" \
-  --min-field-accuracy "${min_field_accuracy}"
+compare_args=(--candidate-artifact "${artifact_dir}")
+if [[ -n "${holdout_labels}" ]]; then
+  compare_args+=(--holdout-labels "${holdout_labels}" --holdout-images-root "${holdout_images_root}")
+fi
+uv run python training/scripts/compare_candidate.py "${compare_args[@]}"

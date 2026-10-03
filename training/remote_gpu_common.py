@@ -374,28 +374,34 @@ def retrieve_checkpoint(
             )
 
 
-def evaluate_locally(accepted: Path, log_path: Path, run: Runner) -> None:
-    """Run the existing local evaluation contract on the retrieved checkpoint.
+def evaluate_locally(accepted: Path, log_path: Path, run: Runner, holdout: tuple[Path, Path] | None = None) -> None:
+    """Score the retrieved checkpoint against the model in service (see training/scripts/compare_candidate.py).
 
-    `run` is the caller's own command runner so a test can patch it in the caller's module.
+    `run` is the caller's own command runner so a test can patch it in the caller's module. `holdout` is the
+    (labels file, images root) the run was trained against.
     """
     evaluation = accepted / "evaluation"
-    status = run(
-        [
-            str(ROOT / "training/evaluate_rec_checkpoint.sh"),
-            str((accepted / "checkpoint/best_accuracy").resolve()),
-            str(evaluation.resolve()),
-        ],
-        log_path,
-    )
+    command = [
+        str(ROOT / "training/evaluate_rec_checkpoint.sh"),
+        str((accepted / "checkpoint/best_accuracy").resolve()),
+        str(evaluation.resolve()),
+    ]
+    if holdout is not None:
+        command.extend(["--holdout-labels", str(holdout[0].resolve()), "--holdout-images-root", str(holdout[1].resolve())])
+    status = run(command, log_path)
     if status:
         raise RuntimeError(f"local checkpoint evaluation failed with exit status {status}")
     report = json.loads((evaluation / "fixture_report.json").read_text(encoding="utf-8"))
+    comparison_path = evaluation / "comparison_report.json"
+    comparison = json.loads(comparison_path.read_text(encoding="utf-8")) if comparison_path.is_file() else {}
     metadata = json.loads((accepted / "run.json").read_text(encoding="utf-8"))
     metadata["evaluation"] = {
         "location": "local",
         "report": "evaluation/fixture_report.json",
         "field_accuracy": report.get("field_accuracy"),
         "run_code_accuracy": report.get("run_code", {}).get("field_accuracy"),
+        "holdout_accuracy": (comparison.get("candidate") or {}).get("holdout", {}) and comparison["candidate"]["holdout"]["accuracy"],
+        "verdict": comparison.get("verdict"),
+        "against": (comparison.get("stable") or {}).get("version"),
     }
     (accepted / "run.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

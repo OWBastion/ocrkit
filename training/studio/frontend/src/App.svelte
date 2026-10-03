@@ -29,7 +29,7 @@
     reasons: string[]
     candidate: { version?: string; manifest_key?: string; channel_key?: string }
     stable: { version?: string; manifest_key?: string; channel_key?: string; history?: ReleaseHistoryEntry[] }
-    comparison?: { field_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null }; run_code_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null } }
+    comparison?: { field_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null }; run_code_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null }; holdout_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null } }
   }
   type ResumeCheckpoint = { path: string; name: string }
   type TrainingOptions = { base_weights: { path: string; name: string }[]; data_batches: { batch_id: string; train: number; holdout: number }[] }
@@ -2168,7 +2168,8 @@
           <span>stable</span><code>{releaseComparison.stable.version || '未知'} · {releaseComparison.stable.manifest_key || '无 manifest'}</code>
         </div>
         {#if releaseComparison.comparison?.field_accuracy}
-          <p class="config-note">fixture field accuracy：候选 {releaseComparison.comparison.field_accuracy.candidate ?? '—'}，stable {releaseComparison.comparison.field_accuracy.stable ?? '—'}，delta {releaseComparison.comparison.field_accuracy.delta ?? '—'}。</p>
+          {@const pct = (value?: number | null) => (value == null ? '—' : `${(value * 100).toFixed(2)}%`)}
+          <p class="config-note">候选与线上模型在同一批固定截图、同一份代码下成对测量：固定截图 {pct(releaseComparison.comparison.field_accuracy.candidate)}（线上 {pct(releaseComparison.comparison.field_accuracy.stable)}）{#if releaseComparison.comparison.holdout_accuracy?.candidate != null}；保留集识别 {pct(releaseComparison.comparison.holdout_accuracy.candidate)}（线上 {pct(releaseComparison.comparison.holdout_accuracy.stable)}）{/if}。</p>
         {/if}
         {#if releaseComparison.eligible}
           <p class="status-meta status-live">候选证据完整，可执行显式晋级。</p>

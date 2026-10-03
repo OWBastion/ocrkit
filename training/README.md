@@ -82,7 +82,7 @@ new recent R2 screenshots (not yet in any local batch)
 → confident JEV choices adopted as Train labels
 → you review the rest (all Holdout rows + uncertain Train rows)
 → one click: generate labels + Kaggle GPU training (or local CPU Smoke)
-→ retrieve checkpoint and run the existing local evaluation
+→ retrieve checkpoint and compare it with the model in service (below)
 ```
 
 Agreeing engines (same canonical text, previous model not disagreeing, any
@@ -118,6 +118,22 @@ JEV reuses the local `training/.work/jev/Jev-Omni-MLX-4bit` model and
 Without JEV the preparation still creates the batch and candidates and leaves
 all rows for manual review. The existing read-only JEV experiment script
 remains available for measuring its decisions independently.
+
+### Training inputs and evaluation
+
+A Kaggle run starts from the base weights and the batches chosen on the training page. The base is either the
+official PP-OCRv6 weights or the weights of an earlier run; the data is the current batch plus any other
+finalized batches, merged by source screenshot (a screenshot held out in any batch is never trained on, and one
+present in several batches is trained on once). The run records both and the page shows them.
+
+Evaluation is one paired measurement, made when training finishes and reused by the release: the candidate and the
+model in service (stable) are scored under the same code on the same inputs — the end-to-end challenge fixtures
+(per field) and the holdout line crops (recognition only, spacing ignored). The candidate must keep the run-code
+fixtures exact, must not regress any fixture field, and must not score below the model in service on the fixtures or
+the holdout. There are no fixed accuracy floors: they went stale whenever the layout or parsers changed. The release
+reuses that evaluation instead of exporting and scoring again, and promotion requires that the comparison was made
+against the stable model that is still in service. "只评测已有检查点" repeats the evaluation of an already trained
+checkpoint without training again.
 
 The training screen starts the existing Kaggle runner with the current batch's
 reviewed dataset, shows local submission/status logs, and records the downloaded

@@ -305,7 +305,7 @@ def main() -> int:
     accepted = run_dir / ACCEPTED_STAGING
     if error is None and accepted.is_dir():
         try:
-            evaluate_locally(accepted, kaggle_log, stream_command)
+            evaluate_locally(accepted, kaggle_log, stream_command, (holdout_label, dataset_root))
         except KeyboardInterrupt:
             error = "Local checkpoint evaluation interrupted by the operator."
         except Exception as exc:

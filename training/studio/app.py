@@ -1005,12 +1005,21 @@ def create_app(
         run_dir = publication_root / datetime.now(UTC).strftime("release-%Y%m%d-%H%M%S")
         run_dir.mkdir(parents=True)
         log_path = run_dir / "release.log"
-        command = [str(ROOT / "training/release_rec_model.sh")]
-        command.extend([
-            "--holdout-labels", str(batch_dir / "dataset/labels/holdout.txt"),
-            "--holdout-images-root", str(batch_dir / "dataset"),
-            "--provenance", str(batch_dir / "batch.json"), "--checkpoint", str(checkpoint),
-        ])
+        state_path = batch_dir / "runs/latest.json"
+        trained = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
+        dataset = Path(str(trained.get("dataset_dir") or batch_dir / "dataset"))
+        provenance = dataset / "merge_manifest.json" if (dataset / "merge_manifest.json").is_file() else batch_dir / "batch.json"
+        command = [str(ROOT / "training/release_rec_model.sh"), "--provenance", str(provenance)]
+        evaluated = checkpoint.parents[1] / "evaluation"
+        if (evaluated / "comparison_report.json").is_file():
+            # Already exported and compared with the model in service when training finished; reuse that work.
+            command.extend(["--evaluated-dir", str(evaluated)])
+        else:
+            command.extend([
+                "--holdout-labels", str(dataset / "labels/holdout.txt"),
+                "--holdout-images-root", str(dataset),
+                "--checkpoint", str(checkpoint),
+            ])
         with log_path.open("ab") as log:
             process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         state: dict[str, object] = {"pid": process.pid, "status": "publishing", "command": command, "log": str(log_path), "checkpoint": str(checkpoint)}
