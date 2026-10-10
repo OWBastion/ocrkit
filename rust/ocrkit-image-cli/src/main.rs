@@ -1,5 +1,7 @@
 use image::{imageops::FilterType, DynamicImage, GenericImageView, ImageFormat, ImageReader};
-use ocrkit_image_core::{assess_quality, ImageSize, LayoutManifest, QualityReport, RoiBox};
+use ocrkit_image_core::{
+    assess_quality, canvas_size, ImageSize, LayoutManifest, QualityReport, RoiBox,
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::env;
@@ -125,14 +127,12 @@ fn crop_batch(args: &[String]) -> Result<String, String> {
         let source_size = image_size(&source_image);
         let quality =
             assess_quality(source_size, manifest.standard_size).map_err(|err| err.to_string())?;
-        let normalized = source_image.resize_exact(
-            manifest.standard_size.width,
-            manifest.standard_size.height,
-            FilterType::Triangle,
-        );
+        let canvas = canvas_size(source_size, manifest.standard_size);
+        let normalized =
+            source_image.resize_exact(canvas.width, canvas.height, FilterType::Triangle);
 
         let mut rois = std::collections::BTreeMap::new();
-        for (roi_name, roi) in &manifest.rois {
+        for (roi_name, roi) in &manifest.anchored_rois(canvas) {
             validate_component(roi_name, "ROI name")?;
             let crop = normalized.crop_imm(roi.x1, roi.y1, roi.width(), roi.height());
             let relative_path = PathBuf::from("images")
@@ -164,7 +164,7 @@ fn crop_batch(args: &[String]) -> Result<String, String> {
             source_file: case.image,
             source_sha256,
             source_size,
-            normalized_size: manifest.standard_size,
+            normalized_size: canvas,
             quality,
             rois,
         });

@@ -41,7 +41,7 @@ def anchored_rois(config: RoiConfig, canvas_width: int) -> dict[str, RoiBox]:
 def crop_all_rois(image: np.ndarray, config: RoiConfig) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     height, width = image.shape[:2]
     if is_ultrawide(width, height):
-        normalized = normalize_canvas(image, round(config.height * width / height), config.height)
+        normalized = normalize_canvas(image, (config.height * width * 2 + height) // (2 * height), config.height)
     else:
         normalized = normalize_canvas(image, config.width, config.height)
     rois = anchored_rois(config, normalized.shape[1])

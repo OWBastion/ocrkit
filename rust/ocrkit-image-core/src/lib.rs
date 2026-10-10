@@ -18,6 +18,30 @@ impl ImageSize {
     }
 }
 
+/// 3440x1440; the 3% tolerance also covers 21:9, 2560x1080 and 3840x1600.
+const ULTRAWIDE_ASPECT: f64 = 43.0 / 18.0;
+const ASPECT_TOLERANCE: f64 = 0.03;
+
+fn relative_aspect_difference(aspect_ratio: f64, target_ratio: f64) -> f64 {
+    (aspect_ratio - target_ratio).abs() / target_ratio
+}
+
+pub fn is_ultrawide(source: ImageSize) -> bool {
+    source.height > 0
+        && relative_aspect_difference(source.width as f64 / source.height as f64, ULTRAWIDE_ASPECT)
+            <= ASPECT_TOLERANCE
+}
+
+/// The canvas a source is normalized onto: ultrawide sources keep the standard height scale.
+pub fn canvas_size(source: ImageSize, standard: ImageSize) -> ImageSize {
+    if !is_ultrawide(source) {
+        return standard;
+    }
+    let numerator = standard.height as u64 * source.width as u64;
+    let width = (numerator * 2 + source.height as u64) / (2 * source.height as u64);
+    ImageSize::new(width as u32, standard.height)
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RoiBox {
     pub x1: u32,
@@ -37,6 +61,21 @@ impl RoiBox {
 
     pub fn height(self) -> u32 {
         self.y2.saturating_sub(self.y1)
+    }
+
+    /// Place the ROI on a canvas wider than the standard one: left ROIs stay put, right ROIs
+    /// follow the right edge and central ROIs the middle.
+    pub fn anchored(self, standard: ImageSize, canvas_width: u32) -> Self {
+        let extra = canvas_width.saturating_sub(standard.width);
+        let doubled_centre = (self.x1 + self.x2) as u64 * 3;
+        let shift = if doubled_centre < 2 * standard.width as u64 {
+            0
+        } else if doubled_centre > 4 * standard.width as u64 {
+            extra
+        } else {
+            extra / 2
+        };
+        Self::new(self.x1 + shift, self.y1, self.x2 + shift, self.y2)
     }
 
     pub fn scaled_to(self, source: ImageSize, standard: ImageSize) -> Result<Self, LayoutError> {
@@ -94,17 +133,22 @@ impl LayoutManifest {
         Ok(())
     }
 
+    pub fn anchored_rois(&self, canvas: ImageSize) -> BTreeMap<String, RoiBox> {
+        self.rois
+            .iter()
+            .map(|(name, roi)| (name.clone(), roi.anchored(self.standard_size, canvas.width)))
+            .collect()
+    }
+
     pub fn scaled_rois(&self, source: ImageSize) -> Result<BTreeMap<String, RoiBox>, LayoutError> {
         self.validate()?;
         if source.width == 0 || source.height == 0 {
             return Err(LayoutError::InvalidImageSize(source));
         }
-        self.rois
-            .iter()
-            .map(|(name, roi)| {
-                roi.scaled_to(source, self.standard_size)
-                    .map(|scaled| (name.clone(), scaled))
-            })
+        let canvas = canvas_size(source, self.standard_size);
+        self.anchored_rois(canvas)
+            .into_iter()
+            .map(|(name, roi)| roi.scaled_to(source, canvas).map(|scaled| (name, scaled)))
             .collect()
     }
 }
@@ -127,11 +171,14 @@ pub fn assess_quality(source: ImageSize, target: ImageSize) -> Result<QualityRep
     }
 
     let aspect_ratio = source.width as f64 / source.height as f64;
-    let target_ratio = target.width as f64 / target.height as f64;
-    let aspect_difference = (aspect_ratio - target_ratio).abs() / target_ratio;
-    let tolerance = 0.03;
-    let cropped = aspect_difference > tolerance;
-    let layout_confidence = (1.0 - aspect_difference / tolerance).clamp(0.0, 1.0);
+    let target_ratio = if is_ultrawide(source) {
+        ULTRAWIDE_ASPECT
+    } else {
+        target.width as f64 / target.height as f64
+    };
+    let aspect_difference = relative_aspect_difference(aspect_ratio, target_ratio);
+    let cropped = aspect_difference > ASPECT_TOLERANCE;
+    let layout_confidence = (1.0 - aspect_difference / ASPECT_TOLERANCE).clamp(0.0, 1.0);
     let warnings = if cropped {
         vec![
             "quality.aspect_ratio_mismatch".to_string(),
@@ -232,6 +279,53 @@ mod tests {
             layout.validate(),
             Err(LayoutError::RoiOutsideCanvas(..))
         ));
+    }
+
+    #[test]
+    fn ultrawide_keeps_height_scale_and_anchors_rois_to_screen_edges() {
+        let mut layout = manifest();
+        layout
+            .rois
+            .insert("left_panel".to_string(), RoiBox::new(35, 15, 220, 225));
+        layout.rois.insert(
+            "center_banner".to_string(),
+            RoiBox::new(150, 125, 1160, 215),
+        );
+        let source = ImageSize::new(3440, 1440);
+
+        assert_eq!(
+            canvas_size(source, layout.standard_size),
+            ImageSize::new(1720, 720)
+        );
+        assert_eq!(
+            canvas_size(ImageSize::new(2560, 1440), layout.standard_size),
+            layout.standard_size
+        );
+        let anchored = layout.anchored_rois(ImageSize::new(1720, 720));
+        assert_eq!(anchored["left_panel"], RoiBox::new(35, 15, 220, 225));
+        assert_eq!(anchored["center_banner"], RoiBox::new(370, 125, 1380, 215));
+        assert_eq!(anchored["right_panel"], RoiBox::new(1480, 0, 1715, 105));
+        assert_eq!(
+            layout.scaled_rois(source).unwrap()["right_panel"],
+            RoiBox::new(2960, 0, 3430, 210)
+        );
+    }
+
+    #[test]
+    fn ultrawide_is_not_flagged_as_cropped() {
+        for (width, height) in [(3440, 1440), (2560, 1080), (3840, 1600)] {
+            let quality =
+                assess_quality(ImageSize::new(width, height), ImageSize::new(1280, 720)).unwrap();
+            assert!(
+                !quality.cropped && quality.warnings.is_empty(),
+                "{width}x{height}"
+            );
+        }
+        assert!(
+            assess_quality(ImageSize::new(2000, 1000), ImageSize::new(1280, 720))
+                .unwrap()
+                .cropped
+        );
     }
 
     #[test]

@@ -22,7 +22,9 @@ uv run python scripts/export_layout_manifest.py \
 ~~~
 
 The native preflight CLI validates the manifest, evaluates the source aspect
-ratio, and maps standard-layout ROI coordinates onto the source image:
+ratio, and maps standard-layout ROI coordinates onto the source image. 21:9 ultrawide
+sources keep the standard height scale and place left, right and central ROIs at the screen
+edges or middle, matching the Python service:
 
 ~~~bash
 cargo run --manifest-path rust/Cargo.toml -p ocrkit-image-cli -- \
