@@ -5,11 +5,17 @@ import numpy as np
 
 
 _ASPECT_TOLERANCE = 0.03
+# 3440x1440; the tolerance also covers 21:9 (2.333), 2560x1080 and 3840x1600.
+ULTRAWIDE_ASPECT = 43 / 18
 _BLUR_VARIANCE_REFERENCE = 1000.0
 
 
 def _relative_aspect_difference(aspect_ratio: float, target_ratio: float) -> float:
     return abs(aspect_ratio - target_ratio) / target_ratio
+
+
+def is_ultrawide(width: int, height: int) -> bool:
+    return _relative_aspect_difference(width / height, ULTRAWIDE_ASPECT) <= _ASPECT_TOLERANCE
 
 
 def assess_input_quality(
@@ -19,7 +25,7 @@ def assess_input_quality(
 ) -> dict[str, float | bool | str | tuple[int, int] | list[str]]:
     height, width = image.shape[:2]
     aspect_ratio = width / height
-    target_ratio = target_width / target_height
+    target_ratio = ULTRAWIDE_ASPECT if is_ultrawide(width, height) else target_width / target_height
     aspect_difference = _relative_aspect_difference(aspect_ratio, target_ratio)
     cropped = aspect_difference > _ASPECT_TOLERANCE
     layout_confidence = max(0.0, min(1.0, 1.0 - aspect_difference / _ASPECT_TOLERANCE))
