@@ -128,7 +128,9 @@ fields are added to the response separately from the geometry.
 
 The service selects the versioned `1280x720-v8` or `1280x800-v3` ROI layout from the source
 aspect ratio. The 16:10 layout is used for screenshots such as 2560x1600 without marking the
-input as cropped.
+input as cropped. 21:9 ultrawide screenshots (about 2.39:1, such as 3440x1440) use the
+16:9 layout at the same height scale, with left, right and central ROIs kept at their screen
+edges or middle, and are not marked as cropped.
 
 Send `X-Request-ID` to correlate a request; otherwise OCRKit generates one. Each field
 reports its parsed value, confidence, source ROI, normalization metadata, and status.

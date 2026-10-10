@@ -7,7 +7,7 @@ import cv2
 from app.core.roi_config import RoiConfig
 from app.image.preprocess import preprocess_by_roi
 from app.image.quality import assess_input_quality
-from app.image.roi import crop_all_rois, select_roi_config
+from app.image.roi import anchored_rois, crop_all_rois, select_roi_config
 from app.ocr.engine import OcrChunk, OcrEngine
 from app.parser.ai_mark import is_ai_mark
 from app.parser.bottom_left_hero import parse_bottom_left_hero
@@ -211,7 +211,7 @@ def extract_structured(
                     "x2": box.x2,
                     "y2": box.y2,
                 }
-                for name, box in active_roi_config.rois.items()
+                for name, box in anchored_rois(active_roi_config, normalized.shape[1]).items()
             },
             raw_text=raw_text,
             confidence=confidences,

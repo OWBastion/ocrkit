@@ -16,6 +16,14 @@ def test_quality_preserves_original_size_and_reports_supported_layout() -> None:
     assert quality["warnings"] == []
 
 
+def test_quality_accepts_ultrawide_but_still_flags_other_wide_crops() -> None:
+    for width, height in ((3440, 1440), (2560, 1080), (3840, 1600)):
+        quality = assess_input_quality(np.zeros((height, width, 3), dtype=np.uint8), 1280, 720)
+        assert quality["cropped"] is False, (width, height)
+        assert quality["warnings"] == []
+    assert assess_input_quality(np.zeros((1000, 2000, 3), dtype=np.uint8), 1280, 720)["cropped"] is True
+
+
 def test_quality_reports_aspect_ratio_risk_before_normalization() -> None:
     image = np.zeros((1000, 1500, 3), dtype=np.uint8)
 
