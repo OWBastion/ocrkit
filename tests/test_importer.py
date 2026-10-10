@@ -32,7 +32,7 @@ def _member(
     *,
     data: bytes | None = None,
     object_key: str | None = None,
-    layout_version: str = "1280x720-v6",
+    layout_version: str = "1280x720-v7",
     accuracy: str | None = None,
     **overrides,
 ) -> dict[str, object]:
@@ -162,7 +162,7 @@ class TestImportScreenshotSet:
             "source_id": "src-1",
             "object_key": "evidence/screens/src-1.png",
             "sha256": hashlib.sha256(one).hexdigest(),
-            "layout_version": "1280x720-v6",
+            "layout_version": "1280x720-v7",
             "accuracy": "accurate",
         }
         assert report.screenshot_set["set_id"] == "set-abc"
@@ -200,7 +200,7 @@ class TestImportScreenshotSet:
         download, _ = _downloader({"evidence/screens/src-1.png": _png()})
         with pytest.raises(ScreenshotSetIntegrityError, match="src-1"):
             import_screenshot_set(
-                metadata=_metadata([_member("src-1", layout_version="1280x800-v1")]),
+                metadata=_metadata([_member("src-1", layout_version="1280x800-v2")]),
                 download_object=download,
                 workspace=tmp_path / "set",
             )

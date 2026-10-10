@@ -8,8 +8,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
+import threading
+import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -35,7 +38,9 @@ from training.studio.core import (
     export_dataset,
     finalize_dataset,
     generate_candidates,
+    imported_object_keys,
     load_manifest,
+    mergeable_batches,
     refresh_vision_candidates,
     refresh_teacher_candidates,
     review_counts,
@@ -50,6 +55,12 @@ ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = ROOT / "training/studio/frontend/dist"
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+_WORKFLOW_START_LOCK = threading.RLock()
+
+
+def jev_config() -> dict[str, object]:
+    from training.studio.workflow import jev_config as configuration
+    return configuration()
 
 
 class ReviewUpdate(BaseModel):
@@ -57,11 +68,28 @@ class ReviewUpdate(BaseModel):
     crop: str
     status: str
     transcription: str | None = None
+    category: Literal["event", "achievement", "other"] | None = None
 
 
 class TrainingStart(BaseModel):
     resume_checkpoint: str | None = None
+    base_checkpoint: str | None = None
+    include_batches: list[str] = Field(default_factory=list, max_length=50)
     epochs: int = Field(default=10, ge=1, le=100)
+
+
+class JevStart(BaseModel):
+    image_tokens: int = 70
+
+
+class PrepareStart(BaseModel):
+    days: int = Field(default=30, ge=1, le=365)
+    holdout_ratio: float = Field(default=0.2, ge=0, lt=1)
+    image_tokens: Literal[10, 20, 35, 70, 140, 280] = 70
+
+
+class AcceptOverride(BaseModel):
+    reason: str = Field(min_length=10, max_length=500)
 
 
 class PublishStart(BaseModel):
@@ -79,6 +107,7 @@ class RollbackAction(BaseModel):
 
 class RemoteSourceSelection(BaseModel):
     keys: list[str] = Field(min_length=1, max_length=200)
+    accuracy_marks: dict[str, Literal["accurate", "inaccurate"]] = Field(default_factory=dict)
     holdout_ratio: float = Field(default=0.2, ge=0, lt=1)
 
 
@@ -161,6 +190,38 @@ def _resume_checkpoint(work_root: Path, batch_dir: Path, value: str | None) -> P
     return candidate
 
 
+def _list_base_weights(work_root: Path) -> list[dict[str, str]]:
+    """Weights of earlier training runs that a new Kaggle run can start from."""
+    weights: list[dict[str, str]] = []
+    for manifest in sorted((work_root / "batches").glob("*/batch.json"), reverse=True):
+        batch = manifest.parent
+        for params in sorted(batch.glob("runs/*/output/checkpoint/best_accuracy.pdparams"), reverse=True):
+            run = params.parents[2].name
+            detail = ""
+            try:
+                accuracy = json.loads((params.parents[1] / "run.json").read_text(encoding="utf-8"))["evaluation"]["field_accuracy"]
+                detail = f" · 固定截图 {accuracy:.1%}"
+            except (OSError, KeyError, TypeError, ValueError):
+                pass
+            weights.append({"path": f"{batch.name}:{params.relative_to(batch).as_posix()}", "name": f"{batch.name} · {run}{detail}"})
+        for params in sorted(batch.glob("runs/smoke-*/checkpoints/best_accuracy.pdparams"), reverse=True):
+            weights.append({"path": f"{batch.name}:{params.relative_to(batch).as_posix()}", "name": f"{batch.name} · {params.parents[1].name} (CPU Smoke)"})
+    legacy_root = _legacy_checkpoint_root(work_root)
+    for params in sorted(legacy_root.glob("*/best_accuracy.pdparams"), reverse=True) if legacy_root.is_dir() else []:
+        relative = params.relative_to(legacy_root).as_posix()
+        weights.append({"path": f"legacy:{relative}", "name": f"历史模型 · {relative}"})
+    return weights
+
+
+def _resolve_base_weights(work_root: Path, token: str) -> tuple[Path, str]:
+    for option in _list_base_weights(work_root):
+        if option["path"] == token:
+            owner, relative = token.split(":", 1)
+            root = _legacy_checkpoint_root(work_root) if owner == "legacy" else work_root / "batches" / owner
+            return (root / relative).resolve(), option["name"]
+    raise HTTPException(status_code=422, detail="the chosen base weights no longer exist")
+
+
 def _list_resume_checkpoints(work_root: Path, batch_dir: Path) -> list[dict[str, str]]:
     batches_dir = work_root / "batches"
     checkpoints: list[dict[str, str]] = []
@@ -236,17 +297,113 @@ def _poll_training_process(state: dict[str, object], active_status: str = "train
     return True
 
 
+def _write_workflow_state(path: Path, state: dict[str, object]) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _workflow_status(state_path: Path, active_status: str = "training") -> dict[str, object]:
+    with _WORKFLOW_START_LOCK:
+        if not state_path.is_file():
+            return {"status": "not_started", "log": "", "log_tail": ""}
+        state: dict[str, object] = json.loads(state_path.read_text(encoding="utf-8"))
+        _poll_training_process(state, active_status)
+        log_path = Path(str(state.get("log", "")))
+        result_path = log_path.parent / "result.json"
+        if result_path.is_file():
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            if "status" in result:
+                result["remote_status"] = result.pop("status")
+            state.update(result)
+            if result.get("workflow_status") in {"completed", "failed"}:
+                state["status"] = result["workflow_status"]
+        kaggle_log = None
+        if state.get("backend") == "kaggle":
+            output = log_path.parent / "output"
+            state["output_run_dir"] = str(output)
+            kaggle_log = output / "kaggle.log"
+        _write_workflow_state(state_path, state)
+        state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-48000:] if log_path.is_file() else ""
+        if kaggle_log is not None and kaggle_log.is_file():
+            state["log_tail"] = str(state["log_tail"]) + "\n" + kaggle_log.read_text(encoding="utf-8", errors="replace")[-48000:]
+        return state
+
+
+
+def _reject_active_workflow(state_path: Path, active_status: str = "training") -> None:
+    if _workflow_status(state_path, active_status).get("status") == active_status:
+        raise HTTPException(status_code=409, detail="a workflow is already running for this batch")
+
+
+def _launch_workflow(
+    batch_dir: Path,
+    backend: str,
+    *,
+    epochs: int = 10,
+    image_tokens: int = 70,
+    base: tuple[Path, str] | None = None,
+    include_batches: list[str] | None = None,
+) -> dict[str, object]:
+    active_status = "reviewing" if backend == "jev" else "training"
+    root = batch_dir / ("jev" if backend == "jev" else "runs")
+    run_dir = root / f"{backend}-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    run_dir.mkdir(parents=True)
+    log_path = run_dir / ("jev.log" if backend == "jev" else "training.log")
+    command = [sys.executable, "-u", "-m", "training.studio.workflow", backend, "--batch-dir", str(batch_dir), "--run-dir", str(run_dir)]
+    command.extend(["--image-tokens", str(image_tokens)] if backend == "jev" else ["--epochs", str(epochs)])
+    if base is not None:
+        command.extend(["--base-checkpoint", str(base[0]), "--base-name", base[1]])
+    for other in include_batches or []:
+        command.extend(["--include-batch", other])
+    with log_path.open("ab") as log:
+        process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    state: dict[str, object] = {"pid": process.pid, "status": active_status, "backend": backend, "command": command, "log": str(log_path), "epochs": epochs}
+    if backend == "jev":
+        state.update({"processed": 0, "saved": 0, "errors": 0, "image_tokens": image_tokens})
+    payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+    (run_dir / "run.json").write_text(payload, encoding="utf-8")
+    _write_workflow_state(root / "latest.json", state)
+    return state
+
+
 def _checkpoint_from_training_state(batch_dir: Path) -> Path:
     state_path = batch_dir / "runs/latest.json"
     if not state_path.is_file():
-        raise HTTPException(status_code=422, detail="complete a successful Smoke training run before publishing")
+        raise HTTPException(status_code=422, detail="complete a successful training run before publishing")
     state = json.loads(state_path.read_text(encoding="utf-8"))
     if state.get("status") != "completed" or state.get("exit_code") != 0:
-        raise HTTPException(status_code=422, detail="latest Smoke training run has not passed")
-    checkpoint = Path(str(state["log"])).parent / "checkpoints/best_accuracy"
+        raise HTTPException(status_code=422, detail="latest training run has not passed")
+    checkpoint = Path(str(state["checkpoint"])) if state.get("backend") in {"kaggle", "evaluate"} and state.get("checkpoint") else Path(str(state["log"])).parent / "checkpoints/best_accuracy"
     if not checkpoint.with_suffix(".pdparams").is_file():
-        raise HTTPException(status_code=422, detail="latest Smoke run has no best_accuracy checkpoint")
+        raise HTTPException(status_code=422, detail="latest training run has no best_accuracy checkpoint")
     return checkpoint
+
+
+def _read_build_label() -> str:
+    def run(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=5, check=True).stdout.strip()
+
+    try:
+        return f"{run('rev-parse', '--abbrev-ref', 'HEAD')}@{run('rev-parse', '--short', 'HEAD')}"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+# Read once at import: it must name the code this process loaded, not whatever the checkout points to later.
+BUILD_LABEL = _read_build_label()
+
+
+def _lan_address() -> str | None:
+    """The Wi-Fi/Ethernet address; a VPN or proxy tunnel is the default route, so asking the route table is wrong."""
+    for interface in ("en0", "en1"):
+        try:
+            address = subprocess.run(["ipconfig", "getifaddr", interface], capture_output=True, text=True, timeout=3, check=True).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if address:
+            return address
+    return None
 
 
 def create_app(
@@ -315,7 +472,7 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"ok": "true", "service": "ocrkit-studio"}
+        return {"ok": "true", "service": "ocrkit-studio", "root": str(ROOT), "build": BUILD_LABEL}
 
     @app.get("/api/batches")
     def batches() -> list[dict[str, object]]:
@@ -335,15 +492,38 @@ def create_app(
         }
 
     @app.get("/api/r2/images")
-    def r2_images(prefix: str = "", cursor: str | None = None) -> dict[str, object]:
+    def r2_images(prefix: str = "", cursor: str | None = None, since: str | None = None) -> dict[str, object]:
         store = remote_store or StudioR2Store.from_settings()
         if store is None:
             raise HTTPException(status_code=503, detail="Studio R2 未配置")
         selected_prefix = prefix or store.allowed_prefixes[0]
         try:
-            return store.list_images(selected_prefix, cursor)
+            return store.list_images(selected_prefix, cursor, since=since)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=503, detail=r2_error_detail(exc)) from exc
+
+    @app.get("/api/r2/feedback")
+    async def r2_feedback(since: str | None = None) -> dict[str, object]:
+        from training.studio.feedback import get_feedback
+        try:
+            if since is not None:
+                datetime.fromisoformat(since.replace("Z", "+00:00"))
+            return await run_in_threadpool(get_feedback, since)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def remote_provenance(downloaded, selection: RemoteSourceSelection) -> dict[str, dict[str, object]]:
+        result = {}
+        selected = set(selection.keys)
+        for item in downloaded:
+            provenance = dict(item.provenance)
+            key = str(provenance.get("object_key", ""))
+            if key in selected and key in selection.accuracy_marks:
+                provenance["accuracy"] = selection.accuracy_marks[key]
+            result[str(provenance["sha256"])] = provenance
+        return result
 
     @app.get("/api/r2/image")
     def r2_image(key: str) -> Response:
@@ -364,9 +544,7 @@ def create_app(
             downloaded = store.download_images(selection.keys, temporary_dir)
         except Exception as exc:
             raise HTTPException(status_code=503, detail=r2_error_detail(exc)) from exc
-        return [item.path for item in downloaded], {
-            str(item.provenance["sha256"]): item.provenance for item in downloaded
-        }
+        return [item.path for item in downloaded], remote_provenance(downloaded, selection)
 
     @app.post("/api/batches/r2")
     async def import_remote_batch(selection: RemoteSourceSelection) -> dict[str, object]:
@@ -420,7 +598,7 @@ def create_app(
                         progress_callback=progress_callback,
                     )
                     paths = [item.path for item in downloaded]
-                    provenance = {str(item.provenance["sha256"]): item.provenance for item in downloaded}
+                    provenance = remote_provenance(downloaded, selection)
 
                     loop.call_soon_threadsafe(
                         queue.put_nowait,
@@ -539,7 +717,7 @@ def create_app(
                         progress_callback=progress_callback,
                     )
                     paths = [item.path for item in downloaded]
-                    provenance = {str(item.provenance["sha256"]): item.provenance for item in downloaded}
+                    provenance = remote_provenance(downloaded, selection)
 
                     loop.call_soon_threadsafe(
                         queue.put_nowait,
@@ -591,12 +769,16 @@ def create_app(
     @app.post("/api/batches/{batch_id}/candidates")
     async def candidates(batch_id: str) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
+        _reject_active_workflow(batch_dir / "jev/latest.json", "reviewing")
+        _reject_active_workflow(batch_dir / "runs/latest.json")
         summary = await run_in_threadpool(generate_candidates, batch_dir)
         return {"summary": summary, "review": review_counts(batch_dir)}
 
     @app.post("/api/batches/{batch_id}/candidates/recreate")
     async def recreate(batch_id: str) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
+        _reject_active_workflow(batch_dir / "jev/latest.json", "reviewing")
+        _reject_active_workflow(batch_dir / "runs/latest.json")
         try:
             summary = await run_in_threadpool(recreate_candidates, batch_dir)
         except ValueError as exc:
@@ -608,6 +790,8 @@ def create_app(
     @app.post("/api/batches/{batch_id}/candidates/refresh-vision")
     async def refresh_vision(batch_id: str) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
+        _reject_active_workflow(batch_dir / "jev/latest.json", "reviewing")
+        _reject_active_workflow(batch_dir / "runs/latest.json")
         try:
             summary = await run_in_threadpool(refresh_vision_candidates, batch_dir)
         except ValueError as exc:
@@ -619,6 +803,8 @@ def create_app(
     @app.post("/api/batches/{batch_id}/candidates/refresh-teacher")
     async def refresh_teacher(batch_id: str) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
+        _reject_active_workflow(batch_dir / "jev/latest.json", "reviewing")
+        _reject_active_workflow(batch_dir / "runs/latest.json")
         try:
             summary = await run_in_threadpool(refresh_teacher_candidates, batch_dir)
         except ValueError as exc:
@@ -642,12 +828,15 @@ def create_app(
     @app.put("/api/batches/{batch_id}/review")
     async def save_review(batch_id: str, update: ReviewUpdate) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
-        row = await run_in_threadpool(update_review_row, batch_dir, update.split, update.crop, update.status, update.transcription)
+        _reject_active_workflow(batch_dir / "runs/latest.json")
+        row = await run_in_threadpool(update_review_row, batch_dir, update.split, update.crop, update.status, update.transcription, update.category)
         return {"row": row, "counts": review_counts(batch_dir)}
 
     @app.post("/api/batches/{batch_id}/review/accept-teacher")
     async def accept_teacher(batch_id: str) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
+        _reject_active_workflow(batch_dir / "jev/latest.json", "reviewing")
+        _reject_active_workflow(batch_dir / "runs/latest.json")
         result = await run_in_threadpool(accept_teacher_suggestions, batch_dir)
         return {"result": result, "counts": review_counts(batch_dir)}
 
@@ -665,40 +854,159 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/api/batches/{batch_id}/training/smoke")
-    async def start_smoke(batch_id: str, request: TrainingStart | None = None) -> dict[str, object]:
+
+    # --- one-click preparation: new R2 screenshots → batch → candidates → JEV ---
+
+    def _recent_new_objects(days: int) -> tuple[list[dict[str, object]], int]:
+        store = remote_store or StudioR2Store.from_settings()
+        if store is None:
+            raise HTTPException(status_code=503, detail="Studio R2 未配置")
+        since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        try:
+            recent = store.list_recent(since)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=r2_error_detail(exc)) from exc
+        known = imported_object_keys(work_root)
+        return [item for item in recent if item["key"] not in known], len(recent)
+
+    @app.get("/api/pipeline/preview")
+    async def pipeline_preview(days: int = 30) -> dict[str, object]:
+        fresh, recent = await run_in_threadpool(_recent_new_objects, days)
+        batches = sorted(path.parent.name for path in (work_root / "batches").glob("*/batch.json"))
+        return {"new": len(fresh), "recent": recent, "latest_batch": batches[-1] if batches else None}
+
+    @app.post("/api/pipeline/prepare")
+    def start_pipeline(request: PrepareStart | None = None) -> dict[str, object]:
+        request = request or PrepareStart()
+        state_path = work_root / "pipeline/latest.json"
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(state_path, "preparing")
+            run_dir = state_path.parent / f"prepare-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+            run_dir.mkdir(parents=True)
+            log_path = run_dir / "prepare.log"
+            command = [
+                sys.executable, "-u", "-m", "training.studio.workflow", "prepare",
+                "--work-root", str(work_root), "--run-dir", str(run_dir), "--days", str(request.days),
+                "--holdout-ratio", str(request.holdout_ratio), "--image-tokens", str(request.image_tokens),
+            ]
+            with log_path.open("ab") as log:
+                process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            state: dict[str, object] = {"pid": process.pid, "status": "preparing", "backend": "prepare", "command": command, "log": str(log_path), "stage": "listing"}
+            _write_workflow_state(state_path, state)
+            return state
+
+    @app.get("/api/pipeline/status")
+    def pipeline_status() -> dict[str, object]:
+        return _workflow_status(work_root / "pipeline/latest.json", "preparing")
+
+    @app.get("/api/jev/config")
+    def jev_configuration() -> dict[str, object]:
+        return jev_config()
+
+    @app.post("/api/batches/{batch_id}/review/jev")
+    def start_jev(batch_id: str, request: JevStart | None = None) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        request = request or JevStart()
+        if request.image_tokens not in {10, 20, 35, 70, 140, 280}:
+            raise HTTPException(status_code=422, detail="invalid JEV image-token budget")
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(batch_dir / "jev/latest.json", "reviewing")
+            if not jev_config()["configured"]:
+                raise HTTPException(status_code=503, detail="local Jev-Omni model or worker Python is not configured")
+            if not any(review_rows(batch_dir, split, "pending") for split in ("train", "holdout")):
+                raise HTTPException(status_code=422, detail="generate pending candidates before starting JEV")
+            return _launch_workflow(batch_dir, "jev", image_tokens=request.image_tokens)
+
+    @app.get("/api/batches/{batch_id}/review/jev")
+    def jev_status(batch_id: str) -> dict[str, object]:
+        return _workflow_status(_batch_dir(work_root, batch_id) / "jev/latest.json", "reviewing")
+
+    @app.post("/api/batches/{batch_id}/training/kaggle")
+    def start_kaggle(batch_id: str, request: TrainingStart | None = None) -> dict[str, object]:
         batch_dir = _batch_dir(work_root, batch_id)
         request = request or TrainingStart()
-        try:
-            await run_in_threadpool(finalize_dataset, batch_dir)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        run_dir = batch_dir / "runs" / f"smoke-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        log_path = run_dir / "training.log"
-        command = [
-            str(ROOT / "training/run_rec_smoke.sh"),
-            "--labels-dir", str(batch_dir / "dataset"),
-            "--output-dir", str(run_dir / "checkpoints"),
-            "--epochs", str(request.epochs),
-        ]
-        resume_checkpoint = _resume_checkpoint(work_root, batch_dir, request.resume_checkpoint)
-        if resume_checkpoint is not None:
-            command.extend(["--resume-checkpoint", str(resume_checkpoint)])
-        with log_path.open("ab") as log:
-            process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        state: dict[str, object] = {
-            "pid": process.pid,
-            "status": "training",
-            "command": command,
-            "log": str(log_path),
-            "epochs": request.epochs,
-            "resume_checkpoint": request.resume_checkpoint,
-        }
-        payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
-        (run_dir / "run.json").write_text(payload, encoding="utf-8")
-        (batch_dir / "runs/latest.json").write_text(payload, encoding="utf-8")
-        return state
+        if request.resume_checkpoint is not None:
+            raise HTTPException(status_code=422, detail="resume is only supported for Smoke; choose base weights instead")
+        base = _resolve_base_weights(work_root, request.base_checkpoint) if request.base_checkpoint else None
+        available = {item["batch_id"] for item in mergeable_batches(work_root, exclude=batch_id)}
+        unknown = [other for other in request.include_batches if other not in available]
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"batch has no finalized labels to train on: {unknown[0]}")
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(batch_dir / "runs/latest.json")
+            try:
+                finalize_dataset(batch_dir)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            return _launch_workflow(batch_dir, "kaggle", epochs=request.epochs, base=base, include_batches=request.include_batches)
+
+    @app.get("/api/batches/{batch_id}/training/options")
+    def training_options(batch_id: str) -> dict[str, object]:
+        _batch_dir(work_root, batch_id)
+        return {"base_weights": _list_base_weights(work_root), "data_batches": mergeable_batches(work_root, exclude=batch_id)}
+
+    @app.post("/api/batches/{batch_id}/training/evaluate")
+    def evaluate_trained_checkpoint(batch_id: str) -> dict[str, object]:
+        """Score the newest already trained checkpoint against the release gate; nothing is trained again."""
+        from training.studio.workflow import find_trained_checkpoint
+
+        batch_dir = _batch_dir(work_root, batch_id)
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(batch_dir / "runs/latest.json")
+            if find_trained_checkpoint(batch_dir / "runs") is None:
+                raise HTTPException(status_code=422, detail="this batch has no trained checkpoint to evaluate")
+            return _launch_workflow(batch_dir, "evaluate")
+
+    @app.post("/api/batches/{batch_id}/training/accept")
+    def accept_failed_comparison(batch_id: str, request: AcceptOverride) -> dict[str, object]:
+        """Accept a candidate whose comparison with the model in service failed, on the owner's written decision."""
+        from training.studio.workflow import accept_failed_evaluation
+
+        batch_dir = _batch_dir(work_root, batch_id)
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(batch_dir / "runs/latest.json")
+            try:
+                return accept_failed_evaluation(batch_dir, request.reason)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/batches/{batch_id}/training/smoke")
+    def start_smoke(batch_id: str, request: TrainingStart | None = None) -> dict[str, object]:
+        batch_dir = _batch_dir(work_root, batch_id)
+        request = request or TrainingStart()
+        with _WORKFLOW_START_LOCK:
+            _reject_active_workflow(batch_dir / "runs/latest.json")
+            try:
+                finalize_dataset(batch_dir)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            run_dir = batch_dir / "runs" / f"smoke-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            log_path = run_dir / "training.log"
+            command = [
+                str(ROOT / "training/run_rec_smoke.sh"),
+                "--labels-dir", str(batch_dir / "dataset"),
+                "--output-dir", str(run_dir / "checkpoints"),
+                "--epochs", str(request.epochs),
+            ]
+            resume_checkpoint = _resume_checkpoint(work_root, batch_dir, request.resume_checkpoint)
+            if resume_checkpoint is not None:
+                command.extend(["--resume-checkpoint", str(resume_checkpoint)])
+            with log_path.open("ab") as log:
+                process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            state: dict[str, object] = {
+                "pid": process.pid,
+                "status": "training",
+                "backend": "smoke",
+                "command": command,
+                "log": str(log_path),
+                "epochs": request.epochs,
+                "resume_checkpoint": request.resume_checkpoint,
+            }
+            payload = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+            (run_dir / "run.json").write_text(payload, encoding="utf-8")
+            _write_workflow_state(batch_dir / "runs/latest.json", state)
+            return state
 
     @app.get("/api/batches/{batch_id}/training/checkpoints")
     def resume_checkpoints(batch_id: str) -> list[dict[str, str]]:
@@ -719,12 +1027,21 @@ def create_app(
         run_dir = publication_root / datetime.now(UTC).strftime("release-%Y%m%d-%H%M%S")
         run_dir.mkdir(parents=True)
         log_path = run_dir / "release.log"
-        command = [str(ROOT / "training/release_rec_model.sh")]
-        command.extend([
-            "--holdout-labels", str(batch_dir / "dataset/labels/holdout.txt"),
-            "--holdout-images-root", str(batch_dir / "dataset"),
-            "--provenance", str(batch_dir / "batch.json"), "--checkpoint", str(checkpoint),
-        ])
+        state_path = batch_dir / "runs/latest.json"
+        trained = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
+        dataset = Path(str(trained.get("dataset_dir") or batch_dir / "dataset"))
+        provenance = dataset / "merge_manifest.json" if (dataset / "merge_manifest.json").is_file() else batch_dir / "batch.json"
+        command = [str(ROOT / "training/release_rec_model.sh"), "--provenance", str(provenance)]
+        evaluated = checkpoint.parents[1] / "evaluation"
+        if (evaluated / "comparison_report.json").is_file():
+            # Already exported and compared with the model in service when training finished; reuse that work.
+            command.extend(["--evaluated-dir", str(evaluated)])
+        else:
+            command.extend([
+                "--holdout-labels", str(dataset / "labels/holdout.txt"),
+                "--holdout-images-root", str(dataset),
+                "--checkpoint", str(checkpoint),
+            ])
         with log_path.open("ab") as log:
             process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         state: dict[str, object] = {"pid": process.pid, "status": "publishing", "command": command, "log": str(log_path), "checkpoint": str(checkpoint)}
@@ -750,20 +1067,7 @@ def create_app(
 
     @app.get("/api/batches/{batch_id}/training")
     def training_status(batch_id: str) -> dict[str, object]:
-        batch_dir = _batch_dir(work_root, batch_id)
-        state_path = batch_dir / "runs/latest.json"
-        if not state_path.is_file():
-            return {"status": "not_started", "log": "", "log_tail": ""}
-        state: dict[str, object] = json.loads(state_path.read_text(encoding="utf-8"))
-        state_changed = _poll_training_process(state)
-        log_path = Path(str(state.get("log", "")))
-        # Keep a generous plain-text tail for the studio log viewer.
-        state["log_tail"] = log_path.read_text(encoding="utf-8", errors="replace")[-48000:] if log_path.is_file() else ""
-        if state_changed:
-            # Persist terminal status without embedding the log body into latest.json.
-            persisted = {key: value for key, value in state.items() if key != "log_tail"}
-            state_path.write_text(json.dumps(persisted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return state
+        return _workflow_status(_batch_dir(work_root, batch_id) / "runs/latest.json")
 
     # --- Model Studio: platform screenshot-set imports (#26) ---
 
@@ -869,8 +1173,8 @@ def create_api_app() -> FastAPI:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the local-only OCRKit Studio API and Vite-built frontend.")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser = argparse.ArgumentParser(description="Run the OCRKit Studio API and Vite-built frontend (no authentication; trusted network only).")
+    parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--work-root", type=Path, default=DEFAULT_WORK_ROOT)
     parser.add_argument("--frontend-dir", type=Path, default=FRONTEND_DIST)
@@ -878,6 +1182,12 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
     import uvicorn
+
+    print(f"Studio ({BUILD_LABEL}) from {ROOT}", flush=True)
+    if not args.api_only:
+        print(f"  http://127.0.0.1:{args.port}", flush=True)
+        if args.host in {"0.0.0.0", "::"} and (lan := _lan_address()):
+            print(f"  http://{lan}:{args.port}  (phone on the same network)", flush=True)
 
     if args.reload:
         if not args.api_only or args.work_root != DEFAULT_WORK_ROOT:

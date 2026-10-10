@@ -60,6 +60,19 @@ def _evidence() -> dict[str, object]:
                 "field_metrics": {"map_name": {"accuracy": 1.0}},
             },
             "holdout": {"status": "passed", "accuracy": 0.97},
+            "comparison": {
+                "verdict": "passed",
+                "reasons": [],
+                "stable": {"version": "stable-v1", "manifest_key": "models/pp-ocrv6-small/stable-v1/manifest.json"},
+                "candidate": {
+                    "fixture": {"field_accuracy": 0.98, "run_code_accuracy": 1.0, "field_metrics": {"map_name": {"matched": 40, "total": 40}}},
+                    "holdout": {"accuracy": 0.97},
+                },
+                "baseline": {
+                    "fixture": {"field_accuracy": 0.97, "run_code_accuracy": 1.0, "field_metrics": {"map_name": {"matched": 39, "total": 40}}},
+                    "holdout": {"accuracy": 0.95},
+                },
+            },
         },
         "full_test_suite": {"status": "passed"},
         "provenance": {"status": "recorded", "source": {"snapshot": "s1@v1"}},
@@ -135,3 +148,78 @@ def test_rollback_requires_history_and_verifies_selected_manifest(monkeypatch) -
 
     with pytest.raises(ValueError, match="previously verified"):
         rollback_model_channel.rollback(client, "models", "models/pp-ocrv6-small/channels/stable.json", "models/pp-ocrv6-small/unknown/manifest.json")
+
+
+def _compare(evidence: dict[str, object], stable_key: str | None = "models/pp-ocrv6-small/stable-v1/manifest.json") -> dict[str, object]:
+    candidate = json.loads(_manifest("candidate-v2", evidence))
+    stable = json.loads(_manifest("stable-v1"))
+    return compare_manifests("models/pp-ocrv6-small/candidate-v2/manifest.json", candidate, stable_key, stable)
+
+
+def _comparison(evidence: dict[str, object]) -> dict[str, object]:
+    return evidence["evaluation"]["comparison"]  # type: ignore[index, return-value]
+
+
+def test_paired_comparison_decides_and_reports_the_figures_measured_together() -> None:
+    report = _compare(_evidence())
+
+    assert report["eligible"] is True
+    assert report["comparison"]["field_accuracy"] == {"candidate": 0.98, "stable": 0.97, "delta": pytest.approx(0.01)}
+    assert report["comparison"]["holdout_accuracy"]["delta"] == pytest.approx(0.02)
+    assert report["comparison"]["critical_field_deltas"]["map_name"]["delta"] == pytest.approx(0.025)
+
+
+def test_a_failed_paired_comparison_blocks_promotion_with_its_own_reasons() -> None:
+    evidence = _evidence()
+    _comparison(evidence).update(verdict="failed", reasons=["regresses duration_seconds: 35/40 vs 36/40 on fixtures"])
+
+    report = _compare(evidence)
+
+    assert report["eligible"] is False
+    assert "regresses duration_seconds: 35/40 vs 36/40 on fixtures" in report["reasons"]
+
+
+def test_missing_paired_comparison_blocks_promotion() -> None:
+    evidence = _evidence()
+    del evidence["evaluation"]["comparison"]  # type: ignore[attr-defined, index]
+
+    assert "missing paired comparison evidence; evaluate the candidate again" in _compare(evidence)["reasons"]
+
+
+def test_a_comparison_against_a_model_no_longer_in_service_is_stale() -> None:
+    report = _compare(_evidence(), stable_key="models/pp-ocrv6-small/stable-v2/manifest.json")
+
+    assert report["eligible"] is False
+    assert any("different model than the one in service" in reason for reason in report["reasons"])
+
+
+def test_a_candidate_evaluated_without_a_baseline_may_become_the_first_stable() -> None:
+    evidence = _evidence()
+    _comparison(evidence).update(verdict="no_baseline", stable=None)
+
+    assert _compare(evidence, stable_key=None)["eligible"] is True
+    assert _compare(evidence)["eligible"] is False  # a stable exists now, so the comparison is stale
+
+
+def test_run_code_fixtures_must_be_exact_regardless_of_the_comparison() -> None:
+    evidence = _evidence()
+    evidence["evaluation"]["fixture"]["run_code"] = {"field_accuracy": 0.9}  # type: ignore[index]
+
+    assert "run-code fixture accuracy is below the release gate" in _compare(evidence)["reasons"]
+
+
+def test_an_overridden_comparison_is_eligible_only_with_its_recorded_reason() -> None:
+    evidence = _evidence()
+    comparison = _comparison(evidence)
+    comparison.update(verdict="overridden", reasons=["regresses deaths: 58/61 vs 59/61 on fixtures"],
+                      override={"reason": "owner decision", "accepted_at": "2026-10-03T00:00:00+00:00", "overridden_reasons": comparison["reasons"]})
+
+    report = _compare(evidence)
+
+    assert report["eligible"] is True
+    assert report["override"]["reason"] == "owner decision"
+
+    comparison["override"] = {"reason": "  ", "overridden_reasons": []}
+    assert "the failed comparison was overridden without a recorded reason" in _compare(evidence)["reasons"]
+    del comparison["override"]
+    assert _compare(evidence)["eligible"] is False

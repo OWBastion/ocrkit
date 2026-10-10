@@ -1,4 +1,4 @@
-layout_version: 1280x720-v6
+layout_version: 1280x720-v7
 
 standard_size:
   width: 1280
@@ -13,21 +13,21 @@ rois:
 
   run_code_panel:
     x1: 30
-    y1: 190
+    y1: 199
     x2: 360
     y2: 285
 
   run_code_right_panel:
     x1: 1060
-    y1: 70
+    y1: 102
     x2: 1240
-    y2: 115
+    y2: 122
 
   achievement_panel:
-    x1: 35
-    y1: 285
-    x2: 220
-    y2: 360
+    x1: 20
+    y1: 228
+    x2: 300
+    y2: 415
 
   center_banner:
     x1: 150
@@ -37,12 +37,24 @@ rois:
 
   right_panel:
     x1: 1040
-    y1: 0
+    y1: 12
     x2: 1275
-    y2: 105
+    y2: 106
 
   bottom_left_hero:
     x1: 30
     y1: 575
     x2: 330
     y2: 670
+
+  ai_watermark:
+    x1: 1130
+    y1: 670
+    x2: 1270
+    y2: 712
+
+  server_load_panel:
+    x1: 1040
+    y1: 122
+    x2: 1275
+    y2: 140

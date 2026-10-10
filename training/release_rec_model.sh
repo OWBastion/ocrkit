@@ -11,11 +11,13 @@ if [[ -f "${root_dir}/.env" ]]; then
 fi
 
 work_dir="${root_dir}/training/.work"
+# The compatibility gate loads the model in service; the service's default cache is a production path.
+export OCRKIT_MODEL_CACHE_DIR="${OCRKIT_MODEL_CACHE_DIR:-${work_dir}/cache/model-in-service}"
 training_python="${work_dir}/venv/bin/python"
 paddle2onnx_bin="${work_dir}/venv/bin/paddle2onnx"
 checkpoint="${work_dir}/checkpoints/rec_pp_ocrv6_small/best_accuracy"
 release_channel="${OCRKIT_MODEL_CANDIDATE_CHANNEL_KEY:-models/pp-ocrv6-small/channels/candidate.json}"
-holdout_report=""
+evaluated_dir=""
 holdout_labels=""
 holdout_images_root=""
 provenance=""
@@ -37,12 +39,12 @@ while [[ $# -gt 0 ]]; do
       release_channel="$2"
       shift 2
       ;;
-    --holdout-report)
+    --evaluated-dir)
       if [[ $# -lt 2 ]]; then
-        printf 'usage: %s [--checkpoint <checkpoint_base>] [--holdout-report <report.json>] [--provenance <provenance.json>]\n' "$0" >&2
+        printf 'usage: %s [--evaluated-dir <directory from a passed checkpoint evaluation>] [--provenance <provenance.json>]\n' "$0" >&2
         exit 2
       fi
-      holdout_report="$2"
+      evaluated_dir="$2"
       shift 2
       ;;
     --holdout-labels)
@@ -70,7 +72,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      printf 'usage: %s [--checkpoint <checkpoint_base>] [--holdout-report <report.json>] [--provenance <provenance.json>]\n' "$0" >&2
+      printf 'usage: %s [--checkpoint <checkpoint_base> | --evaluated-dir <directory>] [--provenance <provenance.json>]\n' "$0" >&2
       exit 2
       ;;
   esac
@@ -85,7 +87,11 @@ if [[ -n "${holdout_labels}" && -z "${holdout_images_root}" ]]; then
   exit 2
 fi
 
-for path in "${training_python}" "${paddle2onnx_bin}" "${checkpoint}.pdparams"; do
+release_inputs=("${training_python}" "${paddle2onnx_bin}" "${checkpoint}.pdparams")
+if [[ -n "${evaluated_dir}" ]]; then
+  release_inputs=("${evaluated_dir}/comparison_report.json" "${evaluated_dir}/rec.onnx" "${evaluated_dir}/rapidocr.yaml")
+fi
+for path in "${release_inputs[@]}"; do
   if [[ ! -e "${path}" ]]; then
     printf 'missing release input: %s\n' "${path}" >&2
     exit 1
@@ -95,21 +101,17 @@ done
 cd "${root_dir}"
 version="$(uv run python training/scripts/next_model_version.py --bucket "${bucket}")"
 artifact_dir="${work_dir}/artifacts/${version}"
-"${root_dir}/training/evaluate_rec_checkpoint.sh" "${checkpoint}" "${artifact_dir}"
-
-if [[ -n "${holdout_labels}" ]]; then
-  uv run python training/scripts/evaluate_rec_holdout.py \
-    --labels "${holdout_labels}" \
-    --images-root "${holdout_images_root}" \
-    --model-config "${artifact_dir}/rapidocr.yaml" \
-    --report "${artifact_dir}/holdout_report.json"
-elif [[ -n "${holdout_report}" ]]; then
-  if [[ ! -f "${holdout_report}" ]]; then
-    printf 'missing holdout report: %s\n' "${holdout_report}" >&2
-    exit 1
+if [[ -n "${evaluated_dir}" ]]; then
+  # The checkpoint was already exported and compared with the model in service; do not repeat that work.
+  cp -R "${evaluated_dir}" "${artifact_dir}"
+else
+  evaluation_args=()
+  if [[ -n "${holdout_labels}" ]]; then
+    evaluation_args+=(--holdout-labels "${holdout_labels}" --holdout-images-root "${holdout_images_root}")
   fi
-  cp "${holdout_report}" "${artifact_dir}/holdout_report.json"
+  "${root_dir}/training/evaluate_rec_checkpoint.sh" "${checkpoint}" "${artifact_dir}" ${evaluation_args[@]+"${evaluation_args[@]}"}
 fi
+holdout_report=""
 if [[ -f "${artifact_dir}/holdout_report.json" ]]; then
   holdout_report="${artifact_dir}/holdout_report.json"
 fi
@@ -128,6 +130,7 @@ compatibility_report="${artifact_dir}/compatibility_report.json"
 uv run python scripts/compatibility_gate.py --report "${compatibility_report}"
 evidence_args=(
   --fixture-report "${artifact_dir}/fixture_report.json"
+  --comparison-report "${artifact_dir}/comparison_report.json"
   --compatibility-report "${compatibility_report}"
   --output "${artifact_dir}/release_evidence.json"
 )

@@ -27,12 +27,18 @@ class RapidOcrEngine:
         if not raw.txts or not raw.scores:
             return OcrResult(text="", confidence=0.0, chunks=[])
 
+        raw_boxes = getattr(raw, "boxes", None)
+        boxes = raw_boxes if raw_boxes is not None and len(raw_boxes) == len(raw.txts) else [None] * len(raw.txts)
         chunks = []
-        for text, score in zip(raw.txts, raw.scores, strict=True):
+        for text, score, box in zip(raw.txts, raw.scores, boxes, strict=True):
             txt = str(text).strip()
             if not txt:
                 continue
-            chunks.append(OcrChunk(text=txt, score=float(score)))
+            rect = None
+            if box is not None:
+                points = np.asarray(box, dtype=float).reshape(-1, 2)
+                rect = (float(points[:, 0].min()), float(points[:, 1].min()), float(points[:, 0].max()), float(points[:, 1].max()))
+            chunks.append(OcrChunk(text=txt, score=float(score), box=rect))
 
         if not chunks:
             return OcrResult(text="", confidence=0.0, chunks=[])

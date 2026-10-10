@@ -83,3 +83,14 @@ def test_parse_right_panel_map_alias() -> None:
 def test_parse_right_panel_throne_alias() -> None:
     out = parse_right_panel("王座：地狱", ["阿努比斯王座"], {"王座": "阿努比斯王座"})
     assert out.map_name == "阿努比斯王座"
+
+
+def test_parse_right_panel_version_with_comma_misread() -> None:
+    out = parse_right_panel("好莱坞：地狱 版本26,0912.2 9611-4188-8869", ["好莱坞"])
+    assert out.version == "26.0912.2"
+
+
+def test_parse_right_panel_restores_mode_name_with_lost_leading_character() -> None:
+    assert parse_right_panel("好莱坞：地狱 [机事件5.0]", ["好莱坞"]).mode == "随机事件5.0"
+    assert parse_right_panel("好莱坞：地狱 [随机事件5.0]", ["好莱坞"]).mode == "随机事件5.0"
+    assert parse_right_panel("好莱坞：地狱 [未知模式1.0]", ["好莱坞"]).mode == "未知模式1.0"

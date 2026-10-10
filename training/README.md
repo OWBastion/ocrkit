@@ -46,60 +46,107 @@ checkpoints, or model binaries.
 
 ## Model Studio (#6)
 
-Studio is a local-only Svelte/Vite + FastAPI **Model Studio**. Finalized
-platform screenshot sets (owbastion.com#255) are the production source intake:
-the set supplies immutable member screenshots with checksums and provenance,
-and Studio's own human review is the authoritative training truth. Studio owns
-only OCRKit model-lifecycle operations. It does not run in the production API
-and does not publish a model without an explicit confirmation. The default
-launcher starts the API on `127.0.0.1:7860` and the Vite HMR UI on
-`127.0.0.1:5173`:
+Studio is a local Svelte/Vite + FastAPI workspace for preparing screenshots,
+reviewing crops, and training models. It reads screenshots directly from R2
+using the existing local configuration; a platform API token and a finalized
+platform screenshot set are not prerequisites. Platform accuracy feedback
+lives in D1, not in the R2 objects. When the adjacent platform checkout and
+its existing Wrangler login are available, Studio reads the current marks
+directly from D1 and associates them with R2 object keys. This optional read
+runs independently of image selection; without it screenshots remain usable
+and are shown as having no loaded feedback. Marks travel with selected source
+provenance but never become labels. Human-reviewed crop transcriptions are the
+training labels.
 
 ```bash
-./studio.sh
-# Open http://127.0.0.1:5173
+./studio.sh                    # builds the UI, serves everything on port 7860 (computer and phone)
+./studio.sh --host 127.0.0.1   # this computer only
 ```
 
-Equivalent commands are:
+There is one entry point and one port. The server prints the checkout and
+commit it runs from (also shown at the bottom of the page and in `/api/health`),
+and refuses to start when the port is already served, naming that instance, so
+a phone and a desktop cannot silently talk to different checkouts. `./studio.sh
+dev` (API plus Vite HMR on `5173`) is only for developing the UI.
 
-```bash
-./studio.sh dev                 # API + Vite HMR
-./studio.sh build               # install locked frontend deps and build only
-./studio.sh start --port 7861  # build, then serve the static UI
-```
-
-The Model Studio workflow is:
+Studio opens on a one-click **准备** panel. It lists R2 screenshots from the last
+30 days that no local batch has used yet (by R2 object key) and one button runs
+the whole preparation in the background:
 
 ```text
-import a finalized platform screenshot set (#26)
-→ verified member sources land in a new batch with immutable provenance
-→ source-level train/holdout split recorded in batch.json
-→ ROI crop → OCR candidates → human review → labels (the training truth)
-→ configure/start or continue Smoke training on the reviewed labels
-→ evaluate the candidate checkpoint
-→ publish an immutable candidate through the existing release gate
-→ compare candidate evidence with the current stable manifest
-→ explicitly promote to stable, or rollback by selecting an earlier verified manifest
+new recent R2 screenshots (not yet in any local batch)
+→ source-level train/holdout split
+→ fixed-ROI crops and OCR candidates
+→ Train crops where RapidOCR and Vision read the same text adopted directly
+→ local JEV suggestions only for the remaining disagreeing/uncertain crops
+→ confident JEV choices adopted as Train labels
+→ you review the rest (all Holdout rows + uncertain Train rows)
+→ one click: generate labels + Kaggle GPU training (or local CPU Smoke)
+→ retrieve checkpoint and compare it with the model in service (below)
 ```
 
-`POST /api/screenshot-sets/import` imports one finalized screenshot set by
-integer version through the #26 importer (requires
-`OCRKIT_SCREENSHOT_SET_BASE_URL` and `OCRKIT_SCREENSHOT_SET_TOKEN`, plus Studio
-R2 read access whose `OCRKIT_STUDIO_R2_ALLOWED_PREFIXES` covers the set's
-object-key prefix). The same finalized set version cannot be imported twice;
-imported batches carry the set identity and per-source provenance in
-`batch.json`. Training and publication reuse the same `run_rec_smoke.sh` /
-`release_rec_model.sh` scripts and immutable release semantics as the local
-workflow.
+Agreeing engines (same canonical text, previous model not disagreeing, any
+confidence) skip JEV and become Train labels; agreeing Holdout rows also skip JEV
+but stay pending for a human. Confident JEV decisions (confidence ≥ 0.9, a choice among the OCR candidates or
+"not a valid crop") become automatic Train labels. Holdout rows are never
+adopted automatically: they stay human-reviewed so the evaluation evidence is
+independent of the model that suggested labels. "打开时自动准备" in the panel
+starts the preparation as soon as Studio opens and new screenshots exist.
+Rows in the event/achievement stack carry a category (event / achievement / other) chosen during review. A
+screenshot whose `ai_watermark` crop reads as an AI-generation mark has its other pending and machine-accepted
+crops rejected automatically (`ai_generated`); the watermark crop itself stays reviewable as training data.
 
-### Local and R2 imports are supplemental inputs
+Studio does not collect the central banner (`center_banner`) ROI: it overlaps the
+left/right panels. Production recognition still reads it from the shared layout
+config. Review shows one suggested answer per crop (JEV settles engine
+disagreements; it never overrides agreeing engines) and the UI works on a phone:
 
-Platform screenshot sets are the production source intake; Studio's review
-workflow turns them into labels. Local file uploads and general R2 imports
-remain available for developer fixtures and one-off experiments. They flow
-through the same deduplicate → split → crop → review pipeline, carry no
-platform provenance, and are never automatically promoted into rules or
-production datasets.
+Studio has no authentication and listens on all interfaces by default; use it only on a trusted network.
+
+Manual R2 browsing, local uploads and platform screenshot sets remain under
+「手动选择 / 上传截图」and feed the same pipeline.
+
+The existing R2 endpoint/access key/secret are reused. Explicit
+`OCRKIT_STUDIO_R2_BUCKET` and `OCRKIT_STUDIO_R2_ALLOWED_PREFIXES` take precedence;
+without them Studio can reuse an unambiguous evidence bucket from the existing
+R2 configuration and uses the platform screenshot prefix `uploads/submissions/`.
+A model-only bucket or ambiguous bucket configuration must be given an evidence
+bucket once; Studio does not need a new credential-management service.
+
+JEV reuses the local `training/.work/jev/Jev-Omni-MLX-4bit` model and
+`training/.work/jev/venv/bin/python` worker. It never overwrites human reviews.
+Without JEV the preparation still creates the batch and candidates and leaves
+all rows for manual review. The existing read-only JEV experiment script
+remains available for measuring its decisions independently.
+
+### Training inputs and evaluation
+
+A Kaggle run starts from the base weights and the batches chosen on the training page. The base is either the
+official PP-OCRv6 weights or the weights of an earlier run; the data is the current batch plus any other
+finalized batches, merged by source screenshot (a screenshot held out in any batch is never trained on, and one
+present in several batches is trained on once). The run records both and the page shows them.
+
+Evaluation is one paired measurement, made when training finishes and reused by the release: the candidate and the
+model in service (stable) are scored under the same code on the same inputs — the end-to-end challenge fixtures
+(per field) and the holdout line crops (recognition only, spacing ignored). The candidate must keep the run-code
+fixtures exact, must not regress any fixture field, and must not score below the model in service on the fixtures or
+the holdout. There are no fixed accuracy floors: they went stale whenever the layout or parsers changed. The release
+reuses that evaluation instead of exporting and scoring again, and promotion requires that the comparison was made
+against the stable model that is still in service. "只评测已有检查点" repeats the evaluation of an already trained
+checkpoint without training again.
+
+The training screen starts the existing Kaggle runner with the current batch's
+reviewed dataset, shows local submission/status logs, and records the downloaded
+checkpoint and evaluation output. Kaggle uses the existing CLI login and R2
+configuration; it does not need platform credentials. Remote epoch logs are
+available after Kaggle returns its output; status polling is not a live GPU
+log stream. A CPU Smoke option remains available for local checks.
+
+Platform screenshot-set import is an optional alternative for a preselected,
+finalized set. It retains the `OCRKIT_SCREENSHOT_SET_BASE_URL` and
+`OCRKIT_SCREENSHOT_SET_TOKEN` configuration, checksums and resumable download;
+it is not the default route into training. Local and R2 imports use the same
+split/crop/review pipeline and preserve source provenance.
 
 ### Migration and archival of existing local batches
 
@@ -130,8 +177,8 @@ import local/R2 screenshots
 → previous OCR artifact + RapidOCR + Apple Vision candidates
 → human review and transcription correction
 → validated labels
-→ CPU recognition Smoke
-→ optional explicit R2 publication
+→ Kaggle GPU training or local CPU recognition Smoke
+→ local evaluation and optional explicit R2 publication
 ```
 
 Studio stores batches, source screenshots, crops, review JSONL, logs, and

@@ -88,7 +88,7 @@ and also include traceable contract metadata:
   "request_id": "...",
   "engine": "rapidocr",
   "model_version": "builtin",
-  "layout_version": "1280x720-v6",
+  "layout_version": "1280x720-v7",
   "ok": true,
   "data": {},
   "fields": {
@@ -108,7 +108,7 @@ and also include traceable contract metadata:
     "cropped": false,
     "blur_score": 0.08,
     "normalized_size": [1280, 720],
-    "layout_version": "1280x720-v6",
+    "layout_version": "1280x720-v7",
     "warnings": []
   }
 }
@@ -119,7 +119,14 @@ decimal places; `cropped` and the related warnings indicate a ratio mismatch aga
 configured layout and do not make an approval decision. `blur_score` is a normalized blur
 risk from 0 to 1, where higher means blurrier.
 
-The service selects the versioned `1280x720-v6` or `1280x800-v1` ROI layout from the source
+Layout v7/v2 regions: `left_panel` (stats; reaches the clear-time row of older HUD revisions), `run_code_panel`, `run_code_right_panel`,
+`right_panel` (map, mode, timers, version), `server_load_panel`, `bottom_left_hero` (hero card, the name is its last token),
+`achievement_panel` (the stack under the stats block: at most one event, then up to five achievement unlocks;
+achievements move up when no event is shown, so the ROI is tall and lines are told apart by content), and
+`ai_watermark` (bottom-right generation mark; empty on genuine screenshots). Event/achievement/AI-mark
+fields are added to the response separately from the geometry.
+
+The service selects the versioned `1280x720-v7` or `1280x800-v2` ROI layout from the source
 aspect ratio. The 16:10 layout is used for screenshots such as 2560x1600 without marking the
 input as cropped.
 
@@ -135,6 +142,20 @@ matches; the platform owns catalog matching and business decisions. `achievement
 the first candidate for compatibility, and `achievement_unlocked` is `true` when at least one
 candidate is detected. The player name in the lower-left hero panel is not used for this
 signal. If no checked text is visible in the ROI, the title fields are empty/`null`.
+`event` is additive evidence for the single active event under the stats block: `name`,
+`duration_seconds` (from a title such as `心之钢（27 秒）`), the `description` lines, every
+number in them (`numbers`: `text`, `value`, `unit`) and the joined `text`. OCRKit reports what it
+read; the platform compares it with the game version and decides what it means. `event` is `null`
+when no event line is visible. Because the completion mark is an icon that OCR does not read, a
+line counts as an achievement when a bright check icon follows it (or a text mark is read), so
+event lines and `achievement_titles` (at most five) are told apart without a catalog.
+`ai_mark_detected` is `true` when the bottom-right watermark region reads as an AI-generation
+mark (for example `豆包AI生成`) and `false` otherwise; it is evidence, not a verdict.
+`mode` (the bracketed label under the map), `restart_in_seconds`, `uptime_seconds` and
+`server_load` come from the right panel; a duration with a missing unit digit is left `null`
+instead of guessed. `run_code` also accepts the unlabeled code printed by the current HUD
+(strict `dddd-dddd-dddd`, first digit 1-9) and marks it `label:absent`.
+
 `viewer_player` is the only player identity field suitable for account matching. The
 central completion banner is not an authoritative player source, so its player name is
 not included in `ChallengeData` or field evidence.

@@ -100,7 +100,16 @@ def discover_candidate_artifact(artifact_root: Path) -> tuple[Path, str] | None:
 
 def create_artifact_ocr(artifact_dir: Path) -> Any:
     candidate_artifact_version(artifact_dir)
-    return RapidOCR(config_path=str(artifact_dir / "rapidocr.yaml"), params={"Global.use_cls": False})
+    # The packaged rapidocr.yaml carries absolute paths from where it was built; the artifact directory is authoritative.
+    return RapidOCR(
+        config_path=str(artifact_dir / "rapidocr.yaml"),
+        params={
+            "Global.use_cls": False,
+            "Det.model_path": str(artifact_dir / "det.onnx"),
+            "Rec.model_path": str(artifact_dir / "rec.onnx"),
+            "Rec.rec_keys_path": str(artifact_dir / "rec_dict.txt"),
+        },
+    )
 
 
 def best_rapid_candidate(result: Any) -> tuple[str | None, float | None]:
@@ -130,8 +139,25 @@ def engine_results_agree(*results: tuple[str | None, float | None], minimum_conf
     return len({canonicalize(text) for text, _ in available}) == 1
 
 
+# Content that sits inside a ROI's box but is never one of its fields; recognising it is of no use to the parsers.
+_IRRELEVANT_TEXT = {
+    # Health and ammo numbers share the hero card with the player name.
+    "bottom_left_hero": (re.compile(r"[\d\s/|.,:+\-%]+"), "bottom_left_hero.not_player_name"),
+    # The optional in-game performance overlay (FPS, temperature, memory, latency, clock).
+    "right_panel": (
+        re.compile(r"(?:FPS|TMP|VRM|IND|PING|延迟|延退)\s*[:：.]?.*|\d{1,2}\s*[:.]\s*\d{2}\s*[AP]M|[A-Za-z°]|C", re.IGNORECASE),
+        "right_panel.performance_overlay",
+    ),
+}
+
+
 def candidate_rejection_reason(roi_name: str, texts: Iterable[str | None]) -> str | None:
     """Reject OCR text that cannot belong to a field with a strict format."""
+    texts = tuple(texts)
+    irrelevant = _IRRELEVANT_TEXT.get(roi_name)
+    present = [text.strip() for text in texts if isinstance(text, str) and text.strip()]
+    if irrelevant and present and all(irrelevant[0].fullmatch(text) for text in present):
+        return irrelevant[1]
     if roi_name in {"run_code_panel", "run_code_right_panel"} and not any(
         isinstance(text, str) and (parse_run_code(text).status == "ok" or looks_like_run_code_value(text))
         for text in texts
@@ -351,44 +377,6 @@ def _paired_candidate_lines(
     return pairs
 
 
-def _is_achievement_marker(text: str) -> bool:
-    normalized = canonicalize(text)
-    return bool(re.search(r"[✓✔√☑☒]", normalized)) or normalized.casefold() in {"v", "l"}
-
-
-def _achievement_candidates(
-    pairs: list[tuple[CandidateLine | None, CandidateLine | None, CandidateLine | None]],
-) -> list[tuple[CandidateLine | None, CandidateLine | None, CandidateLine | None]]:
-    """Keep only lines adjacent to an OCR check marker in the variable-height HUD block."""
-    markers = [
-        line
-        for pair in pairs
-        for line in pair
-        if line is not None and _is_achievement_marker(line.text)
-    ]
-    if not markers:
-        return []
-
-    def near_marker(line: CandidateLine) -> bool:
-        x1, y1, x2, y2 = _box_bounds(line.box)
-        for marker in markers:
-            mx1, my1, mx2, my2 = _box_bounds(marker.box)
-            vertical_overlap = min(y2, my2) - max(y1, my1)
-            if vertical_overlap > 0:
-                return True
-            height = max(y2 - y1, my2 - my1)
-            if height > 0 and abs((y1 + y2) - (my1 + my2)) / 2 <= height:
-                return True
-        return False
-
-    return [
-        pair
-        for pair in pairs
-        if (line := next((item for item in pair if item is not None), None)) is not None
-        and near_marker(line)
-    ]
-
-
 def _write_jsonl(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -547,8 +535,6 @@ def prepare_candidates(
                 vision_lines = _vision_lines(vision.recognize(processed))
                 teacher_lines = _rapid_lines(teacher(processed, use_cls=False)) if teacher is not None else []
                 paired_lines = _paired_candidate_lines(rapid, vision_lines, teacher_lines)
-                if roi_name == "achievement_panel":
-                    paired_lines = _achievement_candidates(paired_lines)
                 for index, (rapid_line, vision_line, teacher_line) in enumerate(paired_lines):
                     if rapid_line is not None and vision_line is not None:
                         box = _union_box(rapid_line.box, vision_line.box)

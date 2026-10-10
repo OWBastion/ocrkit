@@ -47,8 +47,8 @@ def test_create_batch_selects_roi_layout_per_source_aspect_ratio(tmp_path: Path)
     manifest = json.loads((batch_dir / "batch.json").read_text(encoding="utf-8"))
     by_name = {row["original_name"]: row for row in manifest["sources"]}
     assert summary["layout_version"] == "mixed"
-    assert by_name["tall.png"]["layout_version"] == "1280x800-v1"
-    assert by_name["wide.png"]["layout_version"] == "1280x720-v6"
+    assert by_name["tall.png"]["layout_version"] == "1280x800-v2"
+    assert by_name["wide.png"]["layout_version"] == "1280x720-v7"
     assert by_name["tall.png"]["quality"]["warnings"] == []
     assert by_name["wide.png"]["quality"]["warnings"] == []
 
@@ -70,9 +70,9 @@ def test_materialize_source_layouts_replaces_stale_layout_metadata(tmp_path: Pat
 
     studio_core._materialize_source_layouts(batch, manifest)
 
-    assert manifest["layout_version"] == "1280x800-v1"
+    assert manifest["layout_version"] == "1280x800-v2"
     assert manifest["roi_config"] == "configs/roi_1280x800.yaml"
-    assert manifest["sources"][0]["layout_version"] == "1280x800-v1"
+    assert manifest["sources"][0]["layout_version"] == "1280x800-v2"
 
 
 def test_append_sources_keeps_existing_splits_and_assigns_new_holdout(tmp_path: Path) -> None:

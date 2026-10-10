@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
+from contextlib import contextmanager
 import json
 import os
 import shutil
 import uuid
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -16,6 +19,7 @@ from app.core.roi_config import load_roi_config
 from app.image.loader import decode_image
 from app.image.quality import assess_input_quality
 from app.image.roi import crop_all_rois, select_roi_config
+from app.parser.ai_mark import is_ai_mark
 from training.scripts.finalize_rec_labels import finalize
 from training.scripts.prepare_rec_candidates import (
     best_rapid_candidate,
@@ -40,6 +44,29 @@ DEFAULT_ROI_CONFIG = ROOT / "configs/roi_1280x720.yaml"
 ROI_CONFIG_VARIANTS = (DEFAULT_ROI_CONFIG, ROOT / "configs/roi_1280x800.yaml")
 PRIVATE_DATASET_ROOT = ROOT / "datasets/labeled/rec/studio"
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+# Overlaps the left/right panels and disturbs their candidates. Studio does not crop or review it;
+# production recognition still reads it from the shared layout config.
+STUDIO_EXCLUDED_ROIS = frozenset({"center_banner"})
+
+
+def _load_studio_roi_config(path: Path) -> Any:
+    config = load_roi_config(path)
+    return replace(config, rois={name: box for name, box in config.rois.items() if name not in STUDIO_EXCLUDED_ROIS})
+
+
+def drop_excluded_rois(batch_dir: Path) -> int:
+    """Remove review rows for ROIs Studio no longer collects (existing batches)."""
+    removed = 0
+    for split in ("train", "holdout"):
+        with _review_lock(batch_dir, split):
+            rows = review_rows(batch_dir, split)
+            kept = [row for row in rows if row.get("roi") not in STUDIO_EXCLUDED_ROIS]
+            if len(kept) != len(rows):
+                removed += len(rows) - len(kept)
+                _atomic_jsonl(batch_dir / "dataset/review" / f"{split}.jsonl", kept)
+    if removed:
+        _invalidate_labels(batch_dir / "dataset")
+    return removed
 
 
 def _atomic_json(path: Path, data: Any) -> None:
@@ -99,7 +126,7 @@ def _roi_config_options(config_path: Path) -> list[tuple[Path, Any]]:
     paths = [configured]
     if configured == DEFAULT_ROI_CONFIG.resolve():
         paths = [path.resolve() for path in ROI_CONFIG_VARIANTS]
-    return [(path, load_roi_config(path)) for path in paths]
+    return [(path, _load_studio_roi_config(path)) for path in paths]
 
 
 def _select_source_roi_config(
@@ -123,7 +150,7 @@ def _source_roi_config(
     configured = source.get("roi_config")
     if isinstance(configured, str) and configured:
         path = (ROOT / configured).resolve()
-        return path, load_roi_config(path)
+        return path, _load_studio_roi_config(path)
     file = source.get("file")
     if not isinstance(file, str) or not file:
         return options[0]
@@ -648,6 +675,7 @@ def _inherit_manual_review(
     used: set[int] = set()
     inherited = {"accepted": 0, "rejected": 0, "unmatched": 0}
     for row in current_rows:
+        row.pop("jev_suggestion", None)
         matches = sorted(
             (
                 (score, index, previous)
@@ -672,7 +700,7 @@ def _inherit_manual_review(
     return inherited
 
 
-def recreate_candidates(
+def _recreate_candidates(
     batch_dir: Path,
     *,
     crop_backend: str = "rust",
@@ -765,7 +793,7 @@ def recreate_candidates(
         shutil.rmtree(temporary_dir, ignore_errors=True)
 
 
-def generate_candidates(
+def _generate_candidates(
     batch_dir: Path,
     *,
     roi_config_path: Path = DEFAULT_ROI_CONFIG,
@@ -781,6 +809,7 @@ def generate_candidates(
             raise RuntimeError(
                 f"candidate output is incomplete: {dataset_dir}; create a new batch instead of overwriting private review data"
             )
+        drop_excluded_rois(batch_dir)
         rows = {split: review_rows(batch_dir, split) for split in ("train", "holdout")}
         deduplicated = deduplicate_review_rows(batch_dir)
         if deduplicated:
@@ -890,6 +919,7 @@ def refresh_vision_candidates(
         rows = review_rows(batch_dir, split)
         refreshed: list[dict[str, Any]] = []
         for row in rows:
+            row.pop("jev_suggestion", None)
             crop = Path(str(row.get("crop", "")))
             if crop.is_absolute() or ".." in crop.parts:
                 raise ValueError(f"candidate contains an unsafe crop path: {crop}")
@@ -1031,6 +1061,7 @@ def refresh_teacher_candidates(
         rows = review_rows(batch_dir, split)
         refreshed: list[dict[str, Any]] = []
         for row in rows:
+            row.pop("jev_suggestion", None)
             was_accepted = row.get("review_status") == "accepted"
             was_rejected = row.get("review_status") == "rejected" and not row.get("auto_reject_reason")
             crop = Path(str(row.get("crop", "")))
@@ -1151,31 +1182,151 @@ def review_rows(batch_dir: Path, split: str, status: str = "all") -> list[dict[s
     return rows
 
 
-def update_review_row(batch_dir: Path, split: str, crop: str, status: str, transcription: str | None) -> dict[str, Any]:
-    if status not in {"accepted", "rejected"}:
-        raise ValueError("review status must be accepted or rejected")
-    path = batch_dir / "dataset/review" / f"{split}.jsonl"
-    rows = review_rows(batch_dir, split)
-    for row in rows:
-        if row.get("crop") != crop:
+@contextmanager
+def _review_lock(batch_dir: Path, split: str):
+    if split not in {"train", "holdout"}:
+        raise ValueError("invalid review split")
+    with (batch_dir / "dataset/review" / f"{split}.lock").open("a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def save_jev_suggestion(batch_dir: Path, split: str, crop: str, suggestion: dict[str, Any]) -> bool:
+    """Store a digest-bound suggestion without adopting it as human truth."""
+    with _review_lock(batch_dir, split):
+        from training.jev.records import compute_input_digest, record_from_review_row
+
+        if split not in {"train", "holdout"}:
+            raise ValueError("invalid review split")
+        rows = review_rows(batch_dir, split)
+        for row in rows:
+            if row.get("crop") != crop or row.get("review_status") != "pending":
+                continue
+            dataset = (batch_dir / "dataset").resolve()
+            image = (dataset / crop).resolve()
+            if dataset not in image.parents or not image.is_file():
+                return False
+            record = record_from_review_row(batch_dir.name, split, load_manifest(batch_dir).get("layout_version"), hashlib.sha256(image.read_bytes()).hexdigest(), row)
+            if compute_input_digest(record) != suggestion.get("input_digest"):
+                return False
+            row["jev_suggestion"] = suggestion
+            _atomic_jsonl(batch_dir / "dataset/review" / f"{split}.jsonl", rows)
+            return True
+        return False
+
+
+def update_review_row(batch_dir: Path, split: str, crop: str, status: str, transcription: str | None, category: str | None = None) -> dict[str, Any]:
+    with _review_lock(batch_dir, split):
+        if status not in {"accepted", "rejected"}:
+            raise ValueError("review status must be accepted or rejected")
+        if category is not None and category not in REVIEW_CATEGORIES:
+            raise ValueError("review category must be event, achievement or other")
+        path = batch_dir / "dataset/review" / f"{split}.jsonl"
+        rows = review_rows(batch_dir, split)
+        for row in rows:
+            if row.get("crop") != crop:
+                continue
+            if status == "accepted" and not (transcription or "").strip():
+                raise ValueError("accepted candidates require a transcription")
+            previous_transcription = row.get("transcription")
+            was_auto_accepted = bool(row.get("auto_accept_reason"))
+            row["review_status"] = status
+            row["transcription"] = transcription.strip() if status == "accepted" and transcription else None
+            row["auto_accept_reason"] = (
+                row.get("auto_accept_reason")
+                if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription
+                else None
+            )
+            row["auto_reject_reason"] = None
+            row["review_method"] = "automatic" if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription else "human"
+            if category is not None:
+                row["category"] = category
+            _atomic_jsonl(path, rows)
+            rebuild_negative_registry(batch_dir)
+            return row
+        raise ValueError("review candidate no longer exists")
+
+
+JEV_ADOPT_CONFIDENCE = 0.9
+
+
+def imported_object_keys(work_root: Path) -> set[str]:
+    """R2 object keys that already back a source screenshot in any local batch."""
+    keys: set[str] = set()
+    for manifest_path in (work_root / "batches").glob("*/batch.json"):
+        try:
+            sources = json.loads(manifest_path.read_text(encoding="utf-8")).get("sources", [])
+        except (OSError, json.JSONDecodeError):
             continue
-        if status == "accepted" and not (transcription or "").strip():
-            raise ValueError("accepted candidates require a transcription")
-        previous_transcription = row.get("transcription")
-        was_auto_accepted = bool(row.get("auto_accept_reason"))
-        row["review_status"] = status
-        row["transcription"] = transcription.strip() if status == "accepted" and transcription else None
-        row["auto_accept_reason"] = (
-            row.get("auto_accept_reason")
-            if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription
-            else None
+        keys.update(
+            str(source["provenance"]["object_key"])
+            for source in sources
+            if isinstance((source.get("provenance") or {}).get("object_key"), str)
         )
-        row["auto_reject_reason"] = None
-        row["review_method"] = "automatic" if status == "accepted" and was_auto_accepted and row["transcription"] == previous_transcription else "human"
-        _atomic_jsonl(path, rows)
-        rebuild_negative_registry(batch_dir)
-        return row
-    raise ValueError("review candidate no longer exists")
+    return keys
+
+
+def engines_agree(row: dict[str, Any]) -> bool:
+    """RapidOCR and Vision read the same text and the previous model does not disagree."""
+    texts = [row.get(name) for name in ("rapidocr_text", "vision_text")]
+    if not all(isinstance(text, str) and text.strip() for text in texts):
+        return False
+    if len({canonicalize(str(text)) for text in texts}) != 1:
+        return False
+    teacher = row.get("teacher_text")
+    return not (isinstance(teacher, str) and teacher.strip() and canonicalize(teacher) != canonicalize(str(texts[0])))
+
+
+def adopt_engine_agreement(batch_dir: Path) -> int:
+    """Accept pending Train rows where both OCR engines agree, at any confidence; Holdout stays human."""
+    adopted = 0
+    if not (batch_dir / "dataset/review/train.jsonl").is_file():
+        return adopted
+    with _review_lock(batch_dir, "train"):
+        rows = review_rows(batch_dir, "train")
+        for row in rows:
+            if row.get("review_status") == "pending" and engines_agree(row):
+                row.update(
+                    review_status="accepted",
+                    transcription=canonicalize(str(row["rapidocr_text"])),
+                    auto_accept_reason="rapidocr_vision_text_agreement",
+                    auto_reject_reason=None,
+                    review_method="automatic",
+                )
+                adopted += 1
+        if adopted:
+            _atomic_jsonl(batch_dir / "dataset/review/train.jsonl", rows)
+    return adopted
+
+
+def adopt_jev_suggestions(batch_dir: Path, *, min_confidence: float = JEV_ADOPT_CONFIDENCE) -> dict[str, int]:
+    """Adopt confident JEV decisions for pending Train rows; Holdout stays human-reviewed."""
+    adopted = {"accepted": 0, "rejected": 0}
+    with _review_lock(batch_dir, "train"):
+        rows = review_rows(batch_dir, "train")
+        for row in rows:
+            suggestion = row.get("jev_suggestion")
+            if row.get("review_status") != "pending" or not isinstance(suggestion, dict) or suggestion.get("status") != "ok":
+                continue
+            confidence = suggestion.get("confidence")
+            if not isinstance(confidence, (int, float)) or confidence < min_confidence:
+                continue
+            option = suggestion.get("selected_option")
+            if suggestion.get("action") == "accept" and isinstance(option, str) and option.strip():
+                row.update(review_status="accepted", transcription=canonicalize(option), auto_accept_reason="jev_suggestion", auto_reject_reason=None)
+                adopted["accepted"] += 1
+            elif suggestion.get("action") == "reject":
+                row.update(review_status="rejected", transcription=None, auto_accept_reason=None, auto_reject_reason="jev.not_valid")
+                adopted["rejected"] += 1
+            else:
+                continue
+            row["review_method"] = "automatic"
+        if any(adopted.values()):
+            _atomic_jsonl(batch_dir / "dataset/review/train.jsonl", rows)
+    return adopted
 
 
 def accept_teacher_suggestions(batch_dir: Path) -> dict[str, int]:
@@ -1265,3 +1416,134 @@ def export_dataset(batch_dir: Path, *, destination_root: Path = PRIVATE_DATASET_
         shutil.rmtree(temporary, ignore_errors=True)
         raise
     return {"export_dir": str(destination), **result}
+
+
+REVIEW_CATEGORIES = frozenset({"event", "achievement", "other"})
+
+
+def reject_ai_generated_sources(batch_dir: Path) -> int:
+    """Reject pending and machine-accepted crops of screenshots whose watermark ROI reads as an AI-generation mark.
+
+    The watermark crop itself stays reviewable: it is the training signal for recognising the mark.
+    """
+    flagged: set[str] = set()
+    for split in ("train", "holdout"):
+        for row in review_rows(batch_dir, split):
+            texts = (row.get(name) for name in ("candidate_text", "rapidocr_text", "vision_text", "teacher_text"))
+            if row.get("roi") == "ai_watermark" and any(isinstance(t, str) and is_ai_mark(t) for t in texts):
+                flagged.add(str(row.get("source_id")))
+    if not flagged:
+        return 0
+    rejected = 0
+    for split in ("train", "holdout"):
+        with _review_lock(batch_dir, split):
+            rows = review_rows(batch_dir, split)
+            for row in rows:
+                machine_decided = row.get("review_status") == "pending" or (
+                    row.get("review_status") == "accepted" and row.get("review_method") != "human"
+                )
+                if row.get("source_id") in flagged and row.get("roi") != "ai_watermark" and machine_decided:
+                    row.update(review_status="rejected", transcription=None, auto_accept_reason=None, auto_reject_reason="ai_generated", review_method="automatic")
+                    rejected += 1
+            _atomic_jsonl(batch_dir / "dataset/review" / f"{split}.jsonl", rows)
+    manifest = load_manifest(batch_dir)
+    for source in manifest.get("sources", []):
+        if source.get("id") in flagged:
+            source["ai_generated"] = True
+    _atomic_json(batch_dir / "batch.json", manifest)
+    return rejected
+
+
+def _apply_automatic_rules(batch_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic decisions after any candidate (re)generation; Holdout is never decided here."""
+    summary["ai_generated_rejected"] = reject_ai_generated_sources(batch_dir)
+    summary["agreement_adopted"] = adopt_engine_agreement(batch_dir)
+    return summary
+
+
+def generate_candidates(batch_dir: Path, **kwargs: Any) -> dict[str, Any]:
+    return _apply_automatic_rules(batch_dir, _generate_candidates(batch_dir, **kwargs))
+
+
+def recreate_candidates(batch_dir: Path, **kwargs: Any) -> dict[str, Any]:
+    return _apply_automatic_rules(batch_dir, _recreate_candidates(batch_dir, **kwargs))
+
+
+def _label_lines(path: Path) -> list[tuple[str, str]]:
+    if not path.is_file():
+        return []
+    return [tuple(line.split("\t", 1)) for line in path.read_text(encoding="utf-8").splitlines() if "\t" in line]  # type: ignore[misc]
+
+
+def mergeable_batches(work_root: Path, *, exclude: str | None = None) -> list[dict[str, Any]]:
+    """Batches whose reviewed labels exist for both splits, newest first."""
+    found: list[dict[str, Any]] = []
+    for manifest_path in sorted((work_root / "batches").glob("*/batch.json"), reverse=True):
+        batch_dir = manifest_path.parent
+        if batch_dir.name == exclude:
+            continue
+        train = len(_label_lines(batch_dir / "dataset/labels/train.txt"))
+        holdout = len(_label_lines(batch_dir / "dataset/labels/holdout.txt"))
+        if train and holdout:
+            found.append({"batch_id": batch_dir.name, "train": train, "holdout": holdout})
+    return found
+
+
+def merge_batch_datasets(batch_dirs: list[Path], output_dir: Path) -> dict[str, Any]:
+    """Combine the reviewed labels of several batches into one training dataset.
+
+    The first batch has priority. A screenshot never ends up in both splits: when any batch holds it out, its crops
+    are dropped from every training split, and a screenshot present in several batches is trained on once.
+    """
+    held_out: set[str] = set()
+    sha_by_source: dict[tuple[str, str], str] = {}
+    for batch_dir in batch_dirs:
+        for source in load_manifest(batch_dir).get("sources", []):
+            sha_by_source[(batch_dir.name, str(source["id"]))] = str(source["sha256"])
+            if source.get("split") == "holdout":
+                held_out.add(str(source["sha256"]))
+
+    output_dir.mkdir(parents=True, exist_ok=False)
+    (output_dir / "labels").mkdir()
+    rows: dict[str, list[str]] = {"train": [], "holdout": []}
+    trained_by: dict[str, str] = {}
+    held_by: dict[str, str] = {}
+    batches: list[dict[str, Any]] = []
+    for batch_dir in batch_dirs:
+        counts = {"batch_id": batch_dir.name, "train": 0, "holdout": 0, "dropped_held_out_elsewhere": 0, "dropped_duplicate_source": 0}
+        for split in ("train", "holdout"):
+            for relative, text in _label_lines(batch_dir / f"dataset/labels/{split}.txt"):
+                parts = relative.split("/")
+                sha = sha_by_source.get((batch_dir.name, parts[2] if len(parts) > 3 else ""), "")
+                if split == "train" and sha in held_out:
+                    counts["dropped_held_out_elsewhere"] += 1
+                    continue
+                if sha:
+                    owner = (trained_by if split == "train" else held_by).setdefault(sha, batch_dir.name)
+                    if owner != batch_dir.name:
+                        counts["dropped_duplicate_source"] += 1
+                        continue
+                source_image = batch_dir / "dataset" / relative
+                if not source_image.is_file():
+                    continue
+                target = output_dir / "images" / batch_dir.name / Path(relative).relative_to("images")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(source_image, target)
+                except OSError:
+                    shutil.copy2(source_image, target)
+                rows[split].append(f"{target.relative_to(output_dir).as_posix()}\t{text}")
+                counts[split] += 1
+        batches.append(counts)
+    for split, lines in rows.items():
+        (output_dir / "labels" / f"{split}.txt").write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "created_at": datetime.now(UTC).isoformat(),
+        "batch_id": batch_dirs[0].name,
+        "batches": batches,
+        "train_samples": len(rows["train"]),
+        "holdout_samples": len(rows["holdout"]),
+    }
+    _atomic_json(output_dir / "merge_manifest.json", manifest)
+    return manifest

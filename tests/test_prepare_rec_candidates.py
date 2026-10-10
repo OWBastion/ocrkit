@@ -189,7 +189,7 @@ def test_prepare_candidates_deduplicates_overlapping_achievement_and_left_panel_
     assert left["auto_reject_reason"] == "duplicate_roi_candidate"
 
 
-def test_prepare_candidates_ignores_variable_height_event_lines_in_achievement_roi(tmp_path: Path) -> None:
+def test_prepare_candidates_keeps_event_lines_in_the_event_and_achievement_roi(tmp_path: Path) -> None:
     fixtures = tmp_path / "fixtures"
     fixtures.mkdir()
     source = np.full((40, 60, 3), 200, dtype=np.uint8)
@@ -214,8 +214,10 @@ def test_prepare_candidates_ignores_variable_height_event_lines_in_achievement_r
         vision_factory=EventVisionOcr,
     )
 
-    assert summary["train_candidates"] == 0
-    assert (tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8") == ""
+    # The stack holds the active event as well as achievements, and an event line carries no check mark.
+    assert summary["train_candidates"] == 1
+    rows = [json.loads(line) for line in (tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [(row["roi"], row["candidate_text"]) for row in rows] == [("achievement_panel", "当前事件描述")]
 
 
 def test_holdout_split_is_fixed_to_training_plan() -> None:
@@ -351,7 +353,7 @@ def test_prepare_candidates_records_terminology_normalization_when_catalog_provi
     row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
     terminology = row["terminology"]
     assert terminology["decision"] == "normalized"
-    assert terminology["rules_version"] == "1"
+    assert terminology["rules_version"] == "2"
     assert terminology["scope_id"] == "left_panel.challenge_stats"
     assert terminology["normalized_text"] == "增益"
     assert terminology["matches"][0]["rule_id"] == "left_panel.challenge_stats:alias:编益"
@@ -378,3 +380,29 @@ def test_prepare_candidates_omits_terminology_without_catalog(tmp_path: Path) ->
 
     row = json.loads((tmp_path / "labeled/review/train.jsonl").read_text(encoding="utf-8"))
     assert row["terminology"] is None
+
+
+def test_known_irrelevant_text_is_rejected_by_roi_but_real_fields_are_not() -> None:
+    from training.scripts.prepare_rec_candidates import candidate_rejection_reason
+
+    assert candidate_rejection_reason("bottom_left_hero", ["631 | 631", "631/631"]) == "bottom_left_hero.not_player_name"
+    assert candidate_rejection_reason("bottom_left_hero", ["八月八月八"]) is None
+    for overlay in ("FPS: 144.", "VRM: 4972 MB", "延迟: 45 MS", "IND: 32 MS", "12:37 AM", "C"):
+        assert candidate_rejection_reason("right_panel", [overlay]) == "right_panel.performance_overlay"
+    for field in ("皇家赛道：地狱", "[随机事件5.0]", "版本26.0926.1", "服务器负载147", "已运行3小时21分22秒"):
+        assert candidate_rejection_reason("right_panel", [field]) is None
+    # Only the listed ROIs are filtered.
+    assert candidate_rejection_reason("left_panel", ["FPS: 144"]) is None
+
+
+def test_artifact_ocr_loads_models_from_artifact_dir_not_paths_baked_into_config(tmp_path: Path, monkeypatch) -> None:
+    for name in ("rapidocr.yaml", "det.onnx", "rec.onnx", "rec_dict.txt"):
+        (tmp_path / name).write_text("x", encoding="utf-8")
+    seen: dict = {}
+    monkeypatch.setattr(prepare_module, "RapidOCR", lambda **kwargs: seen.update(kwargs))
+
+    prepare_module.create_artifact_ocr(tmp_path)
+
+    assert seen["params"]["Det.model_path"] == str(tmp_path / "det.onnx")
+    assert seen["params"]["Rec.model_path"] == str(tmp_path / "rec.onnx")
+    assert seen["params"]["Rec.rec_keys_path"] == str(tmp_path / "rec_dict.txt")

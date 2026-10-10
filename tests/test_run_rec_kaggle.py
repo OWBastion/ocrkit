@@ -78,7 +78,7 @@ def kaggle_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         if command[0].endswith("evaluate_rec_checkpoint.sh"):
             if behavior["eval_status"]:
                 return behavior["eval_status"]
-            output = Path(command[-1])
+            output = Path(command[2])
             output.mkdir(parents=True)
             (output / "fixture_report.json").write_text('{"field_accuracy": 0.99, "run_code": {"field_accuracy": 1.0}}')
             return 0
@@ -152,6 +152,8 @@ def test_success_retrieves_checkpoint_from_r2_and_deletes_input_object(kaggle_ru
 
     push_call = next(c for c in calls if verb(c) == ("kernels", "push"))
     assert "--accelerator" in push_call
+    evaluation = next(c for c in calls if c[0].endswith("evaluate_rec_checkpoint.sh"))
+    assert evaluation[evaluation.index("--holdout-labels") + 1].endswith("labels/holdout.txt")
 
     kernel_id = f"ocrkit-operator/ocrkit-rec-{request['run_id'].lower()}"
     package_dir = Path(push_call[push_call.index("-p") + 1])

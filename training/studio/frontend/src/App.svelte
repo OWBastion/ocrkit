@@ -3,10 +3,24 @@
 
   type ReviewCounts = { total: number; accepted: number; pending: number; rejected: number; teacher_eligible?: number }
   type Batch = { batch_id: string; sources: number; train_sources: number; holdout_sources: number; quality_warnings: number; layout_version: string; active_dataset_revision?: string | null; screenshot_set?: { set_id: string; version: number; finalized_at?: string; imported_at?: string } | null; review?: ReviewCounts }
-  type Row = { crop: string; roi: string; layout_version?: string; accuracy_feedback?: 'accurate' | 'inaccurate' | null; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
+  type JevSuggestion = { action: 'accept' | 'reject' | 'manual' | 'error'; selected_option?: string | null; confidence?: number | null; status?: string; reason_code?: string }
+  type JevState = { status?: string; log_tail?: string; processed?: number; saved?: number; errors?: number; jev_adopted?: { accepted: number; rejected: number } | null }
+  type PipelineState = { status?: string; stage?: string; completed?: number; total?: number; new_screenshots?: number; batch_id?: string | null; jev_errors?: number; agreement_adopted?: number; jev_adopted?: { accepted: number; rejected: number } | null; review?: ReviewCounts; log_tail?: string }
+  type PipelinePreview = { new: number; recent: number; latest_batch: string | null }
+  type Row = { category?: 'event' | 'achievement' | 'other'; jev_suggestion?: JevSuggestion; crop: string; roi: string; layout_version?: string; accuracy_feedback?: 'accurate' | 'inaccurate' | null; review_status: string; review_method?: 'automatic' | 'human' | 'pending'; auto_accept_reason?: string | null; auto_reject_reason?: string | null; candidate_text?: string; transcription?: string; suggested_transcription?: string | null; confidence?: number; candidate_confidence?: number; rapidocr_text?: string; rapidocr_confidence?: number; vision_text?: string; vision_confidence?: number; teacher_model_version?: string | null; teacher_text?: string | null; teacher_confidence?: number | null; teacher_suggestion?: boolean; teacher_auto_accept_eligible?: boolean }
   type CropZoom = 'auto' | 1 | 2 | 3 | 4
   type TrainingState = {
     status?: string
+    backend?: string
+    output_run_dir?: string
+    kaggle_kernel?: string
+    checkpoint?: string
+    field_accuracy?: number | null
+    verdict?: string | null
+    reasons?: string[] | null
+    override?: { reason: string } | null
+    base?: { kind: 'official' | 'checkpoint'; name?: string }
+    data?: { batches: string[]; train_samples?: number; holdout_samples?: number }
     pid?: number
     log?: string
     log_tail?: string
@@ -18,9 +32,10 @@
     reasons: string[]
     candidate: { version?: string; manifest_key?: string; channel_key?: string }
     stable: { version?: string; manifest_key?: string; channel_key?: string; history?: ReleaseHistoryEntry[] }
-    comparison?: { field_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null }; run_code_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null } }
+    comparison?: { field_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null }; run_code_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null }; holdout_accuracy?: { candidate?: number | null; stable?: number | null; delta?: number | null } }
   }
   type ResumeCheckpoint = { path: string; name: string }
+  type TrainingOptions = { base_weights: { path: string; name: string }[]; data_batches: { batch_id: string; train: number; holdout: number }[] }
   type RemoteConfig = { configured: boolean; bucket: string; allowed_prefixes: string[]; max_objects?: number; max_object_bytes?: number }
   type RemoteObject = { key: string; size: number; etag?: string | null; last_modified?: string | null }
   type RemoteSortField = 'date' | 'size' | 'name'
@@ -33,121 +48,22 @@
     currentKey?: string
     message?: string
   }
-  type RoiMeta = {
-    name: string
-    shortName: string
-    code: string
-    position: string
-    dotColor: string
-    rect: { x: number; y: number; w: number; h: number }
+  type RoiMeta = { name: string; dotColor: string }
+
+  // Regions Studio collects. The central banner is intentionally absent: it overlaps the side panels.
+  const ROI_INFO: Record<string, RoiMeta> = {
+    left_panel: { name: '左侧统计', dotColor: '#0284c7' },
+    achievement_panel: { name: '事件与成就', dotColor: '#b45309' },
+    run_code_panel: { name: '运行代码', dotColor: '#6d28d9' },
+    run_code_right_panel: { name: '右侧代码', dotColor: '#7c3aed' },
+    right_panel: { name: '右上地图', dotColor: '#b91c1c' },
+    server_load_panel: { name: '服务器负载', dotColor: '#be123c' },
+    bottom_left_hero: { name: '玩家名', dotColor: '#4338ca' },
+    ai_watermark: { name: 'AI 标记', dotColor: '#0f766e' },
   }
 
-  const ROI_META_LAYOUTS: Record<string, Record<string, RoiMeta>> = {
-    '1280x720-v6': {
-      left_panel: {
-      name: '左侧统计与进度',
-      shortName: '左侧统计',
-      code: 'left_panel',
-      position: '屏幕左侧',
-      dotColor: '#0284c7',
-      rect: { x: 2.7, y: 2.1, w: 14.5, h: 29.2 },
-      },
-      achievement_panel: {
-      name: '左下成就与称号',
-      shortName: '左下成就',
-      code: 'achievement_panel',
-      position: '屏幕左侧事件区下方',
-      dotColor: '#b45309',
-      rect: { x: 2.7, y: 39.6, w: 14.5, h: 10.4 },
-    },
-      run_code_panel: {
-      name: '房间运行代码',
-      shortName: '运行代码',
-      code: 'run_code_panel',
-      position: '屏幕左中部',
-      dotColor: '#6d28d9',
-        rect: { x: 2.3, y: 27.5, w: 14.8, h: 3.1 },
-      },
-      run_code_right_panel: {
-      name: '右侧运行代码',
-      shortName: '右侧代码',
-      code: 'run_code_right_panel',
-      position: '屏幕右上信息区',
-      dotColor: '#7c3aed',
-      rect: { x: 82.8, y: 12.2, w: 14.1, h: 2.5 },
-    },
-      center_banner: {
-      name: '中央通关横幅',
-      shortName: '中央横幅',
-      code: 'center_banner',
-      position: '屏幕正中央',
-      dotColor: '#15803d',
-      rect: { x: 11.7, y: 17.4, w: 78.9, h: 12.5 },
-    },
-      right_panel: {
-      name: '右上地图与难度',
-      shortName: '右上地图',
-      code: 'right_panel',
-      position: '屏幕右上角',
-      dotColor: '#b91c1c',
-      rect: { x: 81.3, y: 0, w: 18.4, h: 14.6 },
-    },
-      bottom_left_hero: {
-      name: '左下英雄状态',
-      shortName: '左下英雄',
-      code: 'bottom_left_hero',
-      position: '屏幕左下角',
-      dotColor: '#4338ca',
-      rect: { x: 2.3, y: 79.9, w: 23.4, h: 13.2 },
-      },
-    },
-    '1280x800-v1': {
-      left_panel: {
-        name: '左侧统计与进度', shortName: '左侧统计', code: 'left_panel', position: '屏幕左上至左中部', dotColor: '#0284c7',
-        rect: { x: 2.7, y: 1.9, w: 14.5, h: 26.3 },
-      },
-      achievement_panel: {
-        name: '左下成就与称号', shortName: '左下成就', code: 'achievement_panel', position: '屏幕左下统计区下方', dotColor: '#b45309',
-        rect: { x: 1.6, y: 35.0, w: 15.6, h: 7.5 },
-      },
-      run_code_panel: {
-        name: '左侧运行代码', shortName: '左侧代码', code: 'run_code_panel', position: '屏幕左侧统计区底部', dotColor: '#6d28d9',
-        rect: { x: 2.3, y: 24.8, w: 14.8, h: 2.8 },
-      },
-      run_code_right_panel: {
-        name: '右侧运行代码', shortName: '右侧代码', code: 'run_code_right_panel', position: '屏幕右上信息区', dotColor: '#7c3aed',
-        rect: { x: 82.8, y: 11.0, w: 14.1, h: 2.3 },
-      },
-      center_banner: {
-        name: '中央通关横幅', shortName: '中央横幅', code: 'center_banner', position: '屏幕顶部中央', dotColor: '#15803d',
-        rect: { x: 23.4, y: 1.3, w: 58.6, h: 11.3 },
-      },
-      right_panel: {
-        name: '右上地图与难度', shortName: '右上地图', code: 'right_panel', position: '屏幕右上角', dotColor: '#b91c1c',
-        rect: { x: 81.3, y: 0, w: 18.4, h: 15.0 },
-      },
-      bottom_left_hero: {
-        name: '左下英雄状态', shortName: '左下英雄', code: 'bottom_left_hero', position: '屏幕左下角', dotColor: '#4338ca',
-        rect: { x: 2.3, y: 77.5, w: 23.4, h: 21.3 },
-      },
-    },
-  }
-
-  const ROI_METAS = ROI_META_LAYOUTS['1280x720-v6']
-
-  function getRoiMetas(layoutVersion?: string): Record<string, RoiMeta> {
-    return ROI_META_LAYOUTS[layoutVersion || ''] || ROI_METAS
-  }
-
-  function getRoiInfo(code: string, layoutVersion?: string): RoiMeta {
-    return getRoiMetas(layoutVersion)[code] || {
-      name: code,
-      shortName: code,
-      code,
-      position: '切片区域',
-      dotColor: '#52525b',
-      rect: { x: 30, y: 30, w: 40, h: 40 },
-    }
+  function getRoiInfo(code: string): RoiMeta {
+    return ROI_INFO[code] || { name: code, dotColor: '#52525b' }
   }
 
   let batches: Batch[] = []
@@ -172,6 +88,9 @@
   let releaseBusy = false
   let publishConfirmed = false
   let resumeCheckpoints: ResumeCheckpoint[] = []
+  let trainingOptions: TrainingOptions | null = null
+  let baseWeights = ''
+  let includedBatches = new Set<string>()
   let resumeCheckpoint = ''
   let trainingEpochs = 10
   let trainingUpdatedAt = ''
@@ -189,7 +108,26 @@
   let remoteFilterText = ''
   let remoteSortField: RemoteSortField = 'date'
   let remoteSortOrder: RemoteSortOrder = 'desc'
-  let remoteViewMode: RemoteViewMode = 'list'
+  let remoteViewMode: RemoteViewMode = 'grid'
+  let remoteDays = '30'
+  let remoteFeedback: Record<string, 'accurate' | 'inaccurate'> = {}
+  let feedbackAvailable = false
+  let feedbackLoading = false
+  let feedbackFilter = 'all'
+  let remoteImportMode = 'new'
+  let generateAfterImport = true
+  let trainingBackend = 'kaggle'
+  let jevConfigured = false
+  let jevState: JevState | null = null
+  let jevPollTimer: ReturnType<typeof setInterval> | null = null
+  let build = ''
+  let pipeline: PipelineState | null = null
+  let pipelinePreview: PipelinePreview | null = null
+  let pipelineError = ''
+  let pipelinePollTimer: ReturnType<typeof setInterval> | null = null
+  let autoPrepare = false
+  const AUTO_PREPARE_KEY = 'ocrkit-studio-auto-prepare'
+  const pipelineStages = [['listing', '查找新截图'], ['downloading', '下载'], ['candidates', '切片 + OCR'], ['jev', 'JEV 建议'], ['done', '完成']] as const
   let hoverPreviewObject: RemoteObject | null = null
   let hoverPreviewTimeout: ReturnType<typeof setTimeout> | null = null
   let previewModalObject: RemoteObject | null = null
@@ -201,24 +139,20 @@
   let toastTimer: ReturnType<typeof setTimeout> | null = null
   let lastFinalize: { train: number; holdout: number } | null = null
   let lastExportPath = ''
-  let setVersionInput = ''
+  let setVersionInput: number | undefined = undefined
   let setImportBusy = false
-  let prioritizeFeedback = true
-  const cropZoomSteps: CropZoom[] = ['auto', 1, 2, 3, 4]
   const TRAINING_POLL_MS = 2000
   const TOAST_MS = 4200
   const supportedClipboardTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
   function orderForReview(list: Row[]): Row[] {
-    if (!prioritizeFeedback) return list
     return [...list].sort((a, b) => Number(b.accuracy_feedback === 'inaccurate') - Number(a.accuracy_feedback === 'inaccurate'))
   }
 
   $: displayedRows = orderForReview(roiFilter === 'all' ? rows : rows.filter((row) => row.roi === roiFilter))
-  $: selectedRatio = selected ? getEngineRatio(selected) : null
 
   const nav = [
-    ['import', '1', '导入'],
+    ['import', '1', '准备'],
     ['candidates', '2', '候选'],
     ['review', '3', '复核'],
     ['dataset', '4', '标签'],
@@ -228,12 +162,14 @@
   function openStep(step: (typeof nav)[number][0]) {
     if (step !== 'training') stopTrainingPoll()
     active = step
-    if (step === 'review' && batch) void refreshReview()
+    if (step === 'review' && batch) { void refreshReview(); void resumeJevPoll() }
     if (step === 'training' && batch) void loadTrainingStep()
   }
 
   async function selectBatch(batchId: string) {
     batch = batches.find((item) => item.batch_id === batchId) || null
+    stopJevPoll()
+    jevState = null
     selected = null
     rows = []
     if (active === 'training') {
@@ -246,11 +182,11 @@
   }
 
   function batchHint() {
-    if (!batch) return '请先导入平台截图集或本地截图并创建批次'
+    if (!batch) return '一键准备新截图 → 复核不确定项 → Kaggle 训练'
     const review = batch.review
     if (!review || review.total === 0) return '下一步：生成候选'
     if (review.pending > 0) return `下一步：复核剩余 ${review.pending} 条`
-    return '下一步：生成标签，然后可启动训练'
+    return '下一步：选择训练方式并启动训练'
   }
 
   async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -304,7 +240,7 @@
 
   async function refreshBatches(selectId?: string) {
     batches = await request<Batch[]>('/api/batches')
-    batch = batches.find((item) => item.batch_id === (selectId || batch?.batch_id)) || batches[0] || null
+    batch = batches.find((item) => item.batch_id === (selectId || batch?.batch_id)) || null
   }
 
   function formatBytes(value: number) {
@@ -337,6 +273,7 @@
 
   $: filteredRemoteObjects = (() => {
     let list = [...remoteObjects]
+    if (feedbackFilter !== 'all') list = list.filter((item) => feedbackFilter === 'unknown' ? !remoteFeedback[item.key] : remoteFeedback[item.key] === feedbackFilter)
     const query = remoteFilterText.trim().toLowerCase()
     if (query) {
       list = list.filter((item) => {
@@ -374,19 +311,41 @@
     if (remoteConfig.configured && !remotePrefix) remotePrefix = remoteConfig.allowed_prefixes[0] || ''
   }
 
-  async function loadRemoteImages(append = false) {
+  function feedbackLabel(key: string) {
+    return remoteFeedback[key] === 'inaccurate' ? '反馈：识别不准确' : remoteFeedback[key] === 'accurate' ? '反馈：识别准确' : '无准确反馈'
+  }
+
+  async function loadFeedback(since: string | null) {
+    feedbackLoading = true
+    try {
+      const query = new URLSearchParams()
+      if (since) query.set('since', since)
+      const result = await request<{ available: boolean; marks: Record<string, 'accurate' | 'inaccurate'> }>(`/api/r2/feedback?${query}`)
+      remoteFeedback = result.marks
+      feedbackAvailable = result.available
+    } catch { feedbackAvailable = false; remoteFeedback = {} } finally { feedbackLoading = false }
+  }
+
+  async function loadRemoteImages() {
     if (!remoteConfig?.configured) return message('Studio 尚未配置 R2 远程数据源。', true)
     if (!remotePrefix) return message('请输入或选择一个 R2 prefix。', true)
     remoteLoading = true
+    remoteSelected = new Set()
+    remoteObjects = []
     try {
-      const cursor = append ? remoteCursor : null
-      const query = new URLSearchParams({ prefix: remotePrefix })
-      if (cursor) query.set('cursor', cursor)
-      const result = await request<{ objects: RemoteObject[]; next_cursor: string | null }>(`/api/r2/images?${query.toString()}`)
-      remoteObjects = append ? [...remoteObjects, ...result.objects] : result.objects
-      remoteCursor = result.next_cursor
-      if (!append) remoteSelected = new Set()
-      message(`已加载 ${result.objects.length} 张可用远程截图。`)
+      let cursor: string | null = null
+      const since = remoteDays === 'all' ? null : new Date(Date.now() - Number(remoteDays) * 86400000).toISOString()
+      void loadFeedback(since)
+      do {
+        const query = new URLSearchParams({ prefix: remotePrefix })
+        if (since) query.set('since', since)
+        if (cursor) query.set('cursor', cursor)
+        const result = await request<{ objects: RemoteObject[]; next_cursor: string | null }>(`/api/r2/images?${query}`)
+        remoteObjects = [...remoteObjects, ...result.objects]
+        cursor = result.next_cursor
+        remoteCursor = cursor
+      } while (cursor)
+      message(`已加载 ${remoteObjects.length} 张截图，按时间从新到旧排列。`)
     } catch (cause) { message(cause instanceof Error ? cause.message : '读取 R2 图片失败', true) } finally { remoteLoading = false }
   }
 
@@ -551,7 +510,7 @@
 
   async function importRemoteImages() {
     if (!remoteSelected.size) return message('先选择至少一张 R2 截图。', true)
-    const addingToExistingBatch = Boolean(batch)
+    const addingToExistingBatch = remoteImportMode === 'append' && Boolean(batch)
     const totalKeys = remoteSelected.size
     busy = true
     downloadProgress = {
@@ -562,10 +521,10 @@
     }
 
     try {
-      const endpoint = batch ? `/api/batches/${batch.batch_id}/remote-sources/stream` : '/api/batches/r2/stream'
+      const endpoint = addingToExistingBatch && batch ? `/api/batches/${batch.batch_id}/remote-sources/stream` : '/api/batches/r2/stream'
       let finalResult: any = null
 
-      await streamImport(endpoint, { keys: [...remoteSelected], holdout_ratio: holdoutRatio }, (chunk) => {
+      await streamImport(endpoint, { keys: [...remoteSelected], holdout_ratio: holdoutRatio, accuracy_marks: Object.fromEntries([...remoteSelected].filter((key) => remoteFeedback[key]).map((key) => [key, remoteFeedback[key]])) }, (chunk) => {
         if (chunk.type === 'progress') {
           downloadProgress = {
             stage: chunk.stage,
@@ -588,6 +547,7 @@
       remoteSelected = new Set()
       message(addingToExistingBatch ? `已从 R2 加入 ${finalResult.added || totalKeys} 张截图。` : `已用 R2 截图创建批次（${finalResult.batch?.sources || totalKeys} 张）。`)
       active = 'candidates'
+      if (generateAfterImport) await candidates()
     } catch (cause) {
       message(cause instanceof Error ? cause.message : '导入 R2 图片失败', true)
     } finally {
@@ -625,7 +585,9 @@
       }
     }
 
-    selected = null
+    const first = orderForReview(roiFilter === 'all' ? rows : rows.filter((row) => row.roi === roiFilter))[0]
+    if (first) selectCandidate(first)
+    else selected = null
   }
 
   async function importFiles() {
@@ -698,6 +660,7 @@
         : ''
       message(result.summary.reused_existing_candidates ? `已打开现有候选，进入复核。${duplicateHint}${negativeHint}` : `候选已生成。${duplicateHint}${negativeHint}${teacherHint}`)
       active = 'review'
+      await resumeJevPoll()
       await refreshReview()
       if (displayedRows[0]) selectCandidate(displayedRows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '候选生成失败', true) } finally { busy = false }
@@ -735,6 +698,7 @@
       message(`候选已重建（${result.summary.revision_id || '新版本'}）。已继承人工接受 ${accepted} 条、拒绝 ${rejected} 条；${unmatched} 条无法安全匹配，已重新待复核。`)
       showRecreateModal = false
       active = 'review'
+      await resumeJevPoll()
       await refreshReview()
       if (displayedRows[0]) selectCandidate(displayedRows[0])
     } catch (cause) {
@@ -760,40 +724,96 @@
     }
   }
 
+  type Engine = { name: string; text: string; confidence?: number | null }
+  type Suggestion = { text: string; label: string; hint: string; tone: 'good' | 'warn' | 'bad' | 'muted'; reject: boolean }
+
+  const norm = (value?: string | null) => (value || '').normalize('NFKC').replace(/\s+/g, ' ').trim()
+
+  function enginesOf(row: Row): Engine[] {
+    const all: Engine[] = [
+      { name: 'RapidOCR', text: row.rapidocr_text || '', confidence: row.rapidocr_confidence },
+      { name: 'Vision', text: row.vision_text || '', confidence: row.vision_confidence },
+      { name: '上一版', text: row.teacher_text || '', confidence: row.teacher_confidence },
+    ]
+    return all.filter((engine) => norm(engine.text))
+  }
+
+  // A name with a duration, e.g. "心之钢 (27 秒)", is the event; anything else in the stack starts as an achievement.
+  const defaultCategory = (text: string): 'event' | 'achievement' => (/[（(]\s*\d+\s*秒\s*[）)]/.test(text) ? 'event' : 'achievement')
+  const CATEGORIES = [['event', '事件'], ['achievement', '成就'], ['other', '其它']] as const
+
+  // One answer to start from. JEV settles disagreements between engines; it never overrides engines that already agree.
+  function suggestionFor(row: Row): Suggestion {
+    const engines = enginesOf(row)
+    const jev = row.jev_suggestion?.status === 'ok' ? row.jev_suggestion : undefined
+    const groups = new Map<string, Engine[]>()
+    for (const engine of engines) groups.set(norm(engine.text), [...(groups.get(norm(engine.text)) || []), engine])
+    const agreed = [...groups.values()].find((group) => group.length >= 2)
+    const best = [...engines].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))[0]
+    const jevText = jev?.action === 'accept' ? jev.selected_option || '' : ''
+    const text = agreed?.[0].text || jevText || row.suggested_transcription || best?.text || row.candidate_text || ''
+    const percent = confidenceLabel(jev?.confidence)
+    if (jev?.action === 'reject') return { text, label: `JEV ${percent}`, hint: 'JEV 认为这不是有效切片，建议拒绝', tone: 'bad', reject: true }
+    if (jev?.action === 'manual' && !agreed) return { text, label: `JEV ${percent}`, hint: 'JEV 认为候选都不对，请对照图片修改', tone: 'warn', reject: false }
+    if (agreed) return { text, label: `${agreed.length} 个引擎一致`, hint: agreed.map((engine) => engine.name).join(' · '), tone: 'good', reject: false }
+    if (jevText) return { text, label: `JEV ${percent}`, hint: '引擎有分歧，JEV 选了这一条', tone: 'good', reject: false }
+    if (best) return { text, label: `${best.name} ${confidenceLabel(best.confidence)}`, hint: '只有一个引擎有结果，请核对', tone: 'warn', reject: false }
+    return { text, label: '无建议', hint: '请对照图片手动输入', tone: 'muted', reject: false }
+  }
+
+  // Distinct other readings, each with who produced it.
+  function alternativesFor(row: Row, current?: string | null): { text: string; who: string }[] {
+    const found = new Map<string, { text: string; who: string[] }>()
+    const add = (text: string | null | undefined, who: string) => {
+      const key = norm(text)
+      if (!key) return
+      const entry = found.get(key) || { text: text as string, who: [] }
+      if (!entry.who.includes(who)) entry.who.push(who)
+      found.set(key, entry)
+    }
+    for (const engine of enginesOf(row)) add(engine.text, engine.name)
+    if (row.jev_suggestion?.status === 'ok' && row.jev_suggestion.action === 'accept') add(row.jev_suggestion.selected_option, 'JEV')
+    add(row.candidate_text, '候选')
+    return [...found.entries()].filter(([key]) => key !== norm(current)).map(([, entry]) => ({ text: entry.text, who: entry.who.join(' · ') }))
+  }
+
+  let transcriptionEl: HTMLInputElement | null = null
+  let focusedCrop = ''
+  $: if (selected && transcriptionEl && selected.crop !== focusedCrop && typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches) {
+    focusedCrop = selected.crop
+    transcriptionEl.focus()
+    transcriptionEl.select()
+  }
+
+  function onTranscriptionKey(event: KeyboardEvent) {
+    if (event.key !== 'Enter' || event.isComposing || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
+    event.preventDefault()
+    save('accepted')
+  }
+
+  function toggleCropZoom() {
+    cropZoom = cropZoom === 'auto' ? 2 : cropZoom === 2 ? 4 : 'auto'
+  }
+
+  async function trainCurrentBatch() {
+    if (!batch) return
+    trainingBackend = 'kaggle'
+    active = 'training'
+    await loadTrainingStep()
+  }
+
   function confidenceLabel(value?: number | null) {
     if (value == null || Number.isNaN(value)) return '—'
     return `${Math.round(value * 100)}%`
   }
 
-  function candidateConfidence(row: Row) {
-    return row.candidate_confidence ?? row.confidence
-  }
-
-  function isHumanReviewed(row: Row) {
-    return row.review_method === 'human' || (!row.review_method && row.review_status === 'accepted' && !row.auto_accept_reason)
-  }
-
-  function reviewConfidenceLabel(row: Row) {
-    return isHumanReviewed(row) ? `已确认 · 机器候选 ${confidenceLabel(candidateConfidence(row))}` : confidenceLabel(candidateConfidence(row))
-  }
-
-  function reviewConfidenceTitle(row: Row) {
-    const value = confidenceLabel(candidateConfidence(row))
-    if (isHumanReviewed(row)) {
-      return `人工已确认；原始机器候选置信度 ${value}`
-    }
-    return `机器候选置信度 ${value}`
-  }
-
   function selectCandidate(row: Row, event?: MouseEvent) {
-    selected = { ...row, transcription: row.transcription || row.suggested_transcription || row.candidate_text || '' }
+    const text = row.transcription || suggestionFor(row).text
+    selected = { ...row, transcription: text, category: row.category ?? (row.roi === 'achievement_panel' ? defaultCategory(text) : undefined) }
     cropZoom = 'auto'
     cropNatural = { w: 0, h: 0 }
-    // Keep focus scroll inside the list pane; avoid jumping the whole page.
     const target = event?.currentTarget
-    if (target instanceof HTMLElement) {
-      target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    }
+    if (target instanceof HTMLElement) target.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }
 
   function selectPrevCandidate() {
@@ -858,93 +878,44 @@
     return `width: ${width}px; height: ${height}px; max-width: none;`
   }
 
-  function cropZoomLabel(step: CropZoom) {
-    return step === 'auto' ? '自适应' : `${step}×`
-  }
-
   function applyEngineText(text?: string | null) {
     if (!selected || !text) return
     selected = { ...selected, transcription: text }
   }
 
-  function engineSelected(text?: string | null) {
-    return Boolean(selected?.transcription && text && selected.transcription === text)
-  }
+  let saveChain: Promise<unknown> = Promise.resolve()
 
-  function getEngineRatio(row: Row) {
-    const engineOutputs: { name: string; text: string }[] = []
-    if (row.rapidocr_text?.trim()) engineOutputs.push({ name: 'RapidOCR', text: row.rapidocr_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
-    if (row.vision_text?.trim()) engineOutputs.push({ name: 'Vision', text: row.vision_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
-    if (row.teacher_text?.trim()) engineOutputs.push({ name: '上一版模型', text: row.teacher_text.normalize('NFKC').replace(/\s+/g, ' ').trim() })
-
-    const total = engineOutputs.length
-    if (total === 0) {
-      return { matching: 0, total: 0, isAgreement: false, isConflict: false, tagClass: 'ratio-none', tooltip: '暂无引擎识别结果' }
-    }
-    if (total === 1) {
-      return { matching: 1, total: 1, isAgreement: true, isConflict: false, tagClass: 'ratio-single', tooltip: `单引擎结果 (${engineOutputs[0].name})` }
-    }
-
-    const counts = new Map<string, number>()
-    for (const item of engineOutputs) {
-      counts.set(item.text, (counts.get(item.text) || 0) + 1)
-    }
-    const maxMatching = Math.max(...counts.values())
-    const isAgreement = maxMatching === total
-    const isConflict = maxMatching < total
-
-    let tagClass = 'ratio-agree'
-    if (isAgreement) {
-      tagClass = 'ratio-agree'
-    } else if (maxMatching >= 2) {
-      tagClass = 'ratio-partial'
-    } else {
-      tagClass = 'ratio-conflict'
-    }
-
-    const agreeNames = engineOutputs.map((o) => o.name).join(' · ')
-    const tooltip = isAgreement
-      ? `${total}/${total} 引擎输出一致 (${agreeNames})`
-      : `${maxMatching}/${total} 引擎输出一致 · 存在分歧 (${agreeNames})`
-
-    return { matching: maxMatching, total, isAgreement, isConflict, tagClass, tooltip }
-  }
-
-  async function save(statusValue: 'accepted' | 'rejected') {
+  // Advance immediately; the write follows in order and the list is reloaded only if it fails.
+  function save(statusValue: 'accepted' | 'rejected') {
     if (!batch || !selected) return
-    busy = true
-    try {
-      const currentIndex = displayedRows.findIndex((row) => row.crop === selected?.crop)
-      // Prefer the items after the current one so review advances forward.
-      const followingCrops = currentIndex >= 0
-        ? displayedRows.slice(currentIndex + 1).map((row) => row.crop)
-        : []
-      const result = await request<{ row: Row; counts: ReviewCounts }>(`/api/batches/${batch.batch_id}/review`, {
+    const row = selected
+    const batchId = batch.batch_id
+    const transcription = (row.transcription || row.candidate_text || '').trim()
+    if (statusValue === 'accepted' && !transcription) return message('转写不能为空。', true)
+    const index = displayedRows.findIndex((item) => item.crop === row.crop)
+    const next = displayedRows[index + 1] ?? displayedRows[index - 1] ?? null
+    const wasPending = row.review_status === 'pending'
+    rows = status === 'pending'
+      ? rows.filter((item) => item.crop !== row.crop)
+      : rows.map((item) => item.crop === row.crop ? { ...item, review_status: statusValue, transcription: statusValue === 'accepted' ? transcription : undefined } : item)
+    if (batch.review && wasPending) {
+      batch = { ...batch, review: { ...batch.review, pending: Math.max(0, batch.review.pending - 1), [statusValue]: batch.review[statusValue] + 1 } }
+    }
+    const following = next && rows.find((item) => item.crop === next.crop)
+    if (following) selectCandidate(following)
+    else selected = null
+    const currentSplit = split
+    saveChain = saveChain
+      .then(() => request<{ row: Row; counts: ReviewCounts }>(`/api/batches/${batchId}/review`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          split,
-          crop: selected.crop,
-          status: statusValue,
-          transcription: selected.transcription || selected.candidate_text || '',
-        }),
+        body: JSON.stringify({ split: currentSplit, crop: row.crop, status: statusValue, transcription, category: row.roi === 'achievement_panel' ? row.category : undefined }),
+      }))
+      .then((result) => { if (batch?.batch_id === batchId) batch = { ...batch, review: result.counts } })
+      .catch((cause) => {
+        message(cause instanceof Error ? cause.message : '保存失败，已重新载入。', true)
+        void refreshReview()
       })
-      batch = { ...batch, review: result.counts }
-      await refreshReview({ preferCrops: followingCrops })
-      if (selected) {
-        message(statusValue === 'accepted' ? '已接受，已切换到下一条。' : '已拒绝，已切换到下一条。')
-      } else if ((batch.review?.pending ?? 0) > 0 && status === 'pending') {
-        message(statusValue === 'accepted' ? '已接受。当前筛选已到末尾。' : '已拒绝。当前筛选已到末尾。')
-      } else if ((batch.review?.pending ?? 0) === 0) {
-        message(statusValue === 'accepted' ? '已接受。待复核已全部处理完。' : '已拒绝。待复核已全部处理完。')
-      } else {
-        message(statusValue === 'accepted' ? '已接受。' : '已拒绝。')
-      }
-    } catch (cause) {
-      message(cause instanceof Error ? cause.message : '保存失败', true)
-    } finally {
-      busy = false
-    }
   }
 
   async function refreshVision() {
@@ -955,6 +926,7 @@
       batch = { ...batch, review: result.review }
       message(`已补回 Vision：${result.summary.vision_covered}/${result.summary.rows} 条有结果，自动排除 ${result.summary.auto_rejected} 条位置不匹配项；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
       active = 'review'
+      await resumeJevPoll()
       await refreshReview()
       if (displayedRows[0]) selectCandidate(displayedRows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '补回 Vision 结果失败', true) } finally { busy = false }
@@ -968,6 +940,7 @@
       batch = { ...batch, review: result.review }
       message(`已补回上一版模型 ${result.summary.teacher_model_version || '未知版本'}：覆盖 ${result.summary.teacher_covered}/${result.summary.rows} 条，自动接受 ${result.summary.teacher_auto_accepted} 条，自动排除 ${result.summary.auto_rejected} 条位置不匹配项；保留 ${result.summary.preserved_accepted} 条人工接受和 ${result.summary.preserved_rejected} 条人工拒绝。`)
       active = 'review'
+      await resumeJevPoll()
       await refreshReview()
       if (displayedRows[0]) selectCandidate(displayedRows[0])
     } catch (cause) { message(cause instanceof Error ? cause.message : '补回上一版模型结果失败', true) } finally { busy = false }
@@ -1069,7 +1042,7 @@
       } else {
         if (!hasActiveBackgroundWork()) stopTrainingPoll()
         if (previousStatus === 'training' && trainingIsDone(training.status)) {
-          message(training.status === 'completed' ? 'Smoke 训练已成功结束。' : 'Smoke 训练已结束，请查看日志。')
+          message(training.status === 'completed' ? (training.backend === 'kaggle' ? '训练已成功结束，模型已下载到本地。' : '本地 Smoke 训练已成功结束。') : '训练已结束，请查看日志。')
         }
       }
       await scrollLogToBottom()
@@ -1079,8 +1052,27 @@
     }
   }
 
+  // Which weights to start from and which finalized batches to learn from; every choice is shown on the run afterwards.
+  async function refreshTrainingOptions() {
+    if (!batch) return
+    trainingOptions = await request<TrainingOptions>(`/api/batches/${batch.batch_id}/training/options`)
+    if (baseWeights && !trainingOptions.base_weights.some((weights) => weights.path === baseWeights)) baseWeights = ''
+    includedBatches = new Set([...includedBatches].filter((id) => trainingOptions?.data_batches.some((item) => item.batch_id === id)))
+    if (!includedBatches.size && !trainingOptionsTouched) includedBatches = new Set(trainingOptions.data_batches.map((item) => item.batch_id))
+  }
+
+  let trainingOptionsTouched = false
+
+  function toggleIncludedBatch(id: string) {
+    trainingOptionsTouched = true
+    const next = new Set(includedBatches)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    includedBatches = next
+  }
+
   async function loadTrainingStep() {
-    await Promise.all([refreshTraining(), refreshResumeCheckpoints(), refreshPublication(), refreshReleaseComparison({ silent: true })])
+    await Promise.all([refreshTraining(), refreshResumeCheckpoints(), refreshTrainingOptions(), refreshPublication(), refreshReleaseComparison({ silent: true })])
     if (trainingIsRunning(training?.status)) startTrainingPoll()
   }
 
@@ -1161,16 +1153,45 @@
     }
   }
 
+  let overrideReason = ''
+
+  async function acceptOverride() {
+    if (!batch) return
+    busy = true
+    try {
+      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: overrideReason.trim() }),
+      })
+      overrideReason = ''
+      message('已按负责人决定放行；未通过的原因和理由已记入评测证据，现在可以发布。')
+      await refreshTraining()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '放行失败', true) } finally { busy = false }
+  }
+
+  async function evaluateTrained() {
+    if (!batch) return
+    busy = true
+    try {
+      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/evaluate`, { method: 'POST' })
+      message('已开始评测已有检查点，不会重新训练。')
+      followLog = true
+      await refreshTraining()
+      startTrainingPoll()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '评测启动失败', true) } finally { busy = false }
+  }
+
   async function startTraining() {
     if (!batch) return message('先选择批次。', true)
     busy = true
     try {
-      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/smoke`, {
+      await request<TrainingState>(`/api/batches/${batch.batch_id}/training/${trainingBackend}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ resume_checkpoint: resumeCheckpoint || null, epochs: trainingEpochs }),
+        body: JSON.stringify(trainingBackend === 'kaggle' ? { epochs: trainingEpochs, base_checkpoint: baseWeights || null, include_batches: [...includedBatches] } : { resume_checkpoint: resumeCheckpoint || null, epochs: trainingEpochs }),
       })
-      message(resumeCheckpoint ? '已从所选 checkpoint 恢复训练，状态将自动刷新。' : 'Smoke 训练已启动，状态将自动刷新。')
+      message(`${trainingBackend === 'kaggle' ? 'Kaggle' : 'CPU Smoke'} 训练已启动，日志将自动刷新。`)
       followLog = true
       await refreshTraining()
       startTrainingPoll()
@@ -1189,20 +1210,135 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ version, holdout_ratio: holdoutRatio }),
       })
-      setVersionInput = ''
+      setVersionInput = undefined
       message(`截图集 v${result.report.version} 已导入为批次 ${result.batch.batch_id}（${result.report.member_count} 张源图）。`)
       await refreshBatches(result.batch.batch_id)
       active = 'candidates'
     } catch (cause) { message(cause instanceof Error ? cause.message : '截图集导入失败', true) } finally { setImportBusy = false }
   }
 
+  function stopJevPoll() {
+    if (jevPollTimer) clearInterval(jevPollTimer)
+    jevPollTimer = null
+  }
+
+  async function refreshJev() {
+    if (!batch) return
+    jevState = await request<JevState>(`/api/batches/${batch.batch_id}/review/jev`)
+    if (jevState.status !== 'reviewing') {
+      stopJevPoll()
+      await refreshReview({ keepSelection: true })
+    }
+  }
+
+  async function resumeJevPoll() {
+    await refreshJev()
+    if (jevState?.status === 'reviewing' && !jevPollTimer) jevPollTimer = setInterval(() => { void refreshJev().catch(() => stopJevPoll()) }, 2000)
+  }
+
+  async function startJev() {
+    if (!batch) return
+    busy = true
+    try {
+      jevState = await request<JevState>(`/api/batches/${batch.batch_id}/review/jev`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image_tokens: 70 }),
+      })
+      stopJevPoll()
+      jevPollTimer = setInterval(() => { void refreshJev().catch((cause) => { stopJevPoll(); message(String(cause), true) }) }, 2000)
+      message('JEV 已开始生成建议，完成后人工确认标签。')
+    } catch (cause) { message(cause instanceof Error ? cause.message : 'JEV 启动失败', true) } finally { busy = false }
+  }
+
+  // --- 一键准备：新 R2 截图 → 批次 → 切片/OCR → JEV → 采纳高置信 Train 标签 ---
+
+  const pipelineRunning = () => pipeline?.status === 'preparing'
+
+  function stopPipelinePoll() {
+    if (pipelinePollTimer) clearInterval(pipelinePollTimer)
+    pipelinePollTimer = null
+  }
+
+  async function refreshPipeline() {
+    const wasRunning = pipelineRunning()
+    pipeline = await request<PipelineState>('/api/pipeline/status')
+    if (pipelineRunning()) {
+      if (!pipelinePollTimer) pipelinePollTimer = setInterval(() => { void refreshPipeline().catch(stopPipelinePoll) }, 1500)
+      return
+    }
+    stopPipelinePoll()
+    if (wasRunning) {
+      await refreshBatches(pipeline.batch_id || undefined)
+      if (pipeline.status === 'completed') message('准备完成，可以开始复核。')
+      else message('准备失败，详情见下方日志。', true)
+    }
+  }
+
+  async function loadPipelinePreview() {
+    pipelineError = ''
+    try {
+      pipelinePreview = await request<PipelinePreview>(`/api/pipeline/preview?days=${remoteDays === 'all' ? 365 : remoteDays}`)
+    } catch (cause) {
+      pipelinePreview = null
+      pipelineError = cause instanceof Error ? cause.message : '无法读取 R2'
+    }
+  }
+
+  async function startPipeline() {
+    try {
+      pipeline = await request<PipelineState>('/api/pipeline/prepare', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ days: remoteDays === 'all' ? 365 : Number(remoteDays), holdout_ratio: holdoutRatio }),
+      })
+      await refreshPipeline()
+    } catch (cause) { message(cause instanceof Error ? cause.message : '启动失败', true) }
+  }
+
+  function setAutoPrepare(value: boolean) {
+    autoPrepare = value
+    try { localStorage.setItem(AUTO_PREPARE_KEY, value ? '1' : '0') } catch {}
+  }
+
+  async function reviewPipelineBatch() {
+    await refreshBatches(pipeline?.batch_id || pipelinePreview?.latest_batch || undefined)
+    if (!batch) return message('还没有批次。', true)
+    openStep('review')
+  }
+
+  async function trainPipelineBatch() {
+    await refreshBatches(pipeline?.batch_id || pipelinePreview?.latest_batch || undefined)
+    if (!batch) return message('还没有批次。', true)
+    trainingBackend = 'kaggle'
+    active = 'training'
+    await loadTrainingStep()
+  }
+
+  $: pipelineBatch = batches.find((item) => item.batch_id === (pipeline?.batch_id || pipelinePreview?.latest_batch)) || null
+  $: pipelineStageIndex = Math.max(0, pipelineStages.findIndex(([name]) => name === pipeline?.stage))
+  $: pipelineHeadline = pipelineRunning()
+    ? '正在准备训练数据…'
+    : pipeline?.status === 'failed' ? '准备失败'
+    : pipelineBatch && pipelineBatch.review && pipelineBatch.review.pending === 0 && pipelineBatch.review.total > 0 ? '标签已就绪，可以训练'
+    : pipelineBatch && pipelineBatch.review && pipelineBatch.review.pending > 0 ? `还有 ${pipelineBatch.review.pending} 条待复核`
+    : pipelinePreview ? (pipelinePreview.new ? `发现 ${pipelinePreview.new} 张新截图` : '没有新截图')
+    : '准备训练数据'
+
   onMount(async () => {
     try {
-      await Promise.all([refreshBatches(), loadRemoteStatus()])
+      try { autoPrepare = localStorage.getItem(AUTO_PREPARE_KEY) === '1' } catch {}
+      await Promise.all([refreshBatches(), loadRemoteStatus(), request<{ configured: boolean }>('/api/jev/config').then((config) => { jevConfigured = config.configured }).catch(() => { jevConfigured = false })])
+      request<{ build: string }>('/api/health').then((health) => { build = health.build }).catch(() => {})
+      await refreshPipeline()
+      if (remoteConfig?.configured && !pipelineRunning()) {
+        await loadPipelinePreview()
+        if (autoPrepare && pipelinePreview?.new) await startPipeline()
+      }
     } catch { message('无法连接 Studio API。', true) }
   })
   onDestroy(() => {
     stopTrainingPoll()
+    stopJevPoll()
+    stopPipelinePoll()
     clearToastTimer()
   })
 </script>
@@ -1274,53 +1410,51 @@
     <div class="app-content">
 
     {#if active === 'import'}
+      <section class="panel pipeline-panel" aria-label="一键准备">
+        <header class="panel-head">
+          <p class="eyebrow">快速开始</p>
+          <h2>{pipelineHeadline}</h2>
+          <p>{pipelineRunning() ? '可以离开此页，任务在后台继续。' : `自动选取最近 ${remoteDays === 'all' ? '全部' : remoteDays + ' 天'}尚未用过的 R2 截图 → 切片与 OCR → 双引擎一致的 Train 直接采纳，其余交 JEV；高置信结果自动成为 Train 标签，Holdout 与不确定项留给你复核。`}</p>
+        </header>
+        {#if pipelineError}<p class="remote-empty">{pipelineError}</p>{/if}
+        {#if pipeline && pipeline.status !== 'not_started'}
+          {#if pipelineRunning() || pipeline.status === 'failed'}
+          <ol class="pipeline-stages">
+            {#each pipelineStages as [name, label], index}
+              <li class:stage-done={pipeline?.status === 'completed' || index < pipelineStageIndex} class:stage-current={pipelineRunning() && index === pipelineStageIndex}>{label}{#if pipelineRunning() && index === pipelineStageIndex && pipeline?.total}<span> {pipeline.completed ?? 0}/{pipeline.total}</span>{/if}</li>
+            {/each}
+          </ol>
+          {/if}
+          {#if pipeline?.status === 'completed'}
+            <p class="status-meta">新截图 {pipeline.new_screenshots ?? 0} 张 · 双引擎一致自动采纳 {pipeline.agreement_adopted ?? 0}{#if pipeline.jev_adopted} · JEV 另采纳 接受 {pipeline.jev_adopted.accepted} / 拒绝 {pipeline.jev_adopted.rejected}{:else} · JEV 未运行{/if}{#if pipeline.jev_errors} · JEV 错误 {pipeline.jev_errors}{/if}</p>
+          {/if}
+          {#if pipeline?.status === 'failed' && pipeline.log_tail}<pre class="pipeline-log">{pipeline.log_tail.slice(-3000)}</pre>{/if}
+        {/if}
+        <div class="panel-actions">
+          {#if pipelineBatch?.review && pipelineBatch.review.pending > 0 && !pipelineRunning()}
+            <button class="button-primary" on:click={() => void reviewPipelineBatch()}>开始复核（{pipelineBatch.review.pending} 条）</button>
+          {:else if pipelineBatch?.review && pipelineBatch.review.total > 0 && !pipelineRunning()}
+            <button class="button-primary" disabled={busy} on:click={() => void trainPipelineBatch()}>选择训练方式</button>
+          {/if}
+          <button class={pipelineBatch?.review?.total && !pipelineRunning() ? 'button-secondary' : 'button-primary'} disabled={pipelineRunning() || !remoteConfig?.configured || (!!pipelinePreview && pipelinePreview.new === 0)} on:click={() => void startPipeline()}>
+            {pipelineRunning() ? '准备中…' : pipelinePreview?.new ? `准备 ${pipelinePreview.new} 张新截图` : '准备新截图'}
+          </button>
+          <label class="field"><span>时间范围</span><select class="control" bind:value={remoteDays} disabled={pipelineRunning()} on:change={() => void loadPipelinePreview()}><option value="30">最近 30 天</option><option value="7">最近 7 天</option><option value="all">一年内</option></select></label>
+          <label class="field field-check"><input type="checkbox" checked={autoPrepare} on:change={(event) => setAutoPrepare(event.currentTarget.checked)} /><span>打开时自动准备</span></label>
+          {#if !jevConfigured}<span class="status-meta">JEV 未配置：跳过自动建议，全部候选留给你复核。</span>{/if}
+        </div>
+      </section>
+      <details class="manual-import" on:toggle={(event) => { if (event.currentTarget.open && remoteConfig?.configured && !remoteObjects.length) void loadRemoteImages() }}>
+      <summary>手动选择 / 上传截图（高级）</summary>
       <section class="panel-grid">
         <div class="panel">
-          <header class="panel-head">
-            <p class="eyebrow">步骤 1</p>
-            <h2>导入平台截图集</h2>
-            <p>生产训练真值来自平台已终态截图集：成员按 object key 从 R2 下载、校验 SHA-256 与版式、按内容去重并做源图级 train/holdout 划分，生成可复核批次。本地或 R2 截图可用于补充或开发实验。</p>
-          </header>
-          <section class="set-import" aria-label="平台截图集导入">
-            <div class="set-import-form">
-              <label class="field">
-                <span>截图集版本</span>
-                <input class="control" type="number" min="1" step="1" bind:value={setVersionInput} placeholder="例如 3" />
-              </label>
-              <button class="button-primary" disabled={setImportBusy || !setVersionInput.trim()} on:click={() => void importScreenshotSet()}>
-                {setImportBusy ? '导入中…' : '导入截图集'}
-              </button>
-            </div>
-            <p class="set-import-hint">需配置 <code>OCRKIT_SCREENSHOT_SET_BASE_URL</code>、<code>OCRKIT_SCREENSHOT_SET_TOKEN</code> 与 Studio R2 读取；同一终态集合只导入一次，导入中断可重试续传。</p>
-          </section>
-          <label class="file-pick" class:file-pick-ready={files.length > 0}>
-            <input
-              type="file"
-              multiple
-              accept="image/png,image/jpeg,image/webp"
-              on:change={(event) => appendFiles(Array.from((event.currentTarget as HTMLInputElement).files || []))}
-            />
-            <span class="file-pick-title">{files.length ? `已选 ${files.length} 张` : '选择截图'}</span>
-            <span class="file-pick-sub">{files.length ? '可继续添加，或直接创建 / 加入批次' : '也可 ⌘V / Ctrl+V 粘贴'}</span>
-          </label>
-          <div class="panel-actions">
-            <label class="field field-compact">
-              <span>Holdout</span>
-              <input type="number" min="0" max="0.5" step="0.05" bind:value={holdoutRatio} />
-            </label>
-            <button class="button-primary" disabled={busy || !files.length} on:click={importFiles}>
-              {busy ? '创建中…' : '创建批次'}
-            </button>
-            <button class="button-secondary" disabled={busy || !files.length || !batch} on:click={addFilesToBatch}>
-              {busy ? '处理中…' : '加入当前批次'}
-            </button>
-          </div>
+          <header class="panel-head"><p class="eyebrow">步骤 1</p><h2>选择截图，准备训练数据</h2><p>自动加载最近 30 天 R2 截图，选图后创建批次并切片，使用 JEV 建议辅助确认标签。</p></header>
           <section class="remote-import" aria-label="R2 远程截图">
             <header class="remote-head">
               <div>
-                <p class="eyebrow">补充数据源</p>
+                <p class="eyebrow">默认数据源</p>
                 <h3>从 R2 获取截图</h3>
-                <p>凭据只在 Studio 后端使用。远程截图会复制到私有 batch，并与本地截图一起进入候选复核。</p>
+                <p>直接读取 R2，无需平台登录或截图集 token。使用本机已有 Cloudflare 登录读取 D1 中的准确反馈。反馈帮助选图，仍需确认切片文字作为训练标签。</p>
               </div>
               {#if remoteConfig?.configured}
                 <span class="status-pill status-done">只读 · {remoteConfig.bucket}</span>
@@ -1329,13 +1463,15 @@
             {#if !remoteConfig?.configured}
               <p class="remote-empty">未配置 Studio R2。设置 <code>OCRKIT_STUDIO_R2_BUCKET</code> 与 <code>OCRKIT_STUDIO_R2_ALLOWED_PREFIXES</code> 后重启 Studio。</p>
             {:else}
+              <p>{feedbackLoading ? '正在读取平台准确反馈…' : feedbackAvailable ? '平台准确反馈已读取，可筛选识别不准确截图。' : '暂未读取平台反馈，可继续选图与训练。'}</p>
               <div class="remote-controls">
                 <label class="field">
                   <span>Prefix</span>
                   <input class="control" bind:value={remotePrefix} placeholder={remoteConfig.allowed_prefixes[0]} />
                 </label>
+                <label class="field"><span>时间范围</span><select class="control" bind:value={remoteDays} disabled={remoteLoading} on:change={() => void loadRemoteImages()}><option value="30">最近 30 天</option><option value="7">最近 7 天</option><option value="all">全部</option></select></label>
                 <button class="button-secondary" disabled={remoteLoading || busy} on:click={() => void loadRemoteImages()}>
-                  {remoteLoading ? '读取中…' : '加载对象'}
+                  {remoteLoading ? `加载中（${remoteObjects.length} 张）…` : '刷新截图'}
                 </button>
               </div>
 
@@ -1356,6 +1492,7 @@
                     {/if}
                   </div>
 
+                  <label class="field"><span>平台反馈</span><select class="control" bind:value={feedbackFilter}><option value="all">全部</option><option value="inaccurate">识别不准确</option><option value="accurate">识别准确</option><option value="unknown">无反馈</option></select></label>
                   <div class="remote-toolbar-group">
                     <div class="remote-select-group">
                       <button
@@ -1496,7 +1633,7 @@
                               <span class="remote-path" title={keyInfo.dir}>{keyInfo.dir}</span>
                             {/if}
                           </div>
-                          <div class="remote-row-meta">
+                          <div class="remote-row-meta"><span>{feedbackLabel(object.key)}</span>
                             <span class="meta-item meta-date" title="上传时间">
                               <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13">
                                 <path fill-rule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clip-rule="evenodd" />
@@ -1568,7 +1705,7 @@
                         </div>
                         <div class="remote-card-content">
                           <strong class="remote-card-title" title={object.key}>{keyInfo.name}</strong>
-                          <span class="remote-card-date">{formatDate(object.last_modified)}</span>
+                          <span class="remote-card-date">{formatDate(object.last_modified)}</span><span class="status-tag">{feedbackLabel(object.key)}</span>
                         </div>
                       </div>
                     {/each}
@@ -1583,30 +1720,61 @@
                     {/if}
                   </div>
                   <div class="remote-action-buttons">
-                    {#if remoteCursor}
-                      <button class="button-secondary button-compact" disabled={remoteLoading || busy} on:click={() => void loadRemoteImages(true)}>
-                        {remoteLoading ? '加载中…' : '加载下一页'}
-                      </button>
-                    {/if}
-                    <button class="button-primary" disabled={busy || !remoteSelected.size} on:click={() => void importRemoteImages()}>
-                      {batch ? `加入当前批次 (${remoteSelected.size} 张)` : `用所选截图创建批次 (${remoteSelected.size} 张)`}
+                    <label class="field"><span>导入到</span><select class="control" bind:value={remoteImportMode} disabled={busy}><option value="new">创建新批次</option><option value="append" disabled={!batch}>加入当前批次{batch ? ` ${batch.batch_id}` : '（先选择批次）'}</option></select></label>
+                    <label><input type="checkbox" bind:checked={generateAfterImport} disabled={busy} /> 导入后自动切片并生成候选</label>
+                    <button class="button-primary" disabled={busy || remoteLoading || !remoteSelected.size || (remoteImportMode === 'append' && !batch)} on:click={() => void importRemoteImages()}>
+                      {remoteImportMode === 'append' ? `加入当前批次 (${remoteSelected.size} 张)` : `创建批次 (${remoteSelected.size} 张)`}
                     </button>
                   </div>
                 </div>
               {:else}
-                <p class="remote-empty">输入允许的 prefix 后点击「加载对象」。只显示支持的图片格式和大小范围内的对象。</p>
+                <p class="remote-empty">{remoteLoading ? '正在扫描截图目录…' : '当前范围没有截图，可以扩大时间范围或刷新。'}</p>
               {/if}
             {/if}
+          </section><details class="set-import"><summary>本地文件 / 粘贴截图</summary>          <label class="file-pick" class:file-pick-ready={files.length > 0}>
+            <input
+              type="file"
+              multiple
+              accept="image/png,image/jpeg,image/webp"
+              on:change={(event) => appendFiles(Array.from((event.currentTarget as HTMLInputElement).files || []))}
+            />
+            <span class="file-pick-title">{files.length ? `已选 ${files.length} 张` : '选择截图'}</span>
+            <span class="file-pick-sub">{files.length ? '可继续添加，或直接创建 / 加入批次' : '也可 ⌘V / Ctrl+V 粘贴'}</span>
+          </label>
+          <div class="panel-actions">
+            <label class="field field-compact">
+              <span>Holdout</span>
+              <input type="number" min="0" max="0.5" step="0.05" bind:value={holdoutRatio} />
+            </label>
+            <button class="button-primary" disabled={busy || !files.length} on:click={importFiles}>
+              {busy ? '创建中…' : '创建批次'}
+            </button>
+            <button class="button-secondary" disabled={busy || !files.length || !batch} on:click={addFilesToBatch}>
+              {busy ? '处理中…' : '加入当前批次'}
+            </button>
+          </div>
+</details><details class="set-import"><summary>可选：平台已定稿截图集</summary>          <section class="set-import" aria-label="平台截图集导入">
+            <div class="set-import-form">
+              <label class="field">
+                <span>截图集版本</span>
+                <input class="control" type="number" min="1" step="1" bind:value={setVersionInput} placeholder="例如 3" />
+              </label>
+              <button class="button-primary" disabled={setImportBusy || !Number.isInteger(setVersionInput) || (setVersionInput ?? 0) < 1} on:click={() => void importScreenshotSet()}>
+                {setImportBusy ? '导入中…' : '导入截图集'}
+              </button>
+            </div>
+            <p class="set-import-hint">需配置 <code>OCRKIT_SCREENSHOT_SET_BASE_URL</code>、<code>OCRKIT_SCREENSHOT_SET_TOKEN</code> 与 Studio R2 读取；同一终态集合只导入一次，导入中断可重试续传。</p>
           </section>
+</details>
         </div>
         <aside class="panel panel-side">
           <h3>流程</h3>
           <ol class="flow-list">
-            <li class="flow-current"><b>1</b><span><strong>导入</strong> 创建批次</span></li>
+            <li class="flow-current"><b>1</b><span><strong>准备</strong> 选图 + 切片 + JEV</span></li>
             <li><b>2</b><span><strong>候选</strong> RapidOCR + Vision</span></li>
             <li><b>3</b><span><strong>复核</strong> 接受 / 拒绝</span></li>
             <li><b>4</b><span><strong>标签</strong> train / holdout</span></li>
-            <li><b>5</b><span><strong>训练</strong> CPU Smoke</span></li>
+            <li><b>5</b><span><strong>训练</strong> Kaggle GPU / CPU Smoke</span></li>
           </ol>
           {#if batch}
             <dl class="batch-stats">
@@ -1625,6 +1793,7 @@
           {/if}
         </aside>
       </section>
+      </details>
     {:else if active === 'candidates'}
       <section class="panel stage-panel">
         <header class="panel-head">
@@ -1648,334 +1817,119 @@
         </div>
       </section>
     {:else if active === 'review'}
-      <section class="review-layout">
-        <aside class="review-list">
-          <div class="filters">
-            <select class="control" bind:value={split} on:change={() => refreshReview()}>
-              <option value="train">Train</option>
-              <option value="holdout">Holdout</option>
-            </select>
-            <select class="control" bind:value={status} on:change={() => refreshReview()}>
-              <option value="pending">待复核</option>
-              <option value="accepted">已接受</option>
-              <option value="auto_accepted">自动接受</option>
-              <option value="teacher_eligible">上一版模型建议</option>
-              <option value="rejected">已拒绝</option>
-              <option value="all">全部状态</option>
-            </select>
-            <select class="control col-span-2" bind:value={roiFilter} on:change={onRoiFilterChange}>
-              <option value="all">全部区域 ({rows.length})</option>
-              {#each Object.entries(getRoiMetas(batch?.layout_version)) as [key, meta]}
-                {@const count = rows.filter((r) => r.roi === key).length}
-                <option value={key}>{meta.shortName} ({count})</option>
-              {/each}
-            </select>
-            <button class="button-secondary button-compact col-span-2" on:click={() => refreshReview()}>刷新</button>
-            {#if batch?.screenshot_set}
-              <label class="feedback-sort col-span-2">
-                <input type="checkbox" bind:checked={prioritizeFeedback} />
-                平台标记「识别不准确」的源图优先复核
-              </label>
-            {/if}
-            {#if split === 'train' && (batch?.review?.teacher_eligible ?? 0) > 0}
-              <button class="button-primary button-compact col-span-2" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>
-                接受上一版模型 + RapidOCR 一致项 ({batch?.review?.teacher_eligible})
+      <section class="review">
+        <header class="review-bar">
+          <div class="segmented" role="group" aria-label="数据集">
+            {#each ['train', 'holdout'] as name}
+              <button type="button" class="segmented-btn" class:segmented-active={split === name} aria-pressed={split === name} on:click={() => { split = name; void refreshReview() }}>{name === 'train' ? 'Train' : 'Holdout'}</button>
+            {/each}
+          </div>
+          <select class="control" aria-label="状态" bind:value={status} on:change={() => refreshReview()}>
+            <option value="pending">待复核</option>
+            <option value="auto_accepted">自动接受（抽查）</option>
+            <option value="accepted">已接受</option>
+            <option value="rejected">已拒绝</option>
+            <option value="all">全部</option>
+          </select>
+          <select class="control" aria-label="区域" bind:value={roiFilter} on:change={onRoiFilterChange}>
+            <option value="all">全部区域</option>
+            {#each Object.entries(ROI_INFO) as [key, info]}
+              <option value={key}>{info.name} ({rows.filter((row) => row.roi === key).length})</option>
+            {/each}
+          </select>
+          <div class="review-progress">
+            <span><b>{batch?.review?.pending ?? 0}</b> 待复核 · 共 {batch?.review?.total ?? 0}</span>
+            <div><i style={`width: ${batch?.review?.total ? Math.round(((batch.review.total - batch.review.pending) / batch.review.total) * 100) : 0}%`}></i></div>
+          </div>
+          {#if jevState?.status === 'reviewing'}<span class="review-chip">JEV 处理中 {jevState.processed ?? 0}</span>{/if}
+          <details class="more">
+            <summary aria-label="更多操作">⋯</summary>
+            <div class="more-menu">
+              <p>{#if !jevConfigured}JEV 未配置{:else if jevState && jevState.status !== 'not_started'}JEV {jevState.status} · 已处理 {jevState.processed ?? 0} · 错误 {jevState.errors ?? 0}{#if jevState.jev_adopted} · 自动采纳 {jevState.jev_adopted.accepted + jevState.jev_adopted.rejected}{/if}{:else}JEV 尚未运行{/if}</p>
+              <button class="button-secondary button-compact" disabled={!batch || busy || !jevConfigured || jevState?.status === 'reviewing'} on:click={() => void startJev()}>继续 JEV</button>
+              {#if split === 'train' && (batch?.review?.teacher_eligible ?? 0) > 0}
+                <button class="button-secondary button-compact" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>接受上一版模型一致项（{batch?.review?.teacher_eligible}）</button>
+              {/if}
+              <button class="button-secondary button-compact" on:click={() => refreshReview()}>刷新</button>
+            </div>
+          </details>
+        </header>
+        <div class="review-body">
+          <aside class="review-queue" aria-label="待复核队列">
+            {#each displayedRows as row}
+              <button type="button" class="queue-item" class:queue-item-current={selected?.crop === row.crop} on:click={(event) => selectCandidate(row, event)}>
+                <i style={`background: ${getRoiInfo(row.roi).dotColor}`}></i>
+                <span>{row.transcription || suggestionFor(row).text || '无建议'}</span>
+                {#if row.review_status === 'accepted'}<em>✓</em>{:else if row.review_status === 'rejected'}<em>✕</em>{/if}
               </button>
-            {/if}
-          </div>
-          <div class="countline">
-            <b>{displayedRows.length}</b>
-            <span>条{roiFilter !== 'all' ? ` · ${getRoiInfo(roiFilter, batch?.layout_version).shortName}` : ''}</span>
-            <i>/</i>
-            <b>{batch?.review?.pending || 0}</b>
-            <span>待复核</span>
-            <i>/</i>
-            <b>{batch?.review?.total || 0}</b>
-            <span>总计</span>
-          </div>
-          <div class="candidate-scroll">
-            {#if displayedRows.length}
-              {#each displayedRows as row}
-                {@const roiInfo = getRoiInfo(row.roi, row.layout_version || batch?.layout_version)}
-                {@const ratio = getEngineRatio(row)}
-                <button
-                  type="button"
-                  class:selected-row={selected?.crop === row.crop}
-                  class="candidate"
-                  on:click={(event) => selectCandidate(row, event)}
-                >
-                  <div class="candidate-head">
-                    <span class="candidate-roi-pill">
-                      <span class="candidate-roi-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
-                      <span>{roiInfo.shortName}</span>
-                    </span>
-                    <div class="candidate-meta-tags">
-                      {#if row.accuracy_feedback === 'inaccurate'}
-                        <span class="status-tag status-tag-feedback" title="平台标记该源图识别不准确 · 建议重点复核">反馈有误</span>
-                      {/if}
-                      {#if row.auto_reject_reason}
-                        <span class="status-tag status-tag-rejected" title="自动排除 · 格式不匹配">排除</span>
-                      {:else if row.auto_accept_reason}
-                        <span class="status-tag status-tag-auto" title="自动接受 · 可抽查">自动</span>
-                      {:else if row.teacher_auto_accept_eligible}
-                        <span class="status-tag status-tag-teacher" title="上一版模型建议">建议</span>
-                      {/if}
-
-                      {#if ratio.total > 1}
-                        <span class={`ratio-tag ${ratio.tagClass}`} title={ratio.tooltip}>
-                          {ratio.matching}/{ratio.total}
-                        </span>
-                      {/if}
-
-                      <span
-                        class="candidate-conf-tag"
-                        class:candidate-conf-high={(candidateConfidence(row) ?? 0) >= 0.98}
-                        class:candidate-conf-mid={(candidateConfidence(row) ?? 0) >= 0.9 && (candidateConfidence(row) ?? 0) < 0.98}
-                        title={reviewConfidenceTitle(row)}
-                      >
-                        {reviewConfidenceLabel(row)}
-                      </span>
-                    </div>
-                  </div>
-                  <strong class="candidate-text">{row.candidate_text || '无候选文本'}</strong>
-                </button>
-              {/each}
+            {/each}
+          </aside>
+          <article class="review-card">
+            {#if selected && batch}
+              {@const info = getRoiInfo(selected.roi)}
+              {@const pick = suggestionFor(selected)}
+              {@const index = displayedRows.findIndex((row) => row.crop === selected?.crop)}
+              <div class="card-meta">
+                <span class="roi-chip"><i style={`background: ${info.dotColor}`}></i>{info.name}</span>
+                {#if selected.accuracy_feedback === 'inaccurate'}<span class="tag tag-warn">平台标记不准确</span>{/if}
+                {#if selected.auto_reject_reason}<span class="tag">自动排除</span>{:else if selected.auto_accept_reason}<span class="tag">自动接受</span>{/if}
+                <span class="card-index">{index + 1} / {displayedRows.length}</span>
+              </div>
+              <button type="button" class="crop-stage" aria-label="点击切换放大" on:click={toggleCropZoom}>
+                <img
+                  src={`/api/batches/${batch.batch_id}/crop?split=${split}&crop=${encodeURIComponent(selected.crop)}`}
+                  alt="待复核切片"
+                  class="crop-image"
+                  class:crop-image-crisp={cropDisplayScale() > 1.25}
+                  style={cropImageStyle()}
+                  on:load={onCropLoad}
+                />
+              </button>
+              {#if selected.roi === 'achievement_panel'}
+                <div class="segmented" role="group" aria-label="类别">
+                  {#each CATEGORIES as [value, label]}
+                    <button type="button" class="segmented-btn" class:segmented-active={selected.category === value} aria-pressed={selected.category === value} on:click={() => { if (selected) selected = { ...selected, category: value } }}>{label}</button>
+                  {/each}
+                </div>
+              {/if}
+              <div class={`suggest suggest-${pick.tone}`}>
+                <span class="suggest-source">{pick.label}</span>
+                <span>{pick.hint}</span>
+              </div>
+              <input
+                class="transcription"
+                type="text"
+                aria-label="转写"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+                enterkeyhint="done"
+                bind:this={transcriptionEl}
+                bind:value={selected.transcription}
+                on:keydown={onTranscriptionKey}
+              />
+              <div class="alts">
+                {#each alternativesFor(selected, selected.transcription) as alt}
+                  <button type="button" class="alt" on:click={() => { applyEngineText(alt.text); transcriptionEl?.focus() }}>{alt.text}<small>{alt.who}</small></button>
+                {/each}
+              </div>
+              <footer class="card-actions">
+                <button type="button" class="button-ghost" aria-label="上一条" title="上一条 (Alt + ↑)" disabled={displayedRows.length < 2} on:click={selectPrevCandidate}>‹</button>
+                <button type="button" class="button-secondary" class:button-suggested={pick.reject} title="拒绝 (Alt + ⌫)" on:click={() => save('rejected')}>拒绝</button>
+                <button type="button" class="button-primary" title="接受 (Enter)" on:click={() => save('accepted')}>接受</button>
+                <button type="button" class="button-ghost" aria-label="下一条" title="下一条 (Alt + ↓)" disabled={displayedRows.length < 2} on:click={selectNextCandidate}>›</button>
+              </footer>
+            {:else if (batch?.review?.pending ?? 0) === 0 && (batch?.review?.total ?? 0) > 0 && status === 'pending'}
+              <div class="review-done">
+                <h2>复核完成</h2>
+                <p>已接受 {batch?.review?.accepted} · 已拒绝 {batch?.review?.rejected}。可以直接训练。</p>
+                <div class="panel-actions"><button class="button-primary" disabled={busy} on:click={() => void trainCurrentBatch()}>选择训练方式</button></div>
+              </div>
             {:else}
-              <p class="empty">当前筛选无结果。若尚未生成候选，请回到上一步。</p>
+              <div class="review-done"><h2>没有符合筛选的切片</h2><p>换一个数据集、状态或区域；若还没有候选，回到「准备」。</p></div>
             {/if}
-          </div>
-        </aside>
-        <article class="review-detail">
-          {#if selected && batch}
-            {@const roiInfo = getRoiInfo(selected.roi, selected.layout_version || batch?.layout_version)}
-            {@const currentIndex = displayedRows.findIndex((r) => r.crop === selected?.crop)}
-            <div class="review-detail-scroll">
-              <header class="detail-header">
-                <div class="detail-header-left">
-                  <div class="roi-banner-pill">
-                    <span class="roi-pill-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
-                    <strong class="roi-pill-name">{roiInfo.name}</strong>
-                    <span class="roi-pill-code">{roiInfo.code}</span>
-                    <span class="roi-pill-pos">{roiInfo.position}</span>
-                  </div>
-                  <div class="detail-subhead">
-                    <h2>复核切片</h2>
-                    <span
-                      class="status-chip"
-                      class:status-chip-pending={selected.review_status === 'pending'}
-                      class:status-chip-accepted={selected.review_status === 'accepted' || selected.review_status === 'auto_accepted'}
-                      class:status-chip-rejected={selected.review_status === 'rejected'}
-                    >
-                      {selected.auto_reject_reason ? '自动排除' : selected.auto_accept_reason ? '自动接受' : selected.teacher_auto_accept_eligible ? '模型建议' : selected.review_status === 'pending' ? '待复核' : selected.review_status === 'accepted' ? '已接受' : '已拒绝'}
-                    </span>
-                    <code class="crop-id-code" title={selected.crop}>{selected.crop.split('/').pop() || selected.crop}</code>
-                  </div>
-                </div>
-
-                <div class="detail-header-right">
-                  <div class="hud-minimap" title={`游戏画面方位：${roiInfo.position} (${roiInfo.name})`}>
-                    <div class="hud-screen-frame">
-                      <span class="hud-label">HUD 方位</span>
-                      {#each Object.entries(getRoiMetas(selected.layout_version || batch?.layout_version)) as [key, meta]}
-                        <div
-                          class="hud-box"
-                          class:hud-box-active={selected.roi === key}
-                          style={`left: ${meta.rect.x}%; top: ${meta.rect.y}%; width: ${meta.rect.w}%; height: ${meta.rect.h}%; ${selected.roi === key ? `background-color: ${meta.dotColor}; border-color: ${meta.dotColor};` : ''}`}
-                          title={`${meta.name} (${meta.position})`}
-                        ></div>
-                      {/each}
-                    </div>
-                  </div>
-
-                  {#if cropNatural.w}
-                    <p class="crop-meta" aria-live="polite">
-                      {cropNatural.w}×{cropNatural.h}px · {cropZoom === 'auto' ? `自适应 ${cropDisplayScale().toFixed(1)}×` : `${cropZoom}×`}
-                    </p>
-                  {/if}
-                </div>
-              </header>
-
-              <section class="crop-panel" aria-label="切片预览">
-                <div class="crop-toolbar">
-                  <div class="crop-toolbar-left">
-                    <span class="crop-toolbar-label">切片预览</span>
-                    <span class="crop-roi-tag">
-                      <span class="crop-roi-dot" style={`background-color: ${roiInfo.dotColor};`}></span>
-                      {roiInfo.shortName}
-                    </span>
-                  </div>
-                  <div class="segmented" role="group" aria-label="切片缩放">
-                    {#each cropZoomSteps as step}
-                      <button
-                        type="button"
-                        class="segmented-btn"
-                        class:segmented-active={cropZoom === step}
-                        aria-pressed={cropZoom === step}
-                        on:click={() => cropZoom = step}
-                      >{cropZoomLabel(step)}</button>
-                    {/each}
-                  </div>
-                </div>
-                <div class="crop-viewport" class:crop-viewport-scroll={cropZoom !== 'auto'}>
-                  <img
-                    src={`/api/batches/${batch.batch_id}/crop?split=${split}&crop=${encodeURIComponent(selected.crop)}`}
-                    alt="当前 OCR 切片"
-                    class="crop-image"
-                    class:crop-image-crisp={cropDisplayScale() > 1.25}
-                    class:crop-image-wide={cropIsWideStrip()}
-                    style={cropImageStyle()}
-                    on:load={onCropLoad}
-                  />
-                </div>
-              </section>
-
-              <div class="detail-copy">
-                <div class="engine-hint-row">
-                  <p class="engine-hint">点选引擎结果填入转写，确认后接受或拒绝。</p>
-                  {#if selectedRatio && selectedRatio.total > 1}
-                    <div
-                      class={`engine-ratio-badge ${selectedRatio.tagClass}`}
-                      title={selectedRatio.tooltip}
-                    >
-                      <span class="ratio-indicator-dot"></span>
-                      <strong class="ratio-value font-mono tabular-nums">{selectedRatio.matching}/{selectedRatio.total}</strong>
-                      <span class="ratio-text">{selectedRatio.isAgreement ? '一致' : '分歧'}</span>
-                    </div>
-                  {/if}
-                </div>
-                {#if selected.auto_reject_reason}
-                  <p class="auto-review-hint">这条切片未通过该 ROI 的内容格式检查，已自动排除，不会进入训练标签。若确认位置和内容都正确，可手动接受并填写转写。</p>
-                {:else if selected.auto_accept_reason}
-                  <p class="auto-review-hint">这条切片由自动规则接受，仍可修改转写或点击「拒绝」进行人工覆盖。</p>
-                {:else if selected.teacher_auto_accept_eligible}
-                  <p class="auto-review-hint">上一版模型与其他已返回引擎高置信度一致。这条建议只属于 Train，可用左侧按钮接受；Holdout 不会自动接受。</p>
-                {/if}
-                {#if isHumanReviewed(selected)}
-                  <p class="auto-review-hint">人工已确认。原始机器候选置信度：{confidenceLabel(candidateConfidence(selected))}；该数值不代表人工标注置信度。</p>
-                {/if}
-                <div class="engine-picks" role="group" aria-label="多引擎识别结果">
-                  <button
-                    type="button"
-                    class="engine-pick"
-                    class:engine-pick-active={engineSelected(selected.rapidocr_text)}
-                    class:engine-pick-empty={!selected.rapidocr_text}
-                    disabled={!selected.rapidocr_text}
-                    on:click={() => applyEngineText(selected?.rapidocr_text)}
-                  >
-                    <span class="engine-pick-head">
-                      <span class="engine-name">RapidOCR</span>
-                      <span
-                        class="engine-conf"
-                        class:engine-conf-high={(selected.rapidocr_confidence ?? 0) >= 0.98}
-                        class:engine-conf-mid={(selected.rapidocr_confidence ?? 0) >= 0.9 && (selected.rapidocr_confidence ?? 0) < 0.98}
-                      >{confidenceLabel(selected.rapidocr_confidence)}</span>
-                    </span>
-                    <strong class="engine-text">{selected.rapidocr_text || '无识别结果'}</strong>
-                    {#if engineSelected(selected.rapidocr_text)}<span class="engine-chosen">已选用</span>{/if}
-                  </button>
-                  <button
-                    type="button"
-                    class="engine-pick"
-                    class:engine-pick-active={engineSelected(selected.vision_text)}
-                    class:engine-pick-empty={!selected.vision_text}
-                    disabled={!selected.vision_text}
-                    on:click={() => applyEngineText(selected?.vision_text)}
-                  >
-                    <span class="engine-pick-head">
-                      <span class="engine-name">Vision</span>
-                      <span
-                        class="engine-conf"
-                        class:engine-conf-high={(selected.vision_confidence ?? 0) >= 0.98}
-                        class:engine-conf-mid={(selected.vision_confidence ?? 0) >= 0.9 && (selected.vision_confidence ?? 0) < 0.98}
-                      >{confidenceLabel(selected.vision_confidence)}</span>
-                    </span>
-                    <strong class="engine-text">{selected.vision_text || '无识别结果'}</strong>
-                    {#if engineSelected(selected.vision_text)}<span class="engine-chosen">已选用</span>{/if}
-                  </button>
-                  <button
-                    type="button"
-                    class="engine-pick"
-                    class:engine-pick-active={engineSelected(selected.teacher_text)}
-                    class:engine-pick-empty={!selected.teacher_text}
-                    disabled={!selected.teacher_text}
-                    on:click={() => applyEngineText(selected?.teacher_text)}
-                  >
-                    <span class="engine-pick-head">
-                      <span class="engine-name">上一版模型{selected.teacher_model_version ? ` · ${selected.teacher_model_version}` : ''}</span>
-                      <span
-                        class="engine-conf"
-                        class:engine-conf-high={(selected.teacher_confidence ?? 0) >= 0.98}
-                        class:engine-conf-mid={(selected.teacher_confidence ?? 0) >= 0.9 && (selected.teacher_confidence ?? 0) < 0.98}
-                      >{confidenceLabel(selected.teacher_confidence)}</span>
-                    </span>
-                    <strong class="engine-text">{selected.teacher_text || '无识别结果'}</strong>
-                    {#if engineSelected(selected.teacher_text)}<span class="engine-chosen">已选用</span>{/if}
-                  </button>
-                </div>
-                <label class="transcription-field">
-                  <span>转写</span>
-                  <textarea bind:value={selected.transcription} aria-label="转写" rows="3"></textarea>
-                </label>
-              </div>
-            </div>
-
-            <footer class="review-actions-bar">
-              <div class="review-actions-meta">
-                {#if currentIndex >= 0}
-                  <span class="review-index-badge">第 {currentIndex + 1} / {rows.length} 条</span>
-                {/if}
-                <div class="review-nav-group">
-                  <button
-                    type="button"
-                    class="button-ghost button-compact"
-                    disabled={!rows.length || busy}
-                    on:click={selectPrevCandidate}
-                    title="上一条 (Alt + ↑)"
-                  >
-                    ‹ 上一条
-                  </button>
-                  <button
-                    type="button"
-                    class="button-ghost button-compact"
-                    disabled={!rows.length || busy}
-                    on:click={selectNextCandidate}
-                    title="下一条 (Alt + ↓)"
-                  >
-                    下一条 ›
-                  </button>
-                </div>
-              </div>
-
-              <div class="review-actions-main">
-                <span class="review-shortcut-hint">⌘/Ctrl+Enter 接受 · Alt+⌫ 拒绝</span>
-                <button
-                  type="button"
-                  class="button-secondary button-danger-hover"
-                  disabled={busy}
-                  on:click={() => save('rejected')}
-                  title="拒绝此切片 (Alt + Backspace)"
-                >
-                  拒绝
-                </button>
-                <button
-                  type="button"
-                  class="button-primary"
-                  disabled={busy}
-                  on:click={() => save('accepted')}
-                  title="接受此转写并切换到下一条 (Cmd/Ctrl + Enter)"
-                >
-                  接受并下一条
-                </button>
-              </div>
-            </footer>
-          {:else}
-            <div class="empty-detail">
-              <p class="eyebrow">步骤 3</p>
-              <h2>从左侧选择一条候选</h2>
-              <p>筛选 train / holdout 与状态，点条目后对照切片校正转写。</p>
-            </div>
-          {/if}
-        </article>
+          </article>
+        </div>
       </section>
     {:else if active === 'dataset'}
       <section class="dataset-layout">
@@ -2048,18 +2002,20 @@
         <div class="training-head">
           <header class="panel-head">
             <p class="eyebrow">步骤 5</p>
-            <h2>Smoke 训练</h2>
-            <p>在当前批次 labels 上启动本地 CPU Smoke。失败 run 可从 checkpoint 恢复到新的 run。</p>
+            <h2>Kaggle 模型训练</h2>
+            <p>默认提交到 Kaggle GPU，查看日志，结束后自动下载模型。本地 CPU Smoke 用于快速验证训练脚本。</p>
           </header>
           <div class="panel-actions">
             <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshTraining()}>立即刷新</button>
+            <button class="button-secondary" disabled={!batch || busy || trainingIsRunning(training?.status)} on:click={() => void evaluateTrained()} title="对最近一次已训练出的检查点重新跑评测门槛，不会重新训练">只评测已有检查点</button>
             <button class="button-primary" disabled={!batch || busy || trainingIsRunning(training?.status)} on:click={startTraining}>
               {busy ? '启动中…' : trainingIsRunning(training?.status) ? '训练中…' : '启动训练'}
             </button>
           </div>
         </div>
 
-        <div class="training-config">
+        <div class="training-config"><label class="field"><span>训练环境</span><select class="control" bind:value={trainingBackend} disabled={busy || trainingIsRunning(training?.status)}><option value="kaggle">Kaggle GPU</option><option value="smoke">本地 CPU Smoke</option></select></label>
+          {#if trainingBackend === 'smoke'}
           <label class="field">
             <span>恢复 checkpoint</span>
             <select class="control" bind:value={resumeCheckpoint} disabled={!batch || busy || trainingIsRunning(training?.status)}>
@@ -2069,11 +2025,29 @@
               {/each}
             </select>
           </label>
+          {/if}
           <label class="field field-compact">
             <span>目标 Epoch</span>
             <input class="control" type="number" min="1" max="100" bind:value={trainingEpochs} disabled={!batch || busy || trainingIsRunning(training?.status)} />
           </label>
-          <p class="config-note">恢复会带入模型、优化器与 epoch 状态，不覆盖原 run；目标 Epoch 须高于 checkpoint 已完成进度。</p>
+          {#if trainingBackend === 'smoke'}<p class="config-note">恢复到新的 run，目标 Epoch 须高于已完成进度。</p>{/if}
+          {#if trainingBackend === 'kaggle' && trainingOptions}
+            <label class="field">
+              <span>基础权重</span>
+              <select class="control" bind:value={baseWeights} disabled={busy || trainingIsRunning(training?.status)}>
+                <option value="">官方 PP-OCRv6 预训练（从头训练）</option>
+                {#each trainingOptions.base_weights as weights}<option value={weights.path}>接着训练：{weights.name}</option>{/each}
+              </select>
+            </label>
+            <fieldset class="field data-choice" disabled={busy || trainingIsRunning(training?.status)}>
+              <span>训练数据</span>
+              <label class="check"><input type="checkbox" checked disabled /> 当前批次 {batch?.batch_id}</label>
+              {#each trainingOptions.data_batches as item}
+                <label class="check"><input type="checkbox" checked={includedBatches.has(item.batch_id)} on:change={() => toggleIncludedBatch(item.batch_id)} /> {item.batch_id} · train {item.train} / holdout {item.holdout}</label>
+              {/each}
+            </fieldset>
+            <p class="config-note">本次：{baseWeights ? '接着已有权重训练' : '从官方预训练权重重新训练'}，使用 {1 + includedBatches.size} 个批次的标签。同一张截图只会出现在训练或保留集之一。</p>
+          {/if}
         </div>
 
         {#if !batch}
@@ -2082,7 +2056,7 @@
           <div class="empty-card">
             <p class="eyebrow">就绪</p>
             <h3>尚未启动训练</h3>
-            <p>生成 labels 后配置 checkpoint 与 epoch，再点击「启动训练」。</p>
+            <p>选择基础权重、训练数据和 Epoch，再点击「启动训练」；标签会在启动时自动生成。</p>
           </div>
         {:else}
           <div class="training-status" aria-live="polite">
@@ -2092,10 +2066,27 @@
               class:status-done={training.status === 'completed'}
               class:status-failed={training.status === 'failed' || training.status === 'completed_or_failed'}
             >{trainingStatusLabel(training.status)}</span>
+            {#if training.backend}<span class="status-meta">{training.backend}</span>{/if}{#if training.checkpoint}<span class="status-meta">本地模型：{training.checkpoint}</span>{/if}
+            {#if training.base}<span class="status-meta">基础权重：{training.base.kind === 'official' ? '官方预训练（从头）' : training.base.name}</span>{/if}
+            {#if training.data}<span class="status-meta">训练数据：{training.data.batches.length} 个批次 · train {training.data.train_samples ?? '—'} / holdout {training.data.holdout_samples ?? '—'}</span>{/if}
+            {#if training.field_accuracy != null}<span class="status-meta">固定截图准确率 {(training.field_accuracy * 100).toFixed(2)}%</span>{/if}
             {#if training.pid}<span class="status-meta">PID {training.pid}</span>{/if}
             {#if trainingPolling}<span class="status-meta status-live">自动刷新 · {TRAINING_POLL_MS / 1000}s</span>{/if}
             {#if trainingUpdatedAt}<span class="status-meta">更新于 {trainingUpdatedAt}</span>{/if}
           </div>
+
+          {#if training.backend === 'evaluate' && training.status === 'failed' && training.verdict === 'failed'}
+            <div class="empty-card override-card">
+              <p class="eyebrow">与线上模型的成对评测未通过</p>
+              <ul class="reason-list">{#each training.reasons ?? [] as reason}<li>{reason}</li>{/each}</ul>
+              <label class="field"><span>负责人放行理由（连同上面的原因一起记入发布记录，至少 10 个字）</span>
+                <textarea class="control" rows="3" bind:value={overrideReason} placeholder="例如：同一份测试数据下与线上打平，退步仅 1 个被遮挡的样本，且候选针对新版 HUD 训练"></textarea>
+              </label>
+              <div class="panel-actions"><button class="button-secondary" disabled={busy || overrideReason.trim().length < 10} on:click={() => void acceptOverride()}>按负责人决定放行</button></div>
+            </div>
+          {:else if training.override}
+            <p class="config-note">已按负责人决定放行：{training.override.reason}</p>
+          {/if}
 
           {#if training.command?.length}
             <div class="training-command">
@@ -2126,7 +2117,7 @@
             <header class="panel-head">
               <p class="eyebrow">发布</p>
               <h2>发布到 R2</h2>
-              <p>仅在 Smoke 成功后可用。将重新评测、导出新的不可变版本、上传 R2 并下载校验，不覆盖历史模型。</p>
+              <p>训练完成后可启动；本地评测通过后继续发布。将重新评测、导出新的不可变版本、上传 R2 并下载校验，不覆盖历史模型。</p>
             </header>
             <div class="publish-status" aria-live="polite">
               <span
@@ -2142,8 +2133,8 @@
           {#if training?.status !== 'completed'}
             <div class="empty-card">
               <p class="eyebrow">门槛</p>
-              <h3>需要先完成 Smoke</h3>
-              <p>当前训练状态为「{trainingStatusLabel(training?.status || 'not_started')}」。发布按钮将在 Smoke 成功后启用。</p>
+              <h3>需要先完成训练</h3>
+              <p>当前训练状态为「{trainingStatusLabel(training?.status || 'not_started')}」。发布按钮将在训练成功后启用。</p>
             </div>
           {:else}
             <div class="publish-steps" aria-hidden="true">
@@ -2190,6 +2181,7 @@
         </section>
       </section>
     {/if}
+    {#if active === 'training'}
     <section class="publish-panel release-decision-panel" aria-label="候选与 stable 决策">
       <div class="publish-head">
         <header class="panel-head">
@@ -2209,7 +2201,8 @@
           <span>stable</span><code>{releaseComparison.stable.version || '未知'} · {releaseComparison.stable.manifest_key || '无 manifest'}</code>
         </div>
         {#if releaseComparison.comparison?.field_accuracy}
-          <p class="config-note">fixture field accuracy：候选 {releaseComparison.comparison.field_accuracy.candidate ?? '—'}，stable {releaseComparison.comparison.field_accuracy.stable ?? '—'}，delta {releaseComparison.comparison.field_accuracy.delta ?? '—'}。</p>
+          {@const pct = (value?: number | null) => (value == null ? '—' : `${(value * 100).toFixed(2)}%`)}
+          <p class="config-note">候选与线上模型在同一批固定截图、同一份代码下成对测量：固定截图 {pct(releaseComparison.comparison.field_accuracy.candidate)}（线上 {pct(releaseComparison.comparison.field_accuracy.stable)}）{#if releaseComparison.comparison.holdout_accuracy?.candidate != null}；保留集识别 {pct(releaseComparison.comparison.holdout_accuracy.candidate)}（线上 {pct(releaseComparison.comparison.holdout_accuracy.stable)}）{/if}。</p>
         {/if}
         {#if releaseComparison.eligible}
           <p class="status-meta status-live">候选证据完整，可执行显式晋级。</p>
@@ -2239,7 +2232,9 @@
         </div>
       {/if}
     </section>
+    {/if}
     </div>
+    {#if build}<p class="build-tag" title="当前页面所连接的 Studio 来自哪个分支和提交">{build}</p>{/if}
   </div>
 
   {#if hoverPreviewObject}
@@ -2279,7 +2274,7 @@
               type="button"
               class="button-secondary button-compact"
               class:modal-selected={isSelected}
-              on:click={() => toggleRemoteSelection(previewModalObject.key)}
+              on:click={() => previewModalObject && toggleRemoteSelection(previewModalObject.key)}
             >
               {isSelected ? '✓ 已选中' : '+ 选中此截图'}
             </button>

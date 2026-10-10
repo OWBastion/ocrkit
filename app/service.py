@@ -2,16 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
+import cv2
+
 from app.core.roi_config import RoiConfig
 from app.image.preprocess import preprocess_by_roi
 from app.image.quality import assess_input_quality
 from app.image.roi import crop_all_rois, select_roi_config
-from app.ocr.engine import OcrEngine
+from app.ocr.engine import OcrChunk, OcrEngine
+from app.parser.ai_mark import is_ai_mark
 from app.parser.bottom_left_hero import parse_bottom_left_hero
 from app.parser.center_summary import parse_center_summary
+from app.parser.event_stack import parse_event_stack
 from app.parser.left_panel import parse_achievement_titles, parse_left_panel
 from app.parser.result_merger import merge_result
-from app.parser.right_panel import parse_right_panel
+from app.parser.right_panel import parse_right_panel, parse_server_load
 from app.parser.run_code import ParsedRunCode, enforce_run_code_confidence, parse_run_code
 from app.parser.terminology import TerminologyCatalog, TerminologyResult, normalize_roi_text
 from app.schemas.response import (
@@ -42,6 +46,12 @@ _FIELD_ROIS = {
     "difficulty": ("right_panel",),
     "version": ("right_panel",),
     "run_code": ("run_code_panel",),
+    "event": ("achievement_panel",),
+    "ai_mark_detected": ("ai_watermark",),
+    "mode": ("right_panel",),
+    "restart_in_seconds": ("right_panel",),
+    "uptime_seconds": ("right_panel",),
+    "server_load": ("right_panel", "server_load_panel"),
 }
 _RUN_CODE_ROIS = ("run_code_panel", "run_code_right_panel")
 
@@ -113,6 +123,8 @@ def extract_structured(
     normalized, roi_images = crop_all_rois(image, active_roi_config)
 
     raw_text: dict[str, str] = {}
+    chunks_by_roi: dict[str, list[OcrChunk]] = {}
+    scales: dict[str, float] = {}
     confidences: dict[str, float] = {}
     terminology_results: dict[str, TerminologyResult] = {}
 
@@ -121,6 +133,8 @@ def extract_structured(
         result = engine.recognize(processed)
         raw_text[roi_name] = result.text
         confidences[roi_name] = result.confidence
+        chunks_by_roi[roi_name] = result.chunks
+        scales[roi_name] = processed.shape[1] / roi_image.shape[1]
 
     normalized_text = dict(raw_text)
     if terminology is not None:
@@ -133,7 +147,17 @@ def extract_structured(
     left_text = normalized_text.get("left_panel", "")
     achievement_text = normalized_text.get("achievement_panel", "")
     left = parse_left_panel(left_text)
-    achievement_titles = parse_achievement_titles(achievement_text)
+    event = None
+    stack_chunks = chunks_by_roi.get("achievement_panel", [])
+    if any(chunk.box is not None for chunk in stack_chunks):
+        stack = parse_event_stack(
+            stack_chunks,
+            cv2.cvtColor(roi_images["achievement_panel"], cv2.COLOR_BGR2GRAY),
+            scales["achievement_panel"],
+        )
+        achievement_titles, event = stack.achievements, stack.event
+    else:
+        achievement_titles = parse_achievement_titles(achievement_text)
     if achievement_titles:
         left.achievement_title = achievement_titles[0]
         left.achievement_titles = achievement_titles
@@ -146,8 +170,11 @@ def extract_structured(
         parse_run_code("\n".join(normalized_text.get(name, "") for name in run_code_rois)),
         max((confidences.get(name, 0.0) for name in run_code_rois), default=0.0),
     )
-    bottom_left = parse_bottom_left_hero(normalized_text.get("bottom_left_hero", ""))
+    ai_mark_detected = is_ai_mark(raw_text["ai_watermark"]) if "ai_watermark" in raw_text else None
+    bottom_left = parse_bottom_left_hero(normalized_text.get("bottom_left_hero", ""), chunks_by_roi.get("bottom_left_hero", []))
     right = parse_right_panel(normalized_text.get("right_panel", ""), map_names, map_aliases)
+    if right.server_load is None:
+        right.server_load = parse_server_load(normalized_text.get("server_load_panel", ""))
     data = merge_result(
         center,
         left,
@@ -155,6 +182,8 @@ def extract_structured(
         right,
         achievement_panel_text=achievement_text.strip() or None,
         run_code=run_code.value,
+        event=event,
+        ai_mark_detected=ai_mark_detected,
     )
 
     warnings: list[str] = list(input_quality["warnings"])

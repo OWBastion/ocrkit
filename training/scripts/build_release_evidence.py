@@ -17,6 +17,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build immutable model release evidence before manifest creation.")
     parser.add_argument("--fixture-report", required=True, type=Path)
     parser.add_argument("--holdout-report", type=Path)
+    parser.add_argument("--comparison-report", type=Path)
     parser.add_argument("--provenance", type=Path)
     parser.add_argument("--compatibility-report", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -36,6 +37,12 @@ def main() -> None:
     if args.provenance is not None:
         provenance_payload = _read_json(args.provenance, "release provenance")
         provenance = {"status": "recorded", "source": provenance_payload}
+    comparison: dict[str, Any] = {"verdict": "missing"}
+    if args.comparison_report is not None:
+        comparison_payload = _read_json(args.comparison_report, "comparison report")
+        if not isinstance(comparison_payload, dict):
+            raise SystemExit("comparison report must be a JSON object")
+        comparison = comparison_payload
     compatibility = _read_json(args.compatibility_report, "Bastion screenshot compatibility report")
     if not isinstance(compatibility, dict) or compatibility.get("schema_version") != 1:
         raise SystemExit("Bastion screenshot compatibility report has an unsupported schema")
@@ -45,8 +52,9 @@ def main() -> None:
     evidence = {
         "schema_version": 1,
         "evaluation": {
-            "fixture": {**fixture, "status": "passed"},
+            "fixture": {**fixture, "status": fixture.get("status", "passed")},
             "holdout": holdout,
+            "comparison": comparison,
         },
         "full_test_suite": {"status": "passed"},
         "provenance": provenance,

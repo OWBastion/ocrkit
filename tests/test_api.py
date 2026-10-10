@@ -28,35 +28,35 @@ class StubEngine:
 
 class AchievementPanelEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (225, 555):
+        if image.shape[:2] == (561, 840):
             return OcrResult(text="生命守护生命 ✓", confidence=0.93, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
 class MultipleAchievementPanelEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (225, 555):
+        if image.shape[:2] == (561, 840):
             return OcrResult(text="新称号甲 ✓ 新称号乙 ✔", confidence=0.93, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
 class RunCodeEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (190, 660):
+        if image.shape[:2] == (172, 660):
             return OcrResult(text="本局代码：4821-7354-1926", confidence=0.96, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
 class LowConfidenceRunCodeEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (190, 660):
+        if image.shape[:2] == (172, 660):
             return OcrResult(text="本局代码：4821-7354-1926", confidence=0.89, chunks=[])
         return OcrResult(text="", confidence=0.5, chunks=[])
 
 
 class AmbiguousRunCodeEngine:
     def recognize(self, image: np.ndarray) -> OcrResult:
-        if image.shape[:2] == (190, 660):
+        if image.shape[:2] == (172, 660):
             return OcrResult(
                 text="本局代码：4821-7354-1926 Run Code: 4821-7354-1927",
                 confidence=0.97,
@@ -120,7 +120,7 @@ def test_extract_uses_viewer_player_only(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "app.service.parse_bottom_left_hero",
-        lambda text: BottomLeftHero("viewer-player"),
+        lambda text, chunks=(): BottomLeftHero("viewer-player"),
     )
     monkeypatch.setattr(
         "app.service.parse_left_panel",
@@ -313,7 +313,7 @@ def test_extract_ok_with_debug() -> None:
     assert payload["request_id"] == "request-upload-1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v6"
+    assert payload["layout_version"] == "1280x720-v7"
     assert payload["quality"] == {
         "original_size": [1, 1],
         "aspect_ratio": 1.0,
@@ -321,7 +321,7 @@ def test_extract_ok_with_debug() -> None:
         "cropped": True,
         "blur_score": 1.0,
         "normalized_size": [1280, 720],
-        "layout_version": "1280x720-v6",
+        "layout_version": "1280x720-v7",
         "warnings": payload["warnings"],
     }
     assert payload["fields"]["viewer_player"]["status"] == "missing"
@@ -348,7 +348,7 @@ def test_by_object_ok_with_debug() -> None:
     assert payload["schema_version"] == "1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v6"
+    assert payload["layout_version"] == "1280x720-v7"
     assert set(payload["fields"]) == {
         "challenge_completed",
         "heroes_completed",
@@ -367,6 +367,12 @@ def test_by_object_ok_with_debug() -> None:
         "difficulty",
         "version",
         "run_code",
+        "event",
+        "ai_mark_detected",
+        "mode",
+        "restart_in_seconds",
+        "uptime_seconds",
+        "server_load",
     }
     assert payload["debug"] is not None
     assert object_store.last_bucket == "owbastion-codes-evidence"

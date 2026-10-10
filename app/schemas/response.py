@@ -50,6 +50,22 @@ class QualityPayload(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class EventNumber(BaseModel):
+    text: str
+    value: float
+    unit: str | None = None
+
+
+class EventData(BaseModel):
+    """The single active event shown under the stats block, as read; the platform judges it against the game version."""
+
+    name: str | None = None
+    duration_seconds: int | None = None
+    description: list[str] = Field(default_factory=list)
+    numbers: list[EventNumber] = Field(default_factory=list)
+    text: str = ""
+
+
 class ChallengeData(BaseModel):
     challenge_completed: bool | None
     heroes_completed: int | None
@@ -68,6 +84,12 @@ class ChallengeData(BaseModel):
     difficulty: str | None
     version: str | None
     run_code: str | None = None
+    event: EventData | None = None
+    ai_mark_detected: bool | None = None
+    mode: str | None = None
+    restart_in_seconds: float | None = None
+    uptime_seconds: float | None = None
+    server_load: int | None = None
 
 
 class ChallengeResponse(BaseModel):
