@@ -29,6 +29,6 @@ def test_ultrawide_keeps_height_scale_and_anchors_hud_to_screen_edges() -> None:
     normalized, wide_crops = crop_all_rois(ultrawide, config)
 
     assert normalized.shape[:2] == (720, 1720)
-    for name in ("left_panel", "run_code_panel", "achievement_panel", "bottom_left_hero", "right_panel", "run_code_right_panel"):
+    for name in ("left_panel", "run_code_panel", "achievement_panel", "bottom_left_hero", "right_panel", "run_code_right_panel", "ai_watermark", "server_load_panel"):
         assert np.array_equal(wide_crops[name], standard_crops[name]), name
     assert anchored_rois(config, 1720)["right_panel"].x2 == config.rois["right_panel"].x2 + 440
