@@ -1846,7 +1846,7 @@
             <summary aria-label="更多操作">⋯</summary>
             <div class="more-menu">
               <p>{#if !jevConfigured}JEV 未配置{:else if jevState && jevState.status !== 'not_started'}JEV {jevState.status} · 已处理 {jevState.processed ?? 0} · 错误 {jevState.errors ?? 0}{#if jevState.jev_adopted} · 自动采纳 {jevState.jev_adopted.accepted + jevState.jev_adopted.rejected}{/if}{:else}JEV 尚未运行{/if}</p>
-              <button class="button-secondary button-compact" disabled={!batch || busy || !jevConfigured || jevState?.status === 'reviewing'} on:click={() => void startJev()}>重新运行 JEV</button>
+              <button class="button-secondary button-compact" disabled={!batch || busy || !jevConfigured || jevState?.status === 'reviewing'} on:click={() => void startJev()}>继续 JEV</button>
               {#if split === 'train' && (batch?.review?.teacher_eligible ?? 0) > 0}
                 <button class="button-secondary button-compact" disabled={busy} on:click={() => void acceptTeacherSuggestions()}>接受上一版模型一致项（{batch?.review?.teacher_eligible}）</button>
               {/if}

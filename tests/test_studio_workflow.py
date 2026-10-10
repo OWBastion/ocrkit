@@ -94,6 +94,26 @@ def test_worker_cannot_overwrite_a_human_decision_made_during_inference(tmp_path
     assert json.loads((run / "result.json").read_text())["saved"] == 0
 
 
+def test_jev_rerun_resumes_without_repeating_valid_suggestions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = _batch(tmp_path)
+    calls = []
+    class Runner:
+        def __init__(self, *args: object) -> None:
+            pass
+        def decide(self, record, image: Path, tokens: int) -> DecisionOutput:
+            calls.append(record.record_id)
+            return DecisionOutput(record_id=record.record_id, input_digest=compute_input_digest(record), runner="test", status="ok", reason_code="ok", image_tokens=tokens, options=record.options, selected_option="Samoa")
+        def close(self) -> None:
+            pass
+    monkeypatch.setattr(workflow, "OmniMlxRunner", Runner)
+    monkeypatch.setattr(workflow, "jev_config", lambda: {"configured": True, "model_dir": "local", "worker_python": "python"})
+    for name in ("first", "second"):
+        run = tmp_path / name
+        run.mkdir()
+        workflow.run_jev(batch, run, 70)
+    assert len(calls) == 1
+
+
 def test_api_starts_jev_in_background_and_blocks_duplicate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     batch = _batch(tmp_path)
     launched = []

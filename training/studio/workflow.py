@@ -66,6 +66,9 @@ def run_jev(batch_dir: Path, run_dir: Path, image_tokens: int, on_progress: Call
                         raise ValueError("pending review row has a missing or unsafe crop")
                     record = record_from_review_row(batch_dir.name, split, load_manifest(batch_dir).get("layout_version"), hashlib.sha256(image.read_bytes()).hexdigest(), row)
                     record.input_digest = compute_input_digest(record)
+                    previous = row.get("jev_suggestion")
+                    if isinstance(previous, dict) and previous.get("status") == "ok" and previous.get("input_digest") == record.input_digest:
+                        continue
                     output = runner.decide(record, image, image_tokens)
                     suggestion = output.model_dump()
                     option = output.selected_option
