@@ -6,10 +6,30 @@
   --color-paper: oklch(0.97 0.01 90);
   --color-clay: oklch(0.68 0.12 55);
   --color-leaf: oklch(0.48 0.09 145);
+  --color-surface: white;
+  --color-snow: oklch(0.97 0.01 90);
   --radius-control: 0.7rem;
   --radius-panel: 1.05rem;
   --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.55) inset, 0 10px 30px -22px rgba(40, 28, 8, 0.35);
   --ease-press: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-ink: oklch(0.93 0.01 90);
+    --color-paper: oklch(0.2 0.012 70);
+    --color-surface: oklch(0.26 0.014 70);
+    --color-clay: oklch(0.72 0.12 55);
+    --color-leaf: oklch(0.72 0.11 145);
+    --color-red-50: oklch(0.28 0.06 25);
+    --color-red-100: oklch(0.32 0.08 25);
+    --color-red-200: oklch(0.42 0.1 25);
+    --color-red-300: oklch(0.5 0.12 25);
+    --color-red-800: oklch(0.85 0.09 25);
+    --color-amber-700: oklch(0.82 0.12 75);
+    --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 10px 30px -22px rgba(0, 0, 0, 0.7);
+  }
 }
 
 @layer base {
@@ -41,8 +61,8 @@
   .app-frame { @apply mx-auto max-w-7xl; }
 
   .app-chrome {
-    @apply sticky top-0 z-20 -mx-1 mb-4 rounded-[1.15rem] border border-white/50 px-3 pb-2 pt-3 sm:px-4;
-    background: color-mix(in oklch, var(--color-paper) 72%, white);
+    @apply sticky top-0 z-20 -mx-1 mb-4 rounded-[1.15rem] border border-surface/50 px-3 pb-2 pt-3 sm:px-4;
+    background: color-mix(in oklch, var(--color-paper) 72%, var(--color-surface));
     backdrop-filter: blur(22px) saturate(170%);
     box-shadow: 0 12px 36px -28px rgba(40, 28, 8, 0.45);
   }
@@ -63,7 +83,7 @@
     @apply text-[11px] font-semibold tracking-[0.08em] text-ink/45;
   }
   .batch-picker select {
-    @apply w-full rounded-[var(--radius-control)] border border-ink/10 bg-white/90 px-3 py-2 font-medium text-ink shadow-sm;
+    @apply w-full rounded-[var(--radius-control)] border border-ink/10 bg-surface/90 px-3 py-2 font-medium text-ink shadow-sm;
     transition: border-color 140ms var(--ease-press), box-shadow 140ms var(--ease-press);
   }
   .batch-picker select:hover { @apply border-ink/20; }
@@ -95,14 +115,14 @@
   }
   .nav-current:hover { @apply bg-ink text-paper; }
   .nav-current .nav-index {
-    @apply bg-white/18 text-paper;
+    @apply bg-paper/18 text-paper;
   }
 
   .app-content { @apply grid gap-4; }
 
   .toast {
     @apply fixed bottom-5 left-1/2 z-40 flex w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-3 rounded-2xl border px-4 py-3;
-    background: color-mix(in oklch, white 82%, var(--color-paper));
+    background: color-mix(in oklch, var(--color-surface) 82%, var(--color-paper));
     backdrop-filter: blur(20px) saturate(170%);
     box-shadow: 0 18px 48px -24px rgba(30, 22, 8, 0.55), 0 1px 0 rgba(255, 255, 255, 0.65) inset;
     animation: toast-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -159,7 +179,7 @@
   .panel,
   .training-panel,
   .publish-panel {
-    @apply rounded-[var(--radius-panel)] border border-ink/8 bg-white/70;
+    @apply rounded-[var(--radius-panel)] border border-ink/8 bg-surface/70;
     box-shadow: var(--shadow-panel);
     backdrop-filter: blur(14px) saturate(150%);
   }
@@ -207,25 +227,25 @@
     @apply grid grid-cols-[1.5rem_1fr] items-start gap-2 rounded-xl px-2 py-1.5;
   }
   .flow-list li b {
-    @apply mt-0.5 inline-grid h-5 w-5 place-items-center rounded-full bg-white/10 text-[11px] font-semibold text-paper/70;
+    @apply mt-0.5 inline-grid h-5 w-5 place-items-center rounded-full bg-paper/10 text-[11px] font-semibold text-paper/70;
   }
   .flow-list li strong { @apply mr-1 font-semibold text-paper; }
   .flow-current {
-    @apply bg-white/8 text-paper;
+    @apply bg-paper/8 text-paper;
   }
   .flow-current b {
     @apply bg-clay/30 text-paper;
   }
   .batch-stats {
-    @apply mt-6 grid grid-cols-2 gap-3 border-t border-white/12 pt-4 text-sm;
+    @apply mt-6 grid grid-cols-2 gap-3 border-t border-paper/12 pt-4 text-sm;
   }
   .batch-stats dt { @apply text-paper/45; }
   .batch-stats dd { @apply mt-0.5 text-lg font-semibold tabular-nums tracking-tight text-paper; }
   .batch-revision-summary {
-    @apply mt-4 grid gap-1 border-t border-white/12 pt-3 text-[11px] text-paper/45;
+    @apply mt-4 grid gap-1 border-t border-paper/12 pt-3 text-[11px] text-paper/45;
   }
   .batch-revision-summary code {
-    @apply block bg-white/8 px-2 py-1.5 text-paper/75;
+    @apply block bg-paper/8 px-2 py-1.5 text-paper/75;
   }
 
   .file-pick {
@@ -250,7 +270,7 @@
   .control,
   .field input,
   .field select {
-    @apply rounded-[var(--radius-control)] border border-ink/12 bg-white px-3 py-2 text-ink shadow-sm;
+    @apply rounded-[var(--radius-control)] border border-ink/12 bg-surface px-3 py-2 text-ink shadow-sm;
     transition: border-color 140ms var(--ease-press), box-shadow 140ms var(--ease-press);
   }
   .control:hover,
@@ -275,7 +295,7 @@
   .button-primary:hover { @apply bg-clay; }
   .button-primary:active { transform: scale(0.97); }
   .button-secondary {
-    @apply border border-ink/15 bg-white/70 text-ink;
+    @apply border border-ink/15 bg-surface/70 text-ink;
   }
   .button-secondary:hover { @apply border-ink/30 bg-ink/5; }
   .button-secondary:active { transform: scale(0.97); }
@@ -320,7 +340,7 @@
   }
 
   .remote-filter-bar {
-    @apply flex flex-wrap items-center justify-between gap-2.5 rounded-[var(--radius-control)] border border-ink/8 bg-white/70 p-2 shadow-2xs;
+    @apply flex flex-wrap items-center justify-between gap-2.5 rounded-[var(--radius-control)] border border-ink/8 bg-surface/70 p-2 shadow-2xs;
   }
   .remote-search-box {
     @apply relative flex min-w-[min(100%,14rem)] flex-1 items-center;
@@ -329,7 +349,7 @@
     @apply pointer-events-none absolute left-2.5 text-ink/35;
   }
   .remote-search-input {
-    @apply w-full rounded-lg border border-ink/10 bg-white/90 py-1.5 pl-8 pr-7 text-xs text-ink placeholder:text-ink/35 focus:border-clay/50;
+    @apply w-full rounded-lg border border-ink/10 bg-surface/90 py-1.5 pl-8 pr-7 text-xs text-ink placeholder:text-ink/35 focus:border-clay/50;
   }
   .clear-search-btn {
     @apply absolute right-2 text-xs text-ink/40 hover:text-ink;
@@ -347,7 +367,7 @@
     @apply flex items-center gap-1 text-xs font-medium text-ink/55;
   }
   .remote-sort-select {
-    @apply rounded-lg border border-ink/10 bg-white/90 px-2 py-1 text-xs font-medium text-ink;
+    @apply rounded-lg border border-ink/10 bg-surface/90 px-2 py-1 text-xs font-medium text-ink;
   }
 
   .remote-list-header {
@@ -367,11 +387,11 @@
   }
 
   .remote-no-match {
-    @apply flex flex-col items-center justify-center gap-2 rounded-[var(--radius-control)] border border-ink/8 bg-white/70 py-8 text-center text-sm text-ink/50;
+    @apply flex flex-col items-center justify-center gap-2 rounded-[var(--radius-control)] border border-ink/8 bg-surface/70 py-8 text-center text-sm text-ink/50;
   }
 
   .remote-list {
-    @apply grid max-h-80 gap-1 overflow-y-auto rounded-[var(--radius-control)] border border-ink/8 bg-white/70 p-1.5;
+    @apply grid max-h-80 gap-1 overflow-y-auto rounded-[var(--radius-control)] border border-ink/8 bg-surface/70 p-1.5;
   }
   .remote-row {
     @apply flex min-w-0 items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-sm transition-colors;
@@ -431,11 +451,11 @@
     @apply flex shrink-0 items-center gap-1;
   }
   .button-preview-trigger {
-    @apply flex items-center gap-1 rounded-md border border-ink/10 bg-white/80 px-2.5 py-1 text-xs font-medium text-ink/70 shadow-2xs;
+    @apply flex items-center gap-1 rounded-md border border-ink/10 bg-surface/80 px-2.5 py-1 text-xs font-medium text-ink/70 shadow-2xs;
     transition: all 120ms var(--ease-press);
   }
   .button-preview-trigger:hover {
-    @apply border-ink/25 bg-white text-ink shadow-xs;
+    @apply border-ink/25 bg-surface text-ink shadow-xs;
   }
   .button-preview-trigger:active {
     transform: scale(0.96);
@@ -443,10 +463,10 @@
 
   /* Grid gallery view */
   .remote-grid {
-    @apply grid max-h-96 grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2.5 overflow-y-auto rounded-[var(--radius-control)] border border-ink/8 bg-white/70 p-2.5;
+    @apply grid max-h-96 grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2.5 overflow-y-auto rounded-[var(--radius-control)] border border-ink/8 bg-surface/70 p-2.5;
   }
   .remote-card {
-    @apply relative flex flex-col overflow-hidden rounded-xl border border-ink/10 bg-white shadow-2xs transition-all;
+    @apply relative flex flex-col overflow-hidden rounded-xl border border-ink/10 bg-surface shadow-2xs transition-all;
   }
   .remote-card:hover {
     @apply border-clay/40 shadow-sm;
@@ -510,7 +530,7 @@
 
   /* Hover floating preview card */
   .remote-hover-card {
-    @apply pointer-events-none fixed bottom-8 right-8 z-50 flex w-80 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-ink/15 bg-white shadow-[0_12px_28px_-8px_rgba(20,14,4,0.14),0_1px_3px_rgba(20,14,4,0.06)];
+    @apply pointer-events-none fixed bottom-8 right-8 z-50 flex w-80 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-ink/15 bg-surface shadow-[0_12px_28px_-8px_rgba(20,14,4,0.14),0_1px_3px_rgba(20,14,4,0.06)];
     animation: fade-in-up 120ms ease-out;
   }
   .hover-card-media {
@@ -520,7 +540,7 @@
     @apply h-full w-full object-cover;
   }
   .hover-card-body {
-    @apply grid gap-1 p-3 text-xs bg-white/95;
+    @apply grid gap-1 p-3 text-xs bg-surface/95;
   }
   .hover-card-title {
     @apply truncate font-semibold text-ink;
@@ -548,7 +568,7 @@
     animation: modal-pop 140ms var(--ease-press);
   }
   .modal-header {
-    @apply flex items-center justify-between gap-3 border-b border-ink/8 bg-white/80 px-4 py-3;
+    @apply flex items-center justify-between gap-3 border-b border-ink/8 bg-surface/80 px-4 py-3;
   }
   .modal-title-wrap {
     @apply grid min-w-0 gap-0.5;
@@ -566,7 +586,7 @@
     @apply !border-clay !bg-clay !text-white;
   }
   .modal-close-btn {
-    @apply grid h-8 w-8 place-items-center rounded-full border border-ink/10 bg-white/80 text-sm font-bold text-ink/60 transition-colors hover:bg-ink/10 hover:text-ink;
+    @apply grid h-8 w-8 place-items-center rounded-full border border-ink/10 bg-surface/80 text-sm font-bold text-ink/60 transition-colors hover:bg-ink/10 hover:text-ink;
   }
   .modal-body {
     @apply relative flex min-h-[320px] max-h-[65vh] flex-1 items-center justify-center bg-black/90 p-4;
@@ -587,7 +607,7 @@
     @apply right-4;
   }
   .modal-footer {
-    @apply flex flex-wrap items-center justify-between gap-3 border-t border-ink/8 bg-white/80 px-4 py-3 text-xs text-ink/65;
+    @apply flex flex-wrap items-center justify-between gap-3 border-t border-ink/8 bg-surface/80 px-4 py-3 text-xs text-ink/65;
   }
   .modal-meta-grid {
     @apply flex flex-wrap items-center gap-4;
@@ -610,7 +630,7 @@
     @apply max-w-lg;
   }
   .recreate-modal-header {
-    @apply flex items-start justify-between gap-3 border-b border-ink/8 bg-white/70 px-5 py-4 backdrop-blur-md;
+    @apply flex items-start justify-between gap-3 border-b border-ink/8 bg-surface/70 px-5 py-4 backdrop-blur-md;
   }
   .recreate-modal-title-wrap {
     @apply grid gap-0.5;
@@ -632,7 +652,7 @@
     @apply flex flex-col gap-2.5;
   }
   .recreate-info-card {
-    @apply flex flex-col gap-1 rounded-xl border border-ink/8 bg-white/65 p-3 shadow-2xs;
+    @apply flex flex-col gap-1 rounded-xl border border-ink/8 bg-surface/65 p-3 shadow-2xs;
   }
   .recreate-card-title {
     @apply text-xs font-bold text-ink;
@@ -641,7 +661,7 @@
     @apply text-xs leading-normal text-ink/60;
   }
   .recreate-modal-footer {
-    @apply flex items-center justify-end gap-2.5 border-t border-ink/8 bg-white/70 px-5 py-3.5 backdrop-blur-md;
+    @apply flex items-center justify-end gap-2.5 border-t border-ink/8 bg-surface/70 px-5 py-3.5 backdrop-blur-md;
   }
 
   /* Download & Processing Progress Dialog */
@@ -682,7 +702,7 @@
     @apply min-w-9 text-right font-mono text-xs font-bold tabular-nums text-ink/75;
   }
   .progress-current-file {
-    @apply flex items-center gap-1.5 rounded-lg border border-ink/8 bg-white/70 px-3 py-1.5 text-xs text-ink/60;
+    @apply flex items-center gap-1.5 rounded-lg border border-ink/8 bg-surface/70 px-3 py-1.5 text-xs text-ink/60;
   }
   .progress-file-label {
     @apply shrink-0 text-[11px] text-ink/45;
@@ -717,7 +737,7 @@
     @apply min-h-8 rounded-full px-2.5 text-xs font-medium text-ink/55;
     transition: transform 120ms var(--ease-press), background-color 140ms var(--ease-press), color 140ms var(--ease-press);
   }
-  .segmented-btn:hover { @apply bg-white/80 text-ink; }
+  .segmented-btn:hover { @apply bg-surface/80 text-ink; }
   .segmented-btn:active { transform: scale(0.96); }
   .segmented-active {
     @apply bg-ink text-paper shadow-sm;
@@ -729,7 +749,7 @@
     @apply rounded-full px-1.5 py-[1px] text-[10px] font-semibold tracking-tight;
   }
   .crop-image {
-    @apply block rounded-md border border-ink/10 bg-white;
+    @apply block rounded-md border border-ink/10 bg-surface;
     box-shadow: 0 10px 30px -18px rgba(40, 30, 10, 0.5);
     transition: box-shadow 180ms var(--ease-press);
   }
@@ -783,7 +803,7 @@
   }
   .checklist .check-ok::before {
     @apply border-leaf/40 bg-leaf/20;
-    box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--color-leaf) 55%, white);
+    box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--color-leaf) 55%, var(--color-surface));
   }
   .result-chip {
     @apply mt-4 inline-flex max-w-full truncate rounded-full bg-ink/5 px-3 py-1 text-xs font-medium tabular-nums text-ink/60;
@@ -857,7 +877,7 @@
   /* Review: one card at a time. Suggestion first, alternatives as chips, actions pinned to the bottom. */
   .review { @apply grid gap-3; }
   .review-bar {
-    @apply flex flex-wrap items-center gap-2 rounded-[var(--radius-panel)] border border-ink/8 bg-white/70 p-2.5;
+    @apply flex flex-wrap items-center gap-2 rounded-[var(--radius-panel)] border border-ink/8 bg-surface/70 p-2.5;
     box-shadow: var(--shadow-panel);
   }
   .review-bar .control { @apply min-h-10 py-1.5 text-sm; }
@@ -872,13 +892,13 @@
   .more > summary:hover { @apply bg-ink/6; }
   .more-menu {
     @apply absolute right-0 top-11 z-30 grid w-64 gap-2 rounded-2xl border border-ink/10 p-3 text-xs leading-5 text-ink/60;
-    background: color-mix(in oklch, white 88%, var(--color-paper));
+    background: color-mix(in oklch, var(--color-surface) 88%, var(--color-paper));
     backdrop-filter: blur(20px) saturate(170%);
     box-shadow: 0 18px 48px -24px rgba(30, 22, 8, 0.55);
   }
   .review-body { @apply grid gap-3 lg:grid-cols-[17rem_minmax(0,1fr)] lg:items-start; }
   .review-queue {
-    @apply hidden max-h-[calc(100dvh-13rem)] overflow-y-auto overscroll-contain rounded-[var(--radius-panel)] border border-ink/8 bg-white/60 lg:block;
+    @apply hidden max-h-[calc(100dvh-13rem)] overflow-y-auto overscroll-contain rounded-[var(--radius-panel)] border border-ink/8 bg-surface/60 lg:block;
   }
   .queue-item { @apply flex w-full items-center gap-2 border-b border-ink/6 px-3 py-2.5 text-left text-sm; }
   .queue-item:hover { @apply bg-clay/8; }
@@ -887,7 +907,7 @@
   .queue-item span { @apply min-w-0 flex-1 truncate; }
   .queue-item em { @apply not-italic text-xs text-ink/40; }
   .review-card {
-    @apply grid gap-3 rounded-[var(--radius-panel)] border border-ink/8 bg-white/70 p-3 sm:p-5;
+    @apply grid gap-3 rounded-[var(--radius-panel)] border border-ink/8 bg-surface/70 p-3 sm:p-5;
     box-shadow: var(--shadow-panel);
   }
   .card-meta { @apply flex flex-wrap items-center gap-2 text-xs text-ink/55; }
@@ -908,12 +928,12 @@
   .suggest-warn .suggest-source { @apply bg-clay/25 text-ink; }
   .suggest-bad .suggest-source { @apply bg-red-100 text-red-800; }
   .transcription {
-    @apply min-h-12 w-full rounded-[var(--radius-control)] border border-ink/12 bg-white px-3.5 py-2 font-medium tracking-[-0.01em] text-ink shadow-sm;
+    @apply min-h-12 w-full rounded-[var(--radius-control)] border border-ink/12 bg-surface px-3.5 py-2 font-medium tracking-[-0.01em] text-ink shadow-sm;
     font-size: max(1.25rem, 16px);
   }
   .alts { @apply flex flex-wrap gap-2; }
   .alt {
-    @apply inline-flex min-h-10 items-center gap-2 rounded-full border border-ink/12 bg-white px-3.5 py-1.5 text-left text-sm font-medium text-ink;
+    @apply inline-flex min-h-10 items-center gap-2 rounded-full border border-ink/12 bg-surface px-3.5 py-1.5 text-left text-sm font-medium text-ink;
     transition: transform 120ms var(--ease-press), background-color 140ms var(--ease-press), border-color 140ms var(--ease-press);
   }
   .alt:hover { @apply border-clay/50 bg-clay/8; }
@@ -922,7 +942,7 @@
   .card-actions {
     @apply sticky bottom-0 z-10 -mx-3 -mb-3 flex items-center gap-2 rounded-b-[var(--radius-panel)] border-t border-ink/8 px-3 pt-3 sm:-mx-5 sm:-mb-5 sm:px-5;
     padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
-    background: color-mix(in oklch, var(--color-paper) 80%, white);
+    background: color-mix(in oklch, var(--color-paper) 80%, var(--color-surface));
     backdrop-filter: blur(20px) saturate(170%);
   }
   .card-actions button { @apply min-h-12; }
@@ -980,30 +1000,30 @@
   }
 
   .log-panel {
-    @apply overflow-hidden rounded-[calc(var(--radius-panel)-0.15rem)] border border-ink/15 bg-[#171512] text-paper;
+    @apply overflow-hidden rounded-[calc(var(--radius-panel)-0.15rem)] border border-ink/15 bg-[#171512] text-snow;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
   .log-toolbar {
-    @apply flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-3 py-2.5;
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-snow/8 px-3 py-2.5;
     background: rgba(255, 255, 255, 0.04);
     backdrop-filter: blur(12px);
   }
   .log-toolbar > span {
-    @apply text-[11px] font-semibold tracking-[0.14em] text-paper/50;
+    @apply text-[11px] font-semibold tracking-[0.14em] text-snow/50;
   }
   .log-toolbar-actions {
     @apply flex flex-wrap items-center gap-3;
   }
   .log-follow {
-    @apply flex items-center gap-1.5 text-xs text-paper/70;
+    @apply flex items-center gap-1.5 text-xs text-snow/70;
   }
   .log-follow input { @apply accent-clay; }
   .log-path {
-    @apply max-w-[16rem] truncate text-paper/35;
+    @apply max-w-[16rem] truncate text-snow/35;
   }
   .log-tail {
     @apply m-0 max-h-[min(65vh,36rem)] min-h-72 overflow-auto overscroll-contain p-4;
-    @apply font-mono text-[12px] leading-6 text-paper/88;
+    @apply font-mono text-[12px] leading-6 text-snow/88;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     tab-size: 2;
@@ -1014,7 +1034,7 @@
   .card-actions,
   .more-menu {
     backdrop-filter: none;
-    background: white;
+    background: var(--color-surface);
   }
   body {
     background: var(--color-paper);
@@ -1025,7 +1045,7 @@
   .publish-panel,
   .toast {
     backdrop-filter: none;
-    background: white;
+    background: var(--color-surface);
   }
   .panel-side {
     background: var(--color-ink);
