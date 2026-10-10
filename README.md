@@ -88,7 +88,7 @@ and also include traceable contract metadata:
   "request_id": "...",
   "engine": "rapidocr",
   "model_version": "builtin",
-  "layout_version": "1280x720-v7",
+  "layout_version": "1280x720-v8",
   "ok": true,
   "data": {},
   "fields": {
@@ -108,7 +108,7 @@ and also include traceable contract metadata:
     "cropped": false,
     "blur_score": 0.08,
     "normalized_size": [1280, 720],
-    "layout_version": "1280x720-v7",
+    "layout_version": "1280x720-v8",
     "warnings": []
   }
 }
@@ -126,7 +126,7 @@ achievements move up when no event is shown, so the ROI is tall and lines are to
 `ai_watermark` (bottom-right generation mark; empty on genuine screenshots). Event/achievement/AI-mark
 fields are added to the response separately from the geometry.
 
-The service selects the versioned `1280x720-v7` or `1280x800-v2` ROI layout from the source
+The service selects the versioned `1280x720-v8` or `1280x800-v3` ROI layout from the source
 aspect ratio. The 16:10 layout is used for screenshots such as 2560x1600 without marking the
 input as cropped.
 
@@ -156,9 +156,13 @@ mark (for example `豆包AI生成`) and `false` otherwise; it is evidence, not a
 instead of guessed. `run_code` also accepts the unlabeled code printed by the current HUD
 (strict `dddd-dddd-dddd`, first digit 1-9) and marks it `label:absent`.
 
-`viewer_player` is the only player identity field suitable for account matching. The
-central completion banner is not an authoritative player source, so its player name is
-not included in `ChallengeData` or field evidence.
+`viewer_player` (bottom-left hero card) and `real_player` are the player identity fields
+suitable for account matching. The hero card can show a streamer-mode name; newer HUDs also
+print the player's real in-game name above the server load, which `real_player` reads from
+`server_load_panel` and leaves `null` when the HUD prints none. OCRKit reports both as
+evidence and does not choose between them. The central completion banner is not an
+authoritative player source, so its player name is not included in `ChallengeData` or field
+evidence.
 `map_variant` is `"classic"` when the right-panel map label contains `经典版` or `经典`,
 and `null` when the variant is not detected.
 `run_code` is additive, optional OCR evidence from the dedicated settlement

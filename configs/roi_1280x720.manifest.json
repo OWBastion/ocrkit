@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "layout_version": "1280x720-v7",
+  "layout_version": "1280x720-v8",
   "standard_size": {
     "width": 1280,
     "height": 720
@@ -58,7 +58,7 @@
       "x1": 1040,
       "y1": 122,
       "x2": 1275,
-      "y2": 140
+      "y2": 158
     }
   }
 }

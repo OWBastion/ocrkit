@@ -313,7 +313,7 @@ def test_extract_ok_with_debug() -> None:
     assert payload["request_id"] == "request-upload-1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v7"
+    assert payload["layout_version"] == "1280x720-v8"
     assert payload["quality"] == {
         "original_size": [1, 1],
         "aspect_ratio": 1.0,
@@ -321,7 +321,7 @@ def test_extract_ok_with_debug() -> None:
         "cropped": True,
         "blur_score": 1.0,
         "normalized_size": [1280, 720],
-        "layout_version": "1280x720-v7",
+        "layout_version": "1280x720-v8",
         "warnings": payload["warnings"],
     }
     assert payload["fields"]["viewer_player"]["status"] == "missing"
@@ -348,7 +348,7 @@ def test_by_object_ok_with_debug() -> None:
     assert payload["schema_version"] == "1"
     assert payload["engine"] == "rapidocr"
     assert payload["model_version"] == "builtin"
-    assert payload["layout_version"] == "1280x720-v7"
+    assert payload["layout_version"] == "1280x720-v8"
     assert set(payload["fields"]) == {
         "challenge_completed",
         "heroes_completed",
@@ -373,6 +373,7 @@ def test_by_object_ok_with_debug() -> None:
         "restart_in_seconds",
         "uptime_seconds",
         "server_load",
+        "real_player",
     }
     assert payload["debug"] is not None
     assert object_store.last_bucket == "owbastion-codes-evidence"
