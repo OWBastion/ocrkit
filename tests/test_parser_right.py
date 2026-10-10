@@ -1,4 +1,4 @@
-from app.parser.right_panel import parse_right_panel
+from app.parser.right_panel import parse_real_player, parse_right_panel
 
 
 def test_parse_right_panel_fixed_format_and_version() -> None:
@@ -94,3 +94,14 @@ def test_parse_right_panel_restores_mode_name_with_lost_leading_character() -> N
     assert parse_right_panel("好莱坞：地狱 [机事件5.0]", ["好莱坞"]).mode == "随机事件5.0"
     assert parse_right_panel("好莱坞：地狱 [随机事件5.0]", ["好莱坞"]).mode == "随机事件5.0"
     assert parse_right_panel("好莱坞：地狱 [未知模式1.0]", ["好莱坞"]).mode == "未知模式1.0"
+
+
+def test_real_player_is_the_line_above_the_server_load_label() -> None:
+    assert parse_real_player("云雀 服务器负载47") == "云雀"
+    assert parse_real_player("  Lark   Wing \n服务器负载 47") == "Lark Wing"
+
+
+def test_real_player_is_absent_when_the_hud_prints_no_name_or_no_label() -> None:
+    assert parse_real_player("服务器负载62") is None
+    assert parse_real_player("云雀") is None
+    assert parse_real_player("") is None

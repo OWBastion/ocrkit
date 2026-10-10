@@ -1,4 +1,4 @@
-layout_version: 1280x800-v2
+layout_version: 1280x800-v3
 
 standard_size:
   width: 1280
@@ -57,4 +57,4 @@ rois:
     x1: 1040
     y1: 122
     x2: 1275
-    y2: 140
+    y2: 158

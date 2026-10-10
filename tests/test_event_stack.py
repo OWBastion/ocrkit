@@ -97,6 +97,28 @@ def test_service_returns_event_achievements_and_ai_mark_as_additive_fields() -> 
     assert response.fields["ai_mark_detected"].value is True
 
 
+def test_service_reads_the_real_player_name_above_the_server_load() -> None:
+    root = Path(__file__).parents[1]
+    config = load_roi_config(root / "configs/roi_1280x720.yaml")
+
+    class Engine:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def recognize(self, processed: np.ndarray) -> OcrResult:
+            return OcrResult(self.text, 0.93, []) if processed.shape[:2] == (36, 235) else OcrResult("", 0.0, [])
+
+    image = np.full((720, 1280, 3), 30, dtype=np.uint8)
+    named = extract_structured(image, config, [], {}, Engine("云雀 服务器负载47"), False, "r1", "test", "test", config.version)
+    unnamed = extract_structured(image, config, [], {}, Engine("服务器负载62"), False, "r2", "test", "test", config.version)
+
+    assert named.data is not None and (named.data.real_player, named.data.server_load) == ("云雀", 47)
+    assert named.fields["real_player"].source_roi == ["server_load_panel"]
+    assert named.fields["real_player"].confidence == 0.93
+    assert unnamed.data is not None and (unnamed.data.real_player, unnamed.data.server_load) == (None, 62)
+    assert unnamed.fields["real_player"].status == "missing"
+
+
 def test_right_panel_status_lines() -> None:
     from app.parser.right_panel import parse_right_panel
 

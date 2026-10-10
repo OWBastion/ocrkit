@@ -44,4 +44,5 @@ def merge_result(
         restart_in_seconds=right.restart_in_seconds,
         uptime_seconds=right.uptime_seconds,
         server_load=right.server_load,
+        real_player=right.real_player,
     )

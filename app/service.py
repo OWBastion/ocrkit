@@ -15,7 +15,7 @@ from app.parser.center_summary import parse_center_summary
 from app.parser.event_stack import parse_event_stack
 from app.parser.left_panel import parse_achievement_titles, parse_left_panel
 from app.parser.result_merger import merge_result
-from app.parser.right_panel import parse_right_panel, parse_server_load
+from app.parser.right_panel import parse_real_player, parse_right_panel, parse_server_load
 from app.parser.run_code import ParsedRunCode, enforce_run_code_confidence, parse_run_code
 from app.parser.terminology import TerminologyCatalog, TerminologyResult, normalize_roi_text
 from app.schemas.response import (
@@ -52,6 +52,7 @@ _FIELD_ROIS = {
     "restart_in_seconds": ("right_panel",),
     "uptime_seconds": ("right_panel",),
     "server_load": ("right_panel", "server_load_panel"),
+    "real_player": ("server_load_panel",),
 }
 _RUN_CODE_ROIS = ("run_code_panel", "run_code_right_panel")
 
@@ -175,6 +176,7 @@ def extract_structured(
     right = parse_right_panel(normalized_text.get("right_panel", ""), map_names, map_aliases)
     if right.server_load is None:
         right.server_load = parse_server_load(normalized_text.get("server_load_panel", ""))
+    right.real_player = parse_real_player(raw_text.get("server_load_panel", ""))
     data = merge_result(
         center,
         left,

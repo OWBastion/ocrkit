@@ -90,6 +90,7 @@ class ChallengeData(BaseModel):
     restart_in_seconds: float | None = None
     uptime_seconds: float | None = None
     server_load: int | None = None
+    real_player: str | None = None
 
 
 class ChallengeResponse(BaseModel):

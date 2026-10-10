@@ -37,6 +37,8 @@ _DURATION = r"((?:\d+\s*小时)?\s*(?:\d+\s*分)?\s*(?:\d+\s*秒)?)(?![小时分
 _RESTART_IN = re.compile(r"距自动重开\s*" + _DURATION)
 _UPTIME = re.compile(r"已运行\s*" + _DURATION)
 _SERVER_LOAD = re.compile(r"服务器负载\s*(\d+)")
+_SERVER_LOAD_LABEL = re.compile(r"服务器负载")
+_MIN_PLAYER_NAME_LENGTH = 2
 
 
 @dataclass
@@ -49,6 +51,7 @@ class RightPanel:
     restart_in_seconds: float | None = None
     uptime_seconds: float | None = None
     server_load: int | None = None
+    real_player: str | None = None
 
 
 def _complete_mode(raw: str) -> str:
@@ -64,6 +67,19 @@ def _complete_mode(raw: str) -> str:
 def parse_server_load(text: str) -> int | None:
     match = _SERVER_LOAD.search(text)
     return int(match.group(1)) if match else None
+
+
+def parse_real_player(text: str) -> str | None:
+    """The player's real in-game name, shown on the line above the server load.
+
+    Older HUDs print no name there, so the server load label must bound it; without the
+    label the line cannot be told apart from scene text.
+    """
+    label = _SERVER_LOAD_LABEL.search(text)
+    if label is None:
+        return None
+    name = " ".join(text[: label.start()].split())
+    return name if len(name) >= _MIN_PLAYER_NAME_LENGTH else None
 
 
 def _duration_seconds(pattern: re.Pattern[str], text: str) -> float | None:

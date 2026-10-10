@@ -10,8 +10,8 @@
     {"revision": "settlement-hud-pre-run-code", "retained_for": "historical regression baseline"}
   ],
   "supported_layouts": [
-    {"layout_version": "1280x720-v7", "aspect_ratio": "16:9"},
-    {"layout_version": "1280x800-v2", "aspect_ratio": "16:10"}
+    {"layout_version": "1280x720-v8", "aspect_ratio": "16:9"},
+    {"layout_version": "1280x800-v3", "aspect_ratio": "16:10"}
   ],
   "critical_fields": [
     "challenge_completed",
@@ -43,7 +43,7 @@
         "deaths",
         "skips"
       ],
-      "required_layouts": ["1280x720-v7"]
+      "required_layouts": ["1280x720-v8"]
     },
     {
       "id": "run-code-fail-closed",
@@ -52,7 +52,7 @@
       "images": "tests/fixtures/run_code",
       "required": true,
       "critical_fields": ["run_code"],
-      "required_layouts": ["1280x720-v7", "1280x800-v2"]
+      "required_layouts": ["1280x720-v8", "1280x800-v3"]
     }
   ]
 }
