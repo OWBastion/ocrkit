@@ -2180,6 +2180,7 @@
                 {publicationIsActive() ? '发布中…' : '发布到 R2'}
               </button>
             </div>
+            {#if !publishConfirmed && !publicationIsActive()}<p class="config-note">先勾选上方「确认写入 R2」，才能点击发布。发布的是候选版本，上线需要在发布后单独提升为稳定版。</p>{/if}
           {/if}
 
           {#if publication && publication.status !== 'not_started'}
