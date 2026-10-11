@@ -38,6 +38,7 @@ _RESTART_IN = re.compile(r"距自动重开\s*" + _DURATION)
 _UPTIME = re.compile(r"已运行\s*" + _DURATION)
 _SERVER_LOAD = re.compile(r"服务器负载\s*(\d+)")
 _SERVER_LOAD_LABEL = re.compile(r"服务器负载")
+_RUN_CODE_TOKEN = re.compile(r"[0-9A-Z]{3,4}\s*[-–—.]\s*[0-9A-Z]{3,4}(?:\s*[-–—.]\s*[0-9A-Z]{2,4})?")
 _MIN_PLAYER_NAME_LENGTH = 2
 
 
@@ -78,7 +79,7 @@ def parse_real_player(text: str) -> str | None:
     label = _SERVER_LOAD_LABEL.search(text)
     if label is None:
         return None
-    name = " ".join(text[: label.start()].split())
+    name = " ".join(_RUN_CODE_TOKEN.sub(" ", text[: label.start()]).split())
     return name if len(name) >= _MIN_PLAYER_NAME_LENGTH else None
 
 

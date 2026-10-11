@@ -51,7 +51,7 @@ _FIELD_ROIS = {
     "mode": ("right_panel",),
     "restart_in_seconds": ("right_panel",),
     "uptime_seconds": ("right_panel",),
-    "server_load": ("right_panel", "server_load_panel"),
+    "server_load": ("right_panel", "server_load_panel", "run_code_right_panel"),
     "real_player": ("server_load_panel",),
 }
 _RUN_CODE_ROIS = ("run_code_panel", "run_code_right_panel")
@@ -174,8 +174,9 @@ def extract_structured(
     ai_mark_detected = is_ai_mark(raw_text["ai_watermark"]) if "ai_watermark" in raw_text else None
     bottom_left = parse_bottom_left_hero(normalized_text.get("bottom_left_hero", ""), chunks_by_roi.get("bottom_left_hero", []))
     right = parse_right_panel(normalized_text.get("right_panel", ""), map_names, map_aliases)
-    if right.server_load is None:
-        right.server_load = parse_server_load(normalized_text.get("server_load_panel", ""))
+    for load_roi in ("server_load_panel", "run_code_right_panel"):
+        if right.server_load is None:
+            right.server_load = parse_server_load(normalized_text.get(load_roi, ""))
     right.real_player = parse_real_player(raw_text.get("server_load_panel", ""))
     data = merge_result(
         center,

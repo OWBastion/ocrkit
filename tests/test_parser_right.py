@@ -101,6 +101,11 @@ def test_real_player_is_the_line_above_the_server_load_label() -> None:
     assert parse_real_player("  Lark   Wing \n服务器负载 47") == "Lark Wing"
 
 
+def test_real_player_ignores_a_run_code_read_on_the_same_line() -> None:
+    assert parse_real_player("9700-9278-1503 云雀 服务器负载84") == "云雀"
+    assert parse_real_player("3217-9535-5179 服务器负载101") is None
+
+
 def test_real_player_is_absent_when_the_hud_prints_no_name_or_no_label() -> None:
     assert parse_real_player("服务器负载62") is None
     assert parse_real_player("云雀") is None

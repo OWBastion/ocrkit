@@ -139,25 +139,35 @@ def engine_results_agree(*results: tuple[str | None, float | None], minimum_conf
     return len({canonicalize(text) for text, _ in available}) == 1
 
 
+_RUN_CODE_ROW = r"\d{3,4}[\s\-–—.]+\d{3,4}[\s\-–—.]+\d{2,4}"
+
 # Content that sits inside a ROI's box but is never one of its fields; recognising it is of no use to the parsers.
 _IRRELEVANT_TEXT = {
     # Health and ammo numbers share the hero card with the player name.
-    "bottom_left_hero": (re.compile(r"[\d\s/|.,:+\-%]+"), "bottom_left_hero.not_player_name"),
-    # The optional in-game performance overlay (FPS, temperature, memory, latency, clock).
+    "bottom_left_hero": ((re.compile(r"[\d\s/|.,:+\-%]+"), "bottom_left_hero.not_player_name"),),
     "right_panel": (
-        re.compile(r"(?:FPS|TMP|VRM|IND|PING|延迟|延退)\s*[:：.]?.*|\d{1,2}\s*[:.]\s*\d{2}\s*[AP]M|[A-Za-z°]|C", re.IGNORECASE),
-        "right_panel.performance_overlay",
+        # The optional in-game performance overlay (FPS, temperature, memory, latency, clock).
+        (
+            re.compile(r"(?:FPS|TMP|VRM|IND|PING|延迟|延退)\s*[:：.]?.*|\d{1,2}\s*[:.]\s*\d{2}\s*[AP]M|[A-Za-z°]|C", re.IGNORECASE),
+            "right_panel.performance_overlay",
+        ),
+        # The run code row sits under the map block and has ROIs of its own. The server load row can
+        # legitimately sit inside this ROI on older HUDs, so it is not filtered here.
+        (re.compile(_RUN_CODE_ROW), "right_panel.run_code_row"),
     ),
+    # Its run code row is read through the run code ROI.
+    "left_panel": ((re.compile(_RUN_CODE_ROW), "left_panel.run_code_row"),),
 }
 
 
 def candidate_rejection_reason(roi_name: str, texts: Iterable[str | None]) -> str | None:
     """Reject OCR text that cannot belong to a field with a strict format."""
     texts = tuple(texts)
-    irrelevant = _IRRELEVANT_TEXT.get(roi_name)
     present = [text.strip() for text in texts if isinstance(text, str) and text.strip()]
-    if irrelevant and present and all(irrelevant[0].fullmatch(text) for text in present):
-        return irrelevant[1]
+    if present:
+        for pattern, reason in _IRRELEVANT_TEXT.get(roi_name, ()):
+            if all(pattern.fullmatch(text) for text in present):
+                return reason
     if roi_name in {"run_code_panel", "run_code_right_panel"} and not any(
         isinstance(text, str) and (parse_run_code(text).status == "ok" or looks_like_run_code_value(text))
         for text in texts

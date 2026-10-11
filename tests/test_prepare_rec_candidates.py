@@ -391,6 +391,12 @@ def test_known_irrelevant_text_is_rejected_by_roi_but_real_fields_are_not() -> N
         assert candidate_rejection_reason("right_panel", [overlay]) == "right_panel.performance_overlay"
     for field in ("皇家赛道：地狱", "[随机事件5.0]", "版本26.0926.1", "服务器负载147", "已运行3小时21分22秒"):
         assert candidate_rejection_reason("right_panel", [field]) is None
+    # The run code row has ROIs of its own; stats lines and other ROIs are not touched.
+    assert candidate_rejection_reason("right_panel", ["3690-4655-6310"]) == "right_panel.run_code_row"
+    assert candidate_rejection_reason("left_panel", ["3690-4655-6310"]) == "left_panel.run_code_row"
+    for stats in ("58/8/32/-972%", "1小时31分34秒", "78/0", "通关总计耗时"):
+        assert candidate_rejection_reason("left_panel", [stats]) is None
+    assert candidate_rejection_reason("run_code_panel", ["3690-4655-6310"]) is None
     # Only the listed ROIs are filtered.
     assert candidate_rejection_reason("left_panel", ["FPS: 144"]) is None
 
