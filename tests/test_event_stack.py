@@ -80,7 +80,7 @@ def test_service_returns_event_achievements_and_ai_mark_as_additive_fields() -> 
 
     class Engine:
         def recognize(self, processed: np.ndarray) -> OcrResult:
-            if processed.shape[:2] == (561, 840):
+            if processed.shape[:2] == (561, 1020):
                 chunks = [_chunk("心之钢(27秒)", 3), _chunk("阵亡后获得1层", 19), _chunk("生命守护生命", 60)]
                 return OcrResult(" ".join(c.text for c in chunks), 0.95, chunks)
             if processed.shape[:2] == (42, 140):
@@ -106,7 +106,7 @@ def test_service_reads_the_real_player_name_above_the_server_load() -> None:
             self.text = text
 
         def recognize(self, processed: np.ndarray) -> OcrResult:
-            return OcrResult(self.text, 0.93, []) if processed.shape[:2] == (36, 235) else OcrResult("", 0.0, [])
+            return OcrResult(self.text, 0.93, []) if processed.shape[:2] == (108, 510) else OcrResult("", 0.0, [])
 
     image = np.full((720, 1280, 3), 30, dtype=np.uint8)
     named = extract_structured(image, config, [], {}, Engine("云雀 服务器负载47"), False, "r1", "test", "test", config.version)

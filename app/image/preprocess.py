@@ -38,6 +38,11 @@ def preprocess_right_panel(image: np.ndarray) -> np.ndarray:
     return cv2.convertScaleAbs(gray, alpha=1.2, beta=8)
 
 
+def preprocess_padded_line(image: np.ndarray) -> np.ndarray:
+    """Tight single-line ROIs: the text detector misses lines that touch the crop edge, so add margin."""
+    return cv2.copyMakeBorder(preprocess_left_panel(image), 20, 20, 20, 20, cv2.BORDER_REPLICATE)
+
+
 def preprocess_by_roi(roi_name: str, image: np.ndarray) -> np.ndarray:
     if roi_name == "center_banner":
         return preprocess_center_banner(image)
@@ -49,6 +54,8 @@ def preprocess_by_roi(roi_name: str, image: np.ndarray) -> np.ndarray:
         return preprocess_run_code_panel(image)
     if roi_name == "bottom_left_hero":
         return preprocess_left_panel(image)
+    if roi_name == "server_load_panel":
+        return preprocess_padded_line(image)
     if roi_name == "right_panel":
         return preprocess_right_panel(image)
     return image

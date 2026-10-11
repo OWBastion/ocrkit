@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "layout_version": "1280x720-v8",
+  "layout_version": "1280x720-v9",
   "standard_size": {
     "width": 1280,
     "height": 720
@@ -27,7 +27,7 @@
     "achievement_panel": {
       "x1": 20,
       "y1": 228,
-      "x2": 300,
+      "x2": 360,
       "y2": 415
     },
     "center_banner": {
@@ -56,9 +56,9 @@
     },
     "server_load_panel": {
       "x1": 1040,
-      "y1": 122,
+      "y1": 120,
       "x2": 1275,
-      "y2": 158
+      "y2": 154
     }
   }
 }

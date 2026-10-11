@@ -47,7 +47,7 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
         }
         return SimpleNamespace(
             data=SimpleNamespace(model_dump=lambda: {"map_name": "Hanamura"}),
-            quality=SimpleNamespace(layout_version="1280x800-v3", warnings=[]),
+            quality=SimpleNamespace(layout_version="1280x800-v4", warnings=[]),
         )
 
     monkeypatch.setattr(batch_eval, "extract_structured", extract_stub)
@@ -57,7 +57,7 @@ def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, t
 
     assert captured["config_path"] == model_config
     # Scored like the service: 16:10 screenshots use their own layout, and the layout actually selected is reported.
-    assert result["results"][0]["layout_version"] == "1280x800-v3"
+    assert result["results"][0]["layout_version"] == "1280x800-v4"
     assert context.ocr_engine.__class__ is StubEngine
     assert result["matched_fields"] == 1
     assert result["total_fields"] == 1
