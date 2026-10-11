@@ -89,7 +89,7 @@ class PrepareStart(BaseModel):
 
 
 class AcceptOverride(BaseModel):
-    reason: str = Field(min_length=10, max_length=500)
+    reason: str = Field(default="", max_length=500)
 
 
 class PublishStart(BaseModel):

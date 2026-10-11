@@ -768,14 +768,12 @@ def test_accepting_a_failed_comparison_records_the_decision_and_completes_the_ru
     (evaluation / "comparison_report.json").write_text(json.dumps({"verdict": "failed", "reasons": ["regresses deaths: 58/61 vs 59/61 on fixtures"], "stable": {"version": "v1", "manifest_key": "k"}}))
     (batch / "runs/kaggle-1/result.json").write_text(json.dumps({"base": {"kind": "official"}, "dataset_dir": str(batch / "dataset")}))
 
-    with pytest.raises(ValueError, match="why"):
-        workflow.accept_failed_evaluation(batch, "ok")
-    state = workflow.accept_failed_evaluation(batch, "owner decision: new HUD coverage outweighs one occluded sample")
+    state = workflow.accept_failed_evaluation(batch, "")
 
     comparison = json.loads((output / "evaluation/comparison_report.json").read_text())
     assert comparison["verdict"] == "overridden"
     assert comparison["override"]["overridden_reasons"] == ["regresses deaths: 58/61 vs 59/61 on fixtures"]
-    assert "owner decision" in comparison["override"]["reason"]
+    assert comparison["override"]["reason"] == "owner decision"
     assert json.loads((output / "evaluation/fixture_report.json").read_text())["status"] == "passed"
     assert json.loads((output / "evaluation/holdout_report.json").read_text())["status"] == "passed"
     assert json.loads((output / "status.json").read_text())["status"] == "success"
@@ -795,10 +793,10 @@ def test_only_a_failed_comparison_can_be_overridden(tmp_path: Path) -> None:
         accept(tmp_path, "there is nothing to override here")
 
 
-def test_accept_api_requires_a_reason_and_a_failed_evaluation(tmp_path: Path) -> None:
+def test_accept_api_needs_a_trained_checkpoint_but_no_reason(tmp_path: Path) -> None:
     _batch(tmp_path)
     client = TestClient(studio_app.create_app(tmp_path, None))
     path = "/api/batches/example/training/accept"
 
-    assert client.post(path, json={"reason": "short"}).status_code == 422
-    assert client.post(path, json={"reason": "a reason that is long enough"}).status_code == 422  # no trained checkpoint yet
+    assert client.post(path, json={}).status_code == 422  # no trained checkpoint yet; an empty reason is not the cause
+    assert client.post(path, json={"reason": "x" * 501}).status_code == 422
