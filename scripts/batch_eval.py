@@ -19,8 +19,25 @@ DEFAULT_RUN_CODE_CASES = Path("tests/fixtures/run_code/cases.json")
 DEFAULT_RUN_CODE_IMAGES_DIR = Path("tests/fixtures/run_code")
 
 
-def evaluate(cases_path: Path, images_dir: Path, model_config: Path | None = None) -> dict[str, object]:
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.lstrip("v").split("."))
+
+
+def evaluate(
+    cases_path: Path,
+    images_dir: Path,
+    model_config: Path | None = None,
+    minimum_version: str | None = None,
+) -> dict[str, object]:
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
+    if minimum_version:
+        # Screenshots from game builds below the supported floor are not part of what the service promises to read.
+        floor = _version_key(minimum_version)
+        cases = [
+            case
+            for case in cases
+            if not isinstance(case["expected"].get("version"), str) or _version_key(case["expected"]["version"]) >= floor
+        ]
     context = create_context()
     if model_config is not None:
         context.ocr_engine = RapidOcrEngine(config_path=model_config)

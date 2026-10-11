@@ -25,10 +25,12 @@ from training.scripts import evaluate_rec_holdout  # noqa: E402
 
 FIXTURE_CASES = Path("datasets/fixtures/challenge/cases.json")
 FIXTURE_IMAGES = Path("datasets/fixtures/challenge")
+COMPATIBILITY_CONFIG = Path("configs/bastion_screenshot_compatibility.json")
 
 
 def measure(model_config: Path, holdout: tuple[Path, Path] | None) -> dict[str, Any]:
-    fixture = batch_eval.evaluate(FIXTURE_CASES, FIXTURE_IMAGES, model_config)
+    floor = json.loads(COMPATIBILITY_CONFIG.read_text(encoding="utf-8"))["producer_contract"]["minimum_released_version"]
+    fixture = batch_eval.evaluate(FIXTURE_CASES, FIXTURE_IMAGES, model_config, minimum_version=floor)
     fixture["run_code"] = batch_eval.evaluate(batch_eval.DEFAULT_RUN_CODE_CASES, batch_eval.DEFAULT_RUN_CODE_IMAGES_DIR, model_config)
     return {
         "fixture": fixture,

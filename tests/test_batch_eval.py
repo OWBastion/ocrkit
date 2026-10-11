@@ -11,6 +11,34 @@ import pytest
 import scripts.batch_eval as batch_eval
 
 
+def test_evaluate_skips_fixtures_below_the_supported_version_floor(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cases = [
+        {"id": "old", "image": "a.png", "expected": {"version": "26.0623.2"}},
+        {"id": "floor", "image": "b.png", "expected": {"version": "26.0811.1"}},
+        {"id": "new", "image": "c.png", "expected": {"version": "26.1006.1"}},
+        {"id": "unversioned", "image": "d.png", "expected": {"map_name": "Hanamura"}},
+    ]
+    cases_path = tmp_path / "cases.json"
+    cases_path.write_text(json.dumps(cases), encoding="utf-8")
+    context = SimpleNamespace(
+        roi_config="roi", map_names="maps", map_aliases="aliases", ocr_engine="builtin",
+        engine_name="rapidocr", model_version="builtin", layout_version="v", roi_variants=(),
+    )
+    monkeypatch.setattr(batch_eval, "create_context", lambda: context)
+    monkeypatch.setattr(batch_eval.cv2, "imread", lambda _: np.zeros((1, 1, 3), dtype=np.uint8))
+    monkeypatch.setattr(
+        batch_eval,
+        "extract_structured",
+        lambda *_a, **_k: SimpleNamespace(
+            data=SimpleNamespace(model_dump=lambda: {}), quality=SimpleNamespace(layout_version="v", warnings=[])
+        ),
+    )
+
+    kept = batch_eval.evaluate(cases_path, tmp_path, minimum_version="v26.0811.1")
+    assert [row["id"] for row in kept["results"]] == ["floor", "new", "unversioned"]
+    assert len(batch_eval.evaluate(cases_path, tmp_path)["results"]) == 4
+
+
 def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(
