@@ -2008,29 +2008,35 @@
           <div class="panel-actions">
             <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshTraining()}>立即刷新</button>
             <button class="button-secondary" disabled={!batch || busy || trainingIsRunning(training?.status)} on:click={() => void evaluateTrained()} title="对最近一次已训练出的检查点重新跑评测门槛，不会重新训练">只评测已有检查点</button>
-            <button class="button-primary" disabled={!batch || busy || trainingIsRunning(training?.status)} on:click={startTraining}>
-              {busy ? '启动中…' : trainingIsRunning(training?.status) ? '训练中…' : '启动训练'}
-            </button>
           </div>
         </div>
 
-        <div class="training-config"><label class="field"><span>训练环境</span><select class="control" bind:value={trainingBackend} disabled={busy || trainingIsRunning(training?.status)}><option value="kaggle">Kaggle GPU</option><option value="smoke">本地 CPU Smoke</option></select></label>
+        <div class="training-config">
+          <div class="config-row">
+            <label class="field">
+              <span>训练环境</span>
+              <select class="control" bind:value={trainingBackend} disabled={busy || trainingIsRunning(training?.status)}>
+                <option value="kaggle">Kaggle GPU</option>
+                <option value="smoke">本地 CPU Smoke</option>
+              </select>
+            </label>
+            <label class="field field-compact">
+              <span>目标 Epoch</span>
+              <input class="control" type="number" min="1" max="100" bind:value={trainingEpochs} disabled={!batch || busy || trainingIsRunning(training?.status)} />
+            </label>
+          </div>
           {#if trainingBackend === 'smoke'}
-          <label class="field">
-            <span>恢复 checkpoint</span>
-            <select class="control" bind:value={resumeCheckpoint} disabled={!batch || busy || trainingIsRunning(training?.status)}>
-              <option value="">从 PP-OCRv6 预训练权重开始</option>
-              {#each resumeCheckpoints as checkpoint}
-                <option value={checkpoint.path}>{checkpoint.name}</option>
-              {/each}
-            </select>
-          </label>
+            <label class="field">
+              <span>恢复 checkpoint</span>
+              <select class="control" bind:value={resumeCheckpoint} disabled={!batch || busy || trainingIsRunning(training?.status)}>
+                <option value="">从 PP-OCRv6 预训练权重开始</option>
+                {#each resumeCheckpoints as checkpoint}
+                  <option value={checkpoint.path}>{checkpoint.name}</option>
+                {/each}
+              </select>
+            </label>
+            <p class="config-note">恢复到新的 run，目标 Epoch 须高于已完成进度。</p>
           {/if}
-          <label class="field field-compact">
-            <span>目标 Epoch</span>
-            <input class="control" type="number" min="1" max="100" bind:value={trainingEpochs} disabled={!batch || busy || trainingIsRunning(training?.status)} />
-          </label>
-          {#if trainingBackend === 'smoke'}<p class="config-note">恢复到新的 run，目标 Epoch 须高于已完成进度。</p>{/if}
           {#if trainingBackend === 'kaggle' && trainingOptions}
             <label class="field">
               <span>基础权重</span>
@@ -2039,15 +2045,36 @@
                 {#each trainingOptions.base_weights as weights}<option value={weights.path}>接着训练：{weights.name}</option>{/each}
               </select>
             </label>
-            <fieldset class="field data-choice" disabled={busy || trainingIsRunning(training?.status)}>
-              <span>训练数据</span>
-              <label class="check"><input type="checkbox" checked disabled /> 当前批次 {batch?.batch_id}</label>
-              {#each trainingOptions.data_batches as item}
-                <label class="check"><input type="checkbox" checked={includedBatches.has(item.batch_id)} on:change={() => toggleIncludedBatch(item.batch_id)} /> {item.batch_id} · train {item.train} / holdout {item.holdout}</label>
-              {/each}
+            <fieldset class="data-choice" disabled={busy || trainingIsRunning(training?.status)}>
+              <legend>训练数据 <em>已选 {1 + includedBatches.size} 个批次</em></legend>
+              <div class="data-list">
+                <label class="data-row data-row-current">
+                  <input type="checkbox" checked disabled />
+                  <span class="data-id">{batch?.batch_id}</span>
+                  <span class="data-count">当前批次</span>
+                </label>
+                {#each trainingOptions.data_batches as item}
+                  <label class="data-row">
+                    <input type="checkbox" checked={includedBatches.has(item.batch_id)} on:change={() => toggleIncludedBatch(item.batch_id)} />
+                    <span class="data-id">{item.batch_id}</span>
+                    <span class="data-count">train {item.train} · holdout {item.holdout}</span>
+                  </label>
+                {/each}
+              </div>
             </fieldset>
-            <p class="config-note">本次：{baseWeights ? '接着已有权重训练' : '从官方预训练权重重新训练'}，使用 {1 + includedBatches.size} 个批次的标签。同一张截图只会出现在训练或保留集之一。</p>
           {/if}
+          <div class="config-footer">
+            <p class="config-note">
+              {#if trainingBackend === 'kaggle'}
+                {baseWeights ? '接着已有权重训练' : '从官方预训练权重重新训练'}，使用 {1 + includedBatches.size} 个批次的标签。同一张截图只会出现在训练或保留集之一。
+              {:else}
+                本地 CPU 快速验证训练脚本，不用于发布。
+              {/if}
+            </p>
+            <button class="button-primary" disabled={!batch || busy || trainingIsRunning(training?.status)} on:click={startTraining}>
+              {busy ? '启动中…' : trainingIsRunning(training?.status) ? '训练中…' : '启动训练'}
+            </button>
+          </div>
         </div>
 
         {#if !batch}
