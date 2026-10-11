@@ -266,7 +266,10 @@
   .field {
     @apply grid min-w-[8rem] gap-1.5 text-sm font-medium text-ink/70;
   }
-  .field-compact { @apply w-28; }
+  .field-compact { @apply min-w-0; }
+  /* A select is as wide as its longest option unless told otherwise; never let it push the layout. */
+  .field > .control,
+  .field > select { @apply w-full min-w-0 max-w-full; }
   .control,
   .field input,
   .field select {
@@ -809,7 +812,7 @@
     @apply mt-4 inline-flex max-w-full truncate rounded-full bg-ink/5 px-3 py-1 text-xs font-medium tabular-nums text-ink/60;
   }
 
-  .training-panel { @apply grid gap-4; }
+  .training-panel { @apply grid grid-cols-[minmax(0,1fr)] gap-4; }
   .training-head {
     @apply flex flex-wrap items-end justify-between gap-4;
   }
@@ -827,12 +830,46 @@
     @apply rounded bg-ink/5 px-1 py-0.5 font-mono text-[11px];
   }
   .training-head .panel-actions { @apply mt-0; }
+  /* Setup form: one column of grouped controls, the launch action sits with the choices it depends on. */
   .training-config {
-    @apply grid gap-3 rounded-[calc(var(--radius-panel)-0.15rem)] border border-ink/8 bg-paper/55 p-4 sm:grid-cols-[minmax(0,1.4fr)_8rem] sm:items-end;
+    @apply grid gap-4 rounded-[calc(var(--radius-panel)-0.15rem)] border border-ink/8 bg-paper/55 p-4 sm:p-5;
+  }
+  .config-row {
+    @apply grid grid-cols-[minmax(0,1fr)_7rem] items-end gap-3;
+  }
+  .config-footer {
+    @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-ink/8 pt-4;
   }
   .config-note {
-    @apply text-xs leading-5 text-ink/50 sm:col-span-2;
+    @apply max-w-prose flex-1 basis-64 text-xs leading-5 text-ink/50;
   }
+  .data-choice {
+    @apply grid min-w-0 gap-2 border-0 p-0;
+  }
+  .data-choice legend {
+    @apply mb-2 flex w-full items-baseline justify-between text-sm font-medium text-ink/70;
+  }
+  .data-choice legend em {
+    @apply text-xs font-normal not-italic tabular-nums text-ink/45;
+  }
+  .data-list {
+    @apply max-h-60 divide-y divide-ink/6 overflow-y-auto overscroll-contain rounded-[var(--radius-control)] border border-ink/10 bg-surface;
+  }
+  .data-row {
+    @apply grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 text-sm text-ink/80;
+    transition: background-color 120ms var(--ease-press);
+  }
+  .data-row:hover { @apply bg-ink/4; }
+  .data-row:active { @apply bg-ink/8; }
+  .data-row input { @apply h-4 w-4 p-0 accent-clay; }
+  .data-row-current { @apply cursor-default bg-clay/10 hover:bg-clay/10; }
+  .data-id { @apply truncate font-mono text-xs tabular-nums; }
+  .data-count { @apply whitespace-nowrap text-xs tabular-nums text-ink/50; }
+  @media (max-width: 40rem) {
+    .data-row { grid-template-columns: auto minmax(0, 1fr); row-gap: 0.125rem; }
+    .data-count { grid-column: 2; }
+  }
+  .data-choice:disabled .data-row { @apply cursor-not-allowed opacity-60; }
 
   .publish-panel {
     @apply mt-1 grid gap-4;
@@ -980,9 +1017,6 @@
   .field-check { @apply flex flex-row items-center gap-2; }
   .override-card { @apply grid gap-3; }
   .reason-list { @apply list-disc pl-5 text-sm text-ink/70; }
-  .data-choice { @apply gap-1.5 border-0 p-0; }
-  .check { @apply flex items-center gap-2 text-sm font-normal text-ink/70; }
-  .check input { @apply h-4 w-4 p-0 accent-clay; }
   .field-check input { @apply h-5 w-5 p-0 accent-clay; }
   .status-pill {
     @apply rounded-full bg-ink/8 px-2.5 py-1 text-xs font-semibold tracking-wide text-ink/65;
@@ -990,7 +1024,7 @@
   .status-running { @apply bg-clay/20 text-ink; }
   .status-done { @apply bg-leaf/15 text-leaf; }
   .status-failed { @apply bg-red-100 text-red-800; }
-  .status-meta { @apply text-xs tabular-nums text-ink/45; }
+  .status-meta { @apply min-w-0 break-all text-xs tabular-nums text-ink/45; }
   .status-live { @apply font-medium text-leaf; }
   .training-command {
     @apply grid gap-1.5 text-xs text-ink/50;
