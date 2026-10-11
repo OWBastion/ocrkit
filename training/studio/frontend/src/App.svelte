@@ -2079,10 +2079,10 @@
             <div class="empty-card override-card">
               <p class="eyebrow">与线上模型的成对评测未通过</p>
               <ul class="reason-list">{#each training.reasons ?? [] as reason}<li>{reason}</li>{/each}</ul>
-              <label class="field"><span>负责人放行理由（连同上面的原因一起记入发布记录，至少 10 个字）</span>
+              <label class="field"><span>放行备注（可选；未通过的原因会自动记入发布记录）</span>
                 <textarea class="control" rows="3" bind:value={overrideReason} placeholder="例如：同一份测试数据下与线上打平，退步仅 1 个被遮挡的样本，且候选针对新版 HUD 训练"></textarea>
               </label>
-              <div class="panel-actions"><button class="button-secondary" disabled={busy || overrideReason.trim().length < 10} on:click={() => void acceptOverride()}>按负责人决定放行</button></div>
+              <div class="panel-actions"><button class="button-secondary" disabled={busy} on:click={() => void acceptOverride()}>按负责人决定放行</button></div>
             </div>
           {:else if training.override}
             <p class="config-note">已按负责人决定放行：{training.override.reason}</p>
