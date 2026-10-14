@@ -44,10 +44,10 @@ The synchronous endpoints remain available for smoke checks and training consume
 
 One background inference worker shares the engine lock with synchronous requests.
 Inference and object downloads run outside the ASGI event loop, so health checks and
-new admissions remain responsive. Queued jobs older than 10 minutes fail with
+new admissions remain responsive. Queued jobs older than 30 minutes fail with
 `OCR_JOB_EXPIRED` before inference starts. This is a queue deadline, not an inference
 execution timeout: the synchronous engine cannot be safely interrupted. The platform
-may expire a submission at its own 15-minute deadline and ignore a later callback.
+may expire a submission at its own 45-minute deadline and ignore a later callback.
 
 OCRKit posts JSON to the fixed configured `OCRKIT_PLATFORM_BASE_URL` HTTPS origin at
 `/v1/ocrkit/jobs/{jobId}/result`, authenticated by the same service token:
