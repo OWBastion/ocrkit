@@ -18,7 +18,7 @@ from app.image.loader import decode_image
 from app.service import extract_structured
 
 logger = logging.getLogger(__name__)
-QUEUE_DEADLINE = 600
+QUEUE_DEADLINE = 30 * 60
 RETENTION = 24 * 60 * 60
 MAX_PENDING = 100
 MAX_RECORDS = 10000

@@ -80,12 +80,39 @@ def test_failure_and_expired_jobs_callback_without_retaining_image(tmp_path, mon
     assert jobs.recognize_next()
     jobs.accept(str(uuid4()), b'image')
     with jobs.connect() as db:
-        db.execute('UPDATE jobs SET created = created - 601 WHERE image IS NOT NULL')
+        db.execute('UPDATE jobs SET created = created - 1801 WHERE image IS NOT NULL')
     assert jobs.recognize_next()
     with jobs.connect() as db:
         rows = db.execute('SELECT image, result FROM jobs').fetchall()
     assert all(row['image'] is None for row in rows)
     assert {'OCR_RECOGNITION_FAILED', 'OCR_JOB_EXPIRED'} == {json.loads(row['result'])['errorCode'] for row in rows}
+
+
+@pytest.mark.parametrize('age, expired', [(601, False), (1799, False), (1800, True)])
+def test_queue_deadline_allows_thirty_minutes(tmp_path, monkeypatch, age, expired):
+    clock = [10_000.0]
+    monkeypatch.setattr('app.jobs.time.time', lambda: clock[0])
+    jobs = store(tmp_path)
+    job_id = str(uuid4())
+    jobs.accept(job_id, b'image')
+    calls = []
+    def recognize(ctx, image, identifier, **kwargs):
+        calls.append(identifier)
+        return SimpleNamespace(model_dump=lambda **kw: {'request_id': identifier, 'ok': True})
+    monkeypatch.setattr('app.jobs.recognize_payload', recognize)
+    clock[0] += age
+
+    assert jobs.recognize_next()
+    with jobs.connect() as db:
+        row = db.execute('SELECT image, result FROM jobs').fetchone()
+    assert row['image'] is None
+    result = json.loads(row['result'])
+    if expired:
+        assert result == {'contractVersion': '1', 'errorCode': 'OCR_JOB_EXPIRED'}
+        assert not calls
+    else:
+        assert result['result'] == {'request_id': job_id, 'ok': True}
+        assert calls == [job_id]
 
 
 def test_accept_and_health_return_while_recognition_is_blocked(tmp_path, monkeypatch):
