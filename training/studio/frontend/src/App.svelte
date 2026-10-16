@@ -976,12 +976,14 @@
     return '可以生成 labels'
   }
 
-  function canPublish() {
-    return Boolean(batch && training?.status === 'completed' && publishConfirmed && publication?.status !== 'publishing' && !busy)
+  // The template passes the state in explicitly: Svelte only re-evaluates a template expression when it names the
+  // state itself, so reading `publishConfirmed` inside a no-argument helper left the button stuck disabled.
+  function canPublish(ready: boolean, confirmed: boolean, state: typeof publication, working: boolean) {
+    return ready && confirmed && state?.status !== 'publishing' && !working
   }
 
-  function publicationIsActive() {
-    return publication?.status === 'publishing'
+  function publicationIsActive(state: typeof publication = publication) {
+    return state?.status === 'publishing'
   }
 
   function trainingStatusLabel(value?: string) {
@@ -2149,7 +2151,7 @@
             <div class="publish-status" aria-live="polite">
               <span
                 class="status-pill"
-                class:status-running={publicationIsActive()}
+                class:status-running={publicationIsActive(publication)}
                 class:status-done={publication?.status === 'completed'}
                 class:status-failed={publication?.status === 'failed' || publication?.status === 'completed_or_failed'}
               >{trainingStatusLabel(publication?.status || 'not_started')}</span>
@@ -2168,7 +2170,7 @@
               <span>评测</span><i></i><span>导出</span><i></i><span>上传</span><i></i><span>校验</span>
             </div>
             <label class="confirm-row">
-              <input type="checkbox" bind:checked={publishConfirmed} disabled={busy || publicationIsActive()} />
+              <input type="checkbox" bind:checked={publishConfirmed} disabled={busy || publicationIsActive(publication)} />
               <span>
                 <strong>确认写入 R2</strong>
                 <small>我理解这会创建新的模型版本前缀，并触发完整发布流水线。</small>
@@ -2176,10 +2178,11 @@
             </label>
             <div class="panel-actions">
               <button class="button-secondary" disabled={!batch || busy} on:click={() => refreshPublication()}>刷新发布状态</button>
-              <button class="button-primary" disabled={!canPublish()} on:click={startPublication}>
-                {publicationIsActive() ? '发布中…' : '发布到 R2'}
+              <button class="button-primary" disabled={!canPublish(Boolean(batch) && training?.status === 'completed', publishConfirmed, publication, busy)} on:click={startPublication}>
+                {publicationIsActive(publication) ? '发布中…' : '发布到 R2'}
               </button>
             </div>
+            {#if !publishConfirmed && !publicationIsActive(publication)}<p class="config-note">先勾选上方「确认写入 R2」，才能点击发布。发布的是候选版本，上线需要在发布后单独提升为稳定版。</p>{/if}
           {/if}
 
           {#if publication && publication.status !== 'not_started'}
