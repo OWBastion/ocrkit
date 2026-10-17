@@ -1,6 +1,6 @@
 # OCRKit Agent Guide
 
-OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. [OWBastion organization routing](https://github.com/OWBastion/.github/blob/main/AGENTS.md) owns repository ownership, shared policy routing, and global invariants; this file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, and local validation.
+OCRKit is the Bastion ecosystem's stateless screenshot-recognition service and OCR model-lifecycle owner. [OWBastion organization routing](../.github/AGENTS.md) owns repository ownership, shared policy routing, and global invariants; this file specializes OCRKit responsibility, recognition/evidence invariants, risk routing, privacy, and local validation.
 
 ## Repository role
 
@@ -16,12 +16,7 @@ Serves the [organization product goal](../.github/docs/product-goal.md) by keepi
 
 ## Start here
 
-For substantive work:
-
-1. Read the linked Issue and `README.md`, then inspect the smallest relevant source, configuration, tests/fixtures, and specialist documentation.
-2. Resolve current API shapes, supported layouts, model versions/channels, thresholds, and deployment details from their current authoritative source; do not use this root guide as a mutable inventory.
-3. Compare the Issue contract, current recognition/API contract, and implementation reality. Report material mismatches instead of inventing a new business rule, layout contract, or cross-service behavior.
-4. Verify recognition behavior against evidence independent from the implementation being changed, including ambiguous/unsupported/low-quality paths where relevant.
+Follow the organization [preflight](../.github/docs/issue-readiness.md#preflight), plus `README.md`. Resolve current API shapes, supported layouts, model versions/channels, and thresholds from their authoritative source, not this guide. Report mismatches between the Issue, the recognition/API contract, and the implementation instead of inventing a business rule, layout contract, or cross-service behavior.
 
 ## Risk routing
 
@@ -58,7 +53,7 @@ Object-mode recognition must restrict reads to explicitly allowed storage bounda
 
 ## Verification
 
-Apply the organization [testing](https://github.com/OWBastion/.github/blob/main/docs/testing-policy.md), [verification](https://github.com/OWBastion/.github/blob/main/docs/verification-and-acceptance.md), and [engineering quality](https://github.com/OWBastion/.github/blob/main/docs/engineering-quality.md) policies; the rules below are OCRKit's stricter evidence specialization.
+Apply the organization [testing](../.github/docs/testing-policy.md), [verification](../.github/docs/verification-and-acceptance.md), and [engineering quality](../.github/docs/engineering-quality.md) policies; the rules below are OCRKit's stricter evidence specialization.
 
 Recognition expected values require an authority independent from the model or parser under test: reviewed labels, reproducible visible screenshot content, an accepted layout/API contract, or a real regression with provenance. Do not promote current model/parser output to fixture truth merely because it is stable, and do not rewrite labels or expectations only to make a new model pass. Aggregate accuracy, fixture counts, and test counts summarize evidence; they do not prove critical fields or uncertainty behavior correct. Current model versions, layout counts, fixture counts, and dataset cardinality are not durable correctness expectations unless that exact value is itself contractual.
 
@@ -72,7 +67,7 @@ Training evidence and decisive held-out evaluation evidence remain disjoint and 
 
 ## Entropy
 
-Apply the organization [entropy policy](https://github.com/OWBastion/.github/blob/main/docs/entropy-policy.md). OCRKit cleanup targets duplicate preprocess paths, obsolete model fallbacks, stale layout compatibility, duplicated parser normalization, generated artifacts with no surviving owner, and temporary migration adapters. Map platform, API, and model consumers before removing an apparently redundant recognition path; do not remove uncertainty/status reporting, validation, privacy boundaries, artifact verification, or compatibility behavior while consumers still rely on it.
+Apply the organization [entropy policy](../.github/docs/entropy-policy.md). OCRKit cleanup targets duplicate preprocess paths, obsolete model fallbacks, stale layout compatibility, duplicated parser normalization, generated artifacts with no surviving owner, and temporary migration adapters. Map platform, API, and model consumers first, and keep uncertainty/status reporting, validation, privacy boundaries, artifact verification, and compatibility behavior while consumers rely on them.
 
 ## Local validation
 
