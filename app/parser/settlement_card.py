@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import re
 
+from .left_panel import ACHIEVEMENT_DISABLED
 from .right_panel import resolve_map
 
 _SEP = r"\s*[·.•]?\s*"
@@ -31,6 +32,7 @@ class SettlementCard:
     difficulty: str | None = None
     version: str | None = None
     titles: list[str] = field(default_factory=list)
+    achievement_challenge_disabled: bool | None = None
 
 
 def parse_settlement_card(text: str, map_names: list[str], map_aliases: dict[str, str] | None = None) -> SettlementCard:
@@ -63,6 +65,8 @@ def parse_settlement_card(text: str, map_names: list[str], map_aliases: dict[str
 
     if titles := _TITLES.search(cleaned):
         value = titles["titles"].strip()
-        if not _NO_TITLES.fullmatch(value):
+        if ACHIEVEMENT_DISABLED.search(value):
+            card.achievement_challenge_disabled = True
+        elif not _NO_TITLES.fullmatch(value):
             card.titles = [item for item in _TITLE_SEPARATOR.split(value) if item]
     return card

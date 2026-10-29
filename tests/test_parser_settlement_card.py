@@ -49,3 +49,15 @@ def test_completion_card_run_code_label_is_accepted() -> None:
 
     assert parsed.value == "5681-4690-4470"
     assert parsed.status == "ok"
+
+
+def test_disabled_notice_on_the_titles_line_is_not_a_title() -> None:
+    text = "挑战完成 · 00:00:00 玩家 他又 · 通关代码 5681-4690-4470 66号公路 · 地狱 · v26.1027.3 阵亡 0 · 跳过 0 称号 成就挑战已禁用 剩余 19 秒"
+    card = parse_settlement_card(text, ["66号公路"])
+    assert card.achievement_challenge_disabled is True
+    assert card.titles == []
+
+
+def test_titles_line_without_the_notice_leaves_it_unknown() -> None:
+    text = "挑战完成 · 00:00:00 玩家 他又 · 通关代码 5681-4690-4470 66号公路 · 地狱 · v26.1027.3 阵亡 0 · 跳过 0 称号 — 剩余 19 秒"
+    assert parse_settlement_card(text, ["66号公路"]).achievement_challenge_disabled is None

@@ -39,7 +39,7 @@ def merge_result(
         achievement_title=left.achievement_title,
         achievement_titles=list(left.achievement_titles),
         achievement_unlocked=left.achievement_unlocked,
-        achievement_challenge_disabled=left.achievement_challenge_disabled,
+        achievement_challenge_disabled=_first(left.achievement_challenge_disabled, card.achievement_challenge_disabled),
         achievement_panel_text=achievement_panel_text,
         deaths=_first(left.total_deaths, card.deaths, center.deaths),
         skips=_first(left.total_skips, card.skips, center.skips),

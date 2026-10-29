@@ -47,7 +47,7 @@ def parse_left_panel(text: str) -> LeftPanel:
         heroes_completed=heroes_completed,
         heroes_total=heroes_total,
         challenge_completed=True if "挑战完成" in compact else None,
-        achievement_challenge_disabled=True if _ACHIEVEMENT_DISABLED.search(compact) else None,
+        achievement_challenge_disabled=True if ACHIEVEMENT_DISABLED.search(compact) else None,
         total_deaths=deaths,
         total_skips=skips,
         clear_time=clear_time,
@@ -56,7 +56,7 @@ def parse_left_panel(text: str) -> LeftPanel:
 
 
 # The game prints this notice when a setting makes achievements unobtainable; "已" and "用" are the glyphs OCR drops.
-_ACHIEVEMENT_DISABLED = re.compile(r"成就挑战\s*已?\s*禁")
+ACHIEVEMENT_DISABLED = re.compile(r"成就挑战\s*已?\s*禁")
 
 _CLEAR_TIME_VALUE = re.compile(
     r"(?:[0-9OoIlSB]+\s*小时\s*)?[0-9OoIlSB]+\s*分\s*[0-9OoIlSB]+(?:\.[0-9]+)?\s*秒"
