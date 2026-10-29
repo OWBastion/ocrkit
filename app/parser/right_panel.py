@@ -181,12 +181,10 @@ def _best_map(raw_text: str, map_names: list[str]) -> str | None:
     return best_name if best_score >= 0.6 else None
 
 
-def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, str] | None = None) -> RightPanel:
-    difficulty = None
-    m = _DIFFICULTY.search(text)
-    if m:
-        difficulty = m.group(1)
-    anchored_map = _map_candidate_before_difficulty(text, m)
+def resolve_map(
+    text: str, map_names: list[str], map_aliases: dict[str, str] | None, anchored_map: str | None = None
+) -> tuple[str | None, str | None]:
+    """The catalog map named in `text` and its variant; `anchored_map` is the text known to sit before the difficulty."""
     map_name = _best_map(anchored_map, map_names) if anchored_map else None
     if map_name is None:
         map_name = _best_map(text, map_names)
@@ -194,7 +192,16 @@ def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, st
         map_name = _best_map(text, list(map_aliases))
         if map_name is not None:
             map_name = map_aliases[map_name]
-    map_variant = _parse_map_variant(text, anchored_map)
+    return map_name, _parse_map_variant(text, anchored_map)
+
+
+def parse_right_panel(text: str, map_names: list[str], map_aliases: dict[str, str] | None = None) -> RightPanel:
+    difficulty = None
+    m = _DIFFICULTY.search(text)
+    if m:
+        difficulty = m.group(1)
+    anchored_map = _map_candidate_before_difficulty(text, m)
+    map_name, map_variant = resolve_map(text, map_names, map_aliases, anchored_map)
 
     version = None
     vm = _VERSION.search(text)

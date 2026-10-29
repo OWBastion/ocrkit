@@ -52,7 +52,7 @@ def preprocess_by_roi(roi_name: str, image: np.ndarray) -> np.ndarray:
         return preprocess_achievement_panel(image)
     if roi_name in {"run_code_panel", "run_code_right_panel"}:
         return preprocess_run_code_panel(image)
-    if roi_name == "bottom_left_hero":
+    if roi_name in {"bottom_left_hero", "settlement_card"}:
         return preprocess_left_panel(image)
     if roi_name == "server_load_panel":
         return preprocess_padded_line(image)

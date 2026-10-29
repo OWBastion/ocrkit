@@ -32,7 +32,7 @@ def _member(
     *,
     data: bytes | None = None,
     object_key: str | None = None,
-    layout_version: str = "1280x720-v9",
+    layout_version: str = "1280x720-v10",
     accuracy: str | None = None,
     **overrides,
 ) -> dict[str, object]:
@@ -162,7 +162,7 @@ class TestImportScreenshotSet:
             "source_id": "src-1",
             "object_key": "evidence/screens/src-1.png",
             "sha256": hashlib.sha256(one).hexdigest(),
-            "layout_version": "1280x720-v9",
+            "layout_version": "1280x720-v10",
             "accuracy": "accurate",
         }
         assert report.screenshot_set["set_id"] == "set-abc"
