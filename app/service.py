@@ -53,7 +53,7 @@ _FIELD_ROIS = {
     "restart_in_seconds": ("right_panel",),
     "uptime_seconds": ("right_panel",),
     "server_load": ("right_panel", "server_load_panel", "run_code_right_panel"),
-    "real_player": ("server_load_panel",),
+    "real_player": ("server_load_panel", "settlement_card"),
 }
 _RUN_CODE_ROIS = ("run_code_panel", "run_code_right_panel", "settlement_card")
 

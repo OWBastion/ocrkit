@@ -11,6 +11,7 @@ def test_parse_settlement_card_reads_every_line() -> None:
     assert card.completed is True
     assert card.duration_text == "01:02:03"
     assert card.duration_seconds == 3723.0
+    assert card.player == "他又"
     assert (card.deaths, card.skips) == (12, 3)
     assert (card.map_name, card.difficulty, card.version) == ("66号公路", "地狱", "26.1027.3")
     assert card.titles == []
@@ -38,6 +39,7 @@ def test_parse_settlement_card_leaves_unreadable_lines_missing() -> None:
     card = parse_settlement_card("挑战完成·00:10:00 玩家他又", MAPS)
 
     assert card.completed is True
+    assert card.player is None
     assert card.deaths is None and card.skips is None
     assert card.map_name is None and card.difficulty is None and card.version is None
 

@@ -61,7 +61,7 @@
       "cases": "datasets/fixtures/settlement_card/cases.json",
       "images": "datasets/fixtures/settlement_card",
       "required": true,
-      "critical_fields": ["challenge_completed", "map_name", "difficulty", "version", "duration_seconds", "deaths", "skips", "run_code"],
+      "critical_fields": ["challenge_completed", "real_player", "map_name", "difficulty", "version", "duration_seconds", "deaths", "skips", "run_code"],
       "required_layouts": ["1280x720-v10"]
     }
   ]

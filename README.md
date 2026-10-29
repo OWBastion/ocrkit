@@ -150,7 +150,7 @@ line counts as an achievement when a bright check icon follows it (or a text mar
 event lines and `achievement_titles` (at most five) are told apart without a catalog.
 `ai_mark_detected` is `true` when the bottom-right watermark region reads as an AI-generation
 mark (for example `豆包AI生成`) and `false` otherwise; it is evidence, not a verdict.
-`settlement_card` supplies completion, clear time, deaths and skips, map, difficulty, version, run code (labelled `通关代码`) and the earned title line (an empty `—` line gives no titles) when the older banner, stats panel or right panel are not on screen; those older sources win when both are read. `mode` (the bracketed label under the map), `restart_in_seconds`, `uptime_seconds` and
+`settlement_card` supplies completion, clear time, the card player name (`real_player`, used when the server-load panel prints none), deaths and skips, map, difficulty, version, run code (labelled `通关代码`) and the earned title line (an empty `—` line gives no titles) when the older banner, stats panel or right panel are not on screen; those older sources win when both are read. `mode` (the bracketed label under the map), `restart_in_seconds`, `uptime_seconds` and
 `server_load` come from the right panel; a duration with a missing unit digit is left `null`
 instead of guessed. `run_code` also accepts the unlabeled code printed by the current HUD
 (strict `dddd-dddd-dddd`, first digit 1-9) and marks it `label:absent`.

@@ -7,6 +7,7 @@ from .right_panel import resolve_map
 
 _SEP = r"\s*[·.•]?\s*"
 _TITLE = re.compile(rf"挑战完成{_SEP}(?P<h>\d{{1,3}}):(?P<m>\d{{2}}):(?P<s>\d{{2}})")
+_PLAYER = re.compile(r"玩家\s*(?P<player>.+?)\s*[·•]\s*通关\s*代码")
 _STATS = re.compile(rf"阵亡\s*(?P<deaths>\d+){_SEP}跳过\s*(?P<skips>\d+)")
 _DIFFICULTY = re.compile(r"地狱|传奇|困难|普通|简单|无法跳过英雄")
 _VERSION = re.compile(r"[vV]\s*(?P<version>\d{2}\.\d{4}\.\d+)")
@@ -22,6 +23,7 @@ class SettlementCard:
     completed: bool = False
     duration_text: str | None = None
     duration_seconds: float | None = None
+    player: str | None = None
     deaths: int | None = None
     skips: int | None = None
     map_name: str | None = None
@@ -44,6 +46,8 @@ def parse_settlement_card(text: str, map_names: list[str], map_aliases: dict[str
     card.duration_text = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     card.duration_seconds = float(hours * 3600 + minutes * 60 + seconds)
 
+    if player := _PLAYER.search(cleaned):
+        card.player = player["player"]
     if stats := _STATS.search(cleaned):
         card.deaths, card.skips = int(stats["deaths"]), int(stats["skips"])
 
