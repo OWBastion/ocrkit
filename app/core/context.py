@@ -20,7 +20,7 @@ class AppContext:
     object_store: R2ObjectStore | None = None
     model_version: str = "builtin"
     engine_name: str = "rapidocr"
-    layout_version: str = "1280x720-v9"
+    layout_version: str = "1280x720-v10"
     roi_variants: tuple[RoiConfig, ...] = ()
     terminology: TerminologyCatalog | None = None
     inference_lock: Lock = field(default_factory=Lock)

@@ -17,7 +17,7 @@ def test_matrix_records_producer_revision_without_copying_bastion_contract() -> 
         "minimum_released_version": "v26.0811.1",
     }
     assert {item["layout_version"] for item in matrix["supported_layouts"]} == {
-        "1280x720-v9",
+        "1280x720-v10",
         "1280x800-v4",
     }
     assert "run_code" in matrix["critical_fields"]
@@ -31,9 +31,9 @@ def test_gate_fails_a_critical_field_even_when_other_fields_match(tmp_path: Path
                 "schema_version": 1,
                 "producer_contract": {"revision": "settlement-hud-v1", "minimum_released_version": "v26.0811.1"},
                 "supported_producer_revisions": [{"revision": "settlement-hud-v1"}],
-                "supported_layouts": [{"layout_version": "1280x720-v9", "aspect_ratio": "16:9"}],
+                "supported_layouts": [{"layout_version": "1280x720-v10", "aspect_ratio": "16:9"}],
                 "critical_fields": ["run_code", "version"],
-                "fixture_sets": [{"id": "safe", "producer_revision": "settlement-hud-v1", "cases": "cases.json", "images": "images", "critical_fields": ["run_code", "version"], "required_layouts": ["1280x720-v9"]}],
+                "fixture_sets": [{"id": "safe", "producer_revision": "settlement-hud-v1", "cases": "cases.json", "images": "images", "critical_fields": ["run_code", "version"], "required_layouts": ["1280x720-v10"]}],
             }
         ),
         encoding="utf-8",
@@ -49,7 +49,7 @@ def test_gate_fails_a_critical_field_even_when_other_fields_match(tmp_path: Path
             "results": [
                 {
                     "id": "run-code-regression",
-                    "layout_version": "1280x720-v9",
+                    "layout_version": "1280x720-v10",
                     "quality_warnings": [],
                     "fields": {
                         "run_code": {"expected": "4821-7354-1926", "actual": None, "matched": False},

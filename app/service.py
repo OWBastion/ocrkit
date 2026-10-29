@@ -16,6 +16,7 @@ from app.parser.event_stack import parse_event_stack
 from app.parser.left_panel import parse_achievement_titles, parse_left_panel
 from app.parser.result_merger import merge_result
 from app.parser.right_panel import parse_real_player, parse_right_panel, parse_server_load
+from app.parser.settlement_card import parse_settlement_card
 from app.parser.run_code import ParsedRunCode, enforce_run_code_confidence, parse_run_code
 from app.parser.terminology import TerminologyCatalog, TerminologyResult, normalize_roi_text
 from app.schemas.response import (
@@ -29,22 +30,22 @@ from app.schemas.response import (
 
 
 _FIELD_ROIS = {
-    "challenge_completed": ("left_panel", "center_banner"),
+    "challenge_completed": ("left_panel", "center_banner", "settlement_card"),
     "heroes_completed": ("left_panel",),
     "heroes_total": ("left_panel",),
     "viewer_player": ("bottom_left_hero",),
-    "achievement_title": ("achievement_panel",),
-    "achievement_titles": ("achievement_panel",),
-    "achievement_unlocked": ("achievement_panel",),
+    "achievement_title": ("achievement_panel", "settlement_card"),
+    "achievement_titles": ("achievement_panel", "settlement_card"),
+    "achievement_unlocked": ("achievement_panel", "settlement_card"),
     "achievement_panel_text": ("achievement_panel",),
-    "deaths": ("left_panel", "center_banner"),
-    "skips": ("left_panel", "center_banner"),
-    "duration_text": ("left_panel", "center_banner"),
-    "duration_seconds": ("left_panel", "center_banner"),
-    "map_name": ("right_panel",),
-    "map_variant": ("right_panel",),
-    "difficulty": ("right_panel",),
-    "version": ("right_panel",),
+    "deaths": ("left_panel", "center_banner", "settlement_card"),
+    "skips": ("left_panel", "center_banner", "settlement_card"),
+    "duration_text": ("left_panel", "center_banner", "settlement_card"),
+    "duration_seconds": ("left_panel", "center_banner", "settlement_card"),
+    "map_name": ("right_panel", "settlement_card"),
+    "map_variant": ("right_panel", "settlement_card"),
+    "difficulty": ("right_panel", "settlement_card"),
+    "version": ("right_panel", "settlement_card"),
     "run_code": ("run_code_panel",),
     "event": ("achievement_panel",),
     "ai_mark_detected": ("ai_watermark",),
@@ -54,7 +55,7 @@ _FIELD_ROIS = {
     "server_load": ("right_panel", "server_load_panel", "run_code_right_panel"),
     "real_player": ("server_load_panel",),
 }
-_RUN_CODE_ROIS = ("run_code_panel", "run_code_right_panel")
+_RUN_CODE_ROIS = ("run_code_panel", "run_code_right_panel", "settlement_card")
 
 
 def _field_evidence(
@@ -159,6 +160,9 @@ def extract_structured(
         achievement_titles, event = stack.achievements, stack.event
     else:
         achievement_titles = parse_achievement_titles(achievement_text)
+    card = parse_settlement_card(normalized_text.get("settlement_card", ""), map_names, map_aliases)
+    if not achievement_titles:
+        achievement_titles = card.titles
     if achievement_titles:
         left.achievement_title = achievement_titles[0]
         left.achievement_titles = achievement_titles
@@ -187,6 +191,7 @@ def extract_structured(
         run_code=run_code.value,
         event=event,
         ai_mark_detected=ai_mark_detected,
+        card=card,
     )
 
     warnings: list[str] = list(input_quality["warnings"])

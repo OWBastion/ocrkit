@@ -1,4 +1,4 @@
-layout_version: 1280x720-v9
+layout_version: 1280x720-v10
 
 standard_size:
   width: 1280
@@ -10,6 +10,12 @@ rois:
     y1: 15
     x2: 220
     y2: 225
+
+  settlement_card:
+    x1: 330
+    y1: 50
+    x2: 950
+    y2: 160
 
   run_code_panel:
     x1: 30

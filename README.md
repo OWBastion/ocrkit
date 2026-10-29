@@ -85,7 +85,7 @@ and also include traceable contract metadata:
   "request_id": "...",
   "engine": "rapidocr",
   "model_version": "builtin",
-  "layout_version": "1280x720-v9",
+  "layout_version": "1280x720-v10",
   "ok": true,
   "data": {},
   "fields": {
@@ -105,7 +105,7 @@ and also include traceable contract metadata:
     "cropped": false,
     "blur_score": 0.08,
     "normalized_size": [1280, 720],
-    "layout_version": "1280x720-v9",
+    "layout_version": "1280x720-v10",
     "warnings": []
   }
 }
@@ -116,14 +116,14 @@ decimal places; `cropped` and the related warnings indicate a ratio mismatch aga
 configured layout and do not make an approval decision. `blur_score` is a normalized blur
 risk from 0 to 1, where higher means blurrier.
 
-Layout regions (`1280x720-v9` / `1280x800-v4`): `left_panel` (stats; reaches the clear-time row of older HUD revisions), `run_code_panel`, `run_code_right_panel`,
+Layout regions (`1280x720-v10` / `1280x800-v4`): `settlement_card` (16:9 only: the completion card Bastion shows for 20 seconds at the top centre after a run; the 16:10 layout has no sample yet and leaves the card fields `missing`), `left_panel` (stats; reaches the clear-time row of older HUD revisions), `run_code_panel`, `run_code_right_panel`,
 `right_panel` (map, mode, timers, version), `server_load_panel`, `bottom_left_hero` (hero card, the name is its last token),
 `achievement_panel` (the stack under the stats block: at most one event, then up to five achievement unlocks;
 achievements move up when no event is shown, so the ROI is tall and lines are told apart by content),
 `center_banner` (completion banner), and `ai_watermark` (bottom-right generation mark; empty on genuine screenshots). Event/achievement/AI-mark
 fields are added to the response separately from the geometry.
 
-The service selects the versioned `1280x720-v9` or `1280x800-v4` ROI layout from the source
+The service selects the versioned `1280x720-v10` or `1280x800-v4` ROI layout from the source
 aspect ratio. The 16:10 layout is used for screenshots such as 2560x1600 without marking the
 input as cropped. 21:9 ultrawide screenshots (about 2.39:1, such as 3440x1440) use the
 16:9 layout at the same height scale, with left, right and central ROIs kept at their screen
@@ -150,7 +150,7 @@ line counts as an achievement when a bright check icon follows it (or a text mar
 event lines and `achievement_titles` (at most five) are told apart without a catalog.
 `ai_mark_detected` is `true` when the bottom-right watermark region reads as an AI-generation
 mark (for example `豆包AI生成`) and `false` otherwise; it is evidence, not a verdict.
-`mode` (the bracketed label under the map), `restart_in_seconds`, `uptime_seconds` and
+`settlement_card` supplies completion, clear time, deaths and skips, map, difficulty, version, run code (labelled `通关代码`) and the earned title line (an empty `—` line gives no titles) when the older banner, stats panel or right panel are not on screen; those older sources win when both are read. `mode` (the bracketed label under the map), `restart_in_seconds`, `uptime_seconds` and
 `server_load` come from the right panel; a duration with a missing unit digit is left `null`
 instead of guessed. `run_code` also accepts the unlabeled code printed by the current HUD
 (strict `dddd-dddd-dddd`, first digit 1-9) and marks it `label:absent`.

@@ -31,7 +31,7 @@ def _member(source_id: str, data: bytes, *, accuracy: str | None = None) -> dict
         "sha256": hashlib.sha256(data).hexdigest(),
         "mime_type": "image/png",
         "size_bytes": len(data),
-        "layout_version": "1280x720-v9",
+        "layout_version": "1280x720-v10",
         "accuracy": accuracy,
     }
 

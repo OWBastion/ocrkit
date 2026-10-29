@@ -6,7 +6,7 @@ import re
 
 RUN_CODE_MIN_CONFIDENCE = 0.9
 
-_LABEL = r"(?:本局\s*代码|run\s*code)"
+_LABEL = r"(?:本局\s*代码|通关\s*代码|run\s*code)"
 _GROUP = r"[1-9]\d{3}"
 _SEPARATOR = r"[-‐‑‒–—−－]"
 _LABEL_PATTERN = re.compile(_LABEL, re.IGNORECASE)

@@ -48,7 +48,7 @@ def test_create_batch_selects_roi_layout_per_source_aspect_ratio(tmp_path: Path)
     by_name = {row["original_name"]: row for row in manifest["sources"]}
     assert summary["layout_version"] == "mixed"
     assert by_name["tall.png"]["layout_version"] == "1280x800-v4"
-    assert by_name["wide.png"]["layout_version"] == "1280x720-v9"
+    assert by_name["wide.png"]["layout_version"] == "1280x720-v10"
     assert by_name["tall.png"]["quality"]["warnings"] == []
     assert by_name["wide.png"]["quality"]["warnings"] == []
 
