@@ -357,6 +357,7 @@ def test_by_object_ok_with_debug() -> None:
         "achievement_title",
         "achievement_titles",
         "achievement_unlocked",
+        "achievement_challenge_disabled",
         "achievement_panel_text",
         "deaths",
         "skips",

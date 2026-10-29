@@ -116,3 +116,17 @@ def test_a_labeled_clear_time_still_wins_and_partial_values_are_not_invented() -
 def test_parse_left_panel_percent_misread_as_slash() -> None:
     out = parse_left_panel("挑战完成 总计阵亡/跳过 90%0 增益/减益/总计 35/57/114")
     assert (out.total_deaths, out.total_skips) == (90, 0)
+
+
+def test_left_panel_reports_the_achievement_disabled_notice() -> None:
+    text = "下一个英雄 挑战完成 增益0·减益0·总计1 之钢0·移速0·减伤0·治疗0% 成就挑战已禁用"
+    assert parse_left_panel(text).achievement_challenge_disabled is True
+
+
+def test_left_panel_tolerates_dropped_glyphs_in_the_disabled_notice() -> None:
+    assert parse_left_panel("成就挑战禁用").achievement_challenge_disabled is True
+    assert parse_left_panel("成就挑战 已禁").achievement_challenge_disabled is True
+
+
+def test_left_panel_without_the_notice_leaves_it_unknown() -> None:
+    assert parse_left_panel("英雄：51/51 挑战完成").achievement_challenge_disabled is None

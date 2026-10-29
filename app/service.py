@@ -37,6 +37,7 @@ _FIELD_ROIS = {
     "achievement_title": ("achievement_panel", "settlement_card"),
     "achievement_titles": ("achievement_panel", "settlement_card"),
     "achievement_unlocked": ("achievement_panel", "settlement_card"),
+    "achievement_challenge_disabled": ("left_panel", "settlement_card"),
     "achievement_panel_text": ("achievement_panel",),
     "deaths": ("left_panel", "center_banner", "settlement_card"),
     "skips": ("left_panel", "center_banner", "settlement_card"),
