@@ -141,6 +141,9 @@ matches; the platform owns catalog matching and business decisions. `achievement
 the first candidate for compatibility, and `achievement_unlocked` is `true` when at least one
 candidate is detected. The player name in the lower-left hero panel is not used for this
 signal. If no checked text is visible in the ROI, the title fields are empty/`null`.
+`achievement_challenge_disabled` is `true` when the left panel shows the game's `成就挑战已禁用` notice,
+which means a setting made achievements unobtainable for that run; it is `null` when the notice is not read,
+so a missing notice is not proof that achievements were enabled. The platform decides what it means.
 `event` is additive evidence for the single active event under the stats block: `name`,
 `duration_seconds` (from a title such as `心之钢（27 秒）`), the `description` lines, every
 number in them (`numbers`: `text`, `value`, `unit`) and the joined `text`. OCRKit reports what it
