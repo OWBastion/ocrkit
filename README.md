@@ -116,14 +116,14 @@ decimal places; `cropped` and the related warnings indicate a ratio mismatch aga
 configured layout and do not make an approval decision. `blur_score` is a normalized blur
 risk from 0 to 1, where higher means blurrier.
 
-Layout regions (`1280x720-v10` / `1280x800-v4`): `settlement_card` (16:9 only: the completion card Bastion shows for 20 seconds at the top centre after a run; the 16:10 layout has no sample yet and leaves the card fields `missing`), `left_panel` (stats; reaches the clear-time row of older HUD revisions), `run_code_panel`, `run_code_right_panel`,
+Layout regions (`1280x720-v10` / `1280x800-v5`): `settlement_card` (the completion card Bastion shows for 20 seconds at the top centre after a run), `left_panel` (stats; reaches the clear-time row of older HUD revisions), `run_code_panel`, `run_code_right_panel`,
 `right_panel` (map, mode, timers, version), `server_load_panel`, `bottom_left_hero` (hero card, the name is its last token),
 `achievement_panel` (the stack under the stats block: at most one event, then up to five achievement unlocks;
 achievements move up when no event is shown, so the ROI is tall and lines are told apart by content),
 `center_banner` (completion banner), and `ai_watermark` (bottom-right generation mark; empty on genuine screenshots). Event/achievement/AI-mark
 fields are added to the response separately from the geometry.
 
-The service selects the versioned `1280x720-v10` or `1280x800-v4` ROI layout from the source
+The service selects the versioned `1280x720-v10` or `1280x800-v5` ROI layout from the source
 aspect ratio. The 16:10 layout is used for screenshots such as 2560x1600 without marking the
 input as cropped. 21:9 ultrawide screenshots (about 2.39:1, such as 3440x1440) use the
 16:9 layout at the same height scale, with left, right and central ROIs kept at their screen

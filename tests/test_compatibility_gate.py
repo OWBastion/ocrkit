@@ -18,7 +18,7 @@ def test_matrix_records_producer_revision_without_copying_bastion_contract() -> 
     }
     assert {item["layout_version"] for item in matrix["supported_layouts"]} == {
         "1280x720-v10",
-        "1280x800-v4",
+        "1280x800-v5",
     }
     assert "run_code" in matrix["critical_fields"]
 
