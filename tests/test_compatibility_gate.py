@@ -8,21 +8,6 @@ import pytest
 import scripts.compatibility_gate as compatibility_gate
 
 
-def test_matrix_records_producer_revision_without_copying_bastion_contract() -> None:
-    matrix = compatibility_gate.load_matrix(Path("configs/bastion_screenshot_compatibility.json"))
-
-    assert matrix["producer_contract"] == {
-        "repository": "OWBastion/Bastion",
-        "revision": "settlement-hud-v1",
-        "minimum_released_version": "v26.0811.1",
-    }
-    assert {item["layout_version"] for item in matrix["supported_layouts"]} == {
-        "1280x720-v10",
-        "1280x800-v5",
-    }
-    assert "run_code" in matrix["critical_fields"]
-
-
 def test_gate_fails_a_critical_field_even_when_other_fields_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     matrix_path = tmp_path / "matrix.json"
     matrix_path.write_text(

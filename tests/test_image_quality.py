@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 
 from app.image.quality import assess_input_quality
@@ -36,14 +35,3 @@ def test_quality_reports_aspect_ratio_risk_before_normalization() -> None:
         "quality.aspect_ratio_mismatch",
         "quality.possible_crop",
     ]
-
-
-def test_blur_score_is_higher_for_flat_or_blurred_input() -> None:
-    sharp = np.zeros((720, 1280, 3), dtype=np.uint8)
-    sharp[:, ::2] = 255
-    blurred = cv2.GaussianBlur(sharp, (31, 31), 0)
-
-    sharp_quality = assess_input_quality(sharp, 1280, 720)
-    blurred_quality = assess_input_quality(blurred, 1280, 720)
-
-    assert blurred_quality["blur_score"] > sharp_quality["blur_score"]

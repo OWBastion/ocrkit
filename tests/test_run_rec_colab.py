@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
-import tarfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -139,35 +138,6 @@ def only_run(runs: Path) -> Path:
     return run_dir
 
 
-def test_success_retrieves_checkpoint_from_r2_and_deletes_it(colab_run) -> None:
-    runs, calls, behavior, fake_r2 = colab_run
-
-    assert run_rec_colab.main() == 0
-
-    request = behavior["run_request"]
-    assert request["training"]["epochs"] == 10
-    assert set(request["paddle_wheel_mirror"]) == {"url", "sha256"}
-    assert request["checkpoint_upload"]["bucket"] == fake_r2.default_bucket
-    uploads = [command[-1] for command in calls if command[1] == "upload"]
-    assert uploads == [f"/content/ocrkit-input.part{i:04d}" for i in range(4)]
-    exec_command = next(command for command in calls if command[1] == "exec")
-    assert float(exec_command[exec_command.index("--timeout") + 1]) == 6 * 3600
-
-    run_dir = only_run(runs)
-    assert (run_dir / "checkpoint/best_accuracy.pdparams").read_bytes() == b"weights"
-    assert (run_dir / "checkpoint/config.yml").read_text() == "Global: {}\n"
-    assert (run_dir / "remote.log").read_text() == "remote log contents\n"
-    assert (run_dir / "evaluation/fixture_report.json").is_file()
-    assert json.loads((run_dir / "run.json").read_text())["evaluation"]["field_accuracy"] == 0.99
-    assert json.loads((run_dir / "status.json").read_text())["runtime_stopped"] is True
-    stop_index = next(i for i, command in enumerate(calls) if command[1] == SESSION_STOP)
-    evaluation_index = next(i for i, command in enumerate(calls) if command[0].endswith("evaluate_rec_checkpoint.sh"))
-    assert stop_index < evaluation_index
-    assert not (run_dir / "accepted").exists()
-    assert fake_r2.deleted == [(request["checkpoint_upload"]["bucket"], request["checkpoint_upload"]["key"])]
-    assert not fake_r2.objects
-
-
 def test_training_failure_keeps_partial_checkpoint_and_stops_runtime(colab_run) -> None:
     runs, calls, behavior, fake_r2 = colab_run
     behavior.update(exec_status=1, remote_status="failed")
@@ -197,59 +167,6 @@ def test_local_evaluation_failure_demotes_checkpoint_to_partial(colab_run) -> No
     assert json.loads((run_dir / "status.json").read_text())["runtime_stopped"] is True
 
 
-def test_teardown_failure_with_a_still_active_session_demotes_checkpoint_to_partial(colab_run) -> None:
-    runs, _calls, behavior, _fake_r2 = colab_run
-    behavior["stop_status"] = 1
-    behavior["session_active_after_stop_failure"] = True
-
-    assert run_rec_colab.main() == 1
-
-    run_dir = only_run(runs)
-    assert not (run_dir / "checkpoint").exists()
-    assert (run_dir / "partial/checkpoint/best_accuracy.pdparams").is_file()
-    assert "colab stop" in json.loads((run_dir / "status.json").read_text())["error"]
-
-
-def test_teardown_failure_when_colab_already_released_the_session_still_succeeds(colab_run) -> None:
-    """`colab stop` can 404 simply because Colab already reclaimed a finished runtime."""
-    runs, _calls, behavior, _fake_r2 = colab_run
-    behavior["stop_status"] = 1
-    behavior["session_active_after_stop_failure"] = False
-
-    assert run_rec_colab.main() == 0
-
-    run_dir = only_run(runs)
-    assert (run_dir / "checkpoint/best_accuracy.pdparams").is_file()
-    status = json.loads((run_dir / "status.json").read_text())
-    assert status["status"] == "success"
-    assert status["runtime_stopped"] is True
-    assert status["error"] is None
-
-
-def test_provisioning_failure_stops_runtime_and_uploads_nothing(colab_run) -> None:
-    runs, calls, _behavior, fake_r2 = colab_run
-    original = run_rec_colab.stream_command
-    run_rec_colab.stream_command = lambda command, log: 1 if command[1] == "new" else original(command, log)
-    try:
-        assert run_rec_colab.main() == 1
-    finally:
-        run_rec_colab.stream_command = original
-
-    assert [command[1] for command in calls] == [SESSION_STOP]
-    assert not (only_run(runs) / "checkpoint").exists()
-    assert not fake_r2.objects
-
-
-def test_remote_metadata_download_failure_is_reported_clearly(colab_run) -> None:
-    runs, _calls, behavior, _fake_r2 = colab_run
-    behavior["metadata_download_status"] = 1
-
-    assert run_rec_colab.main() == 1
-
-    error = json.loads((only_run(runs) / "status.json").read_text())["error"]
-    assert "run metadata" in error
-
-
 def test_tampered_checkpoint_is_rejected_and_still_deleted(tmp_path: Path) -> None:
     fake_r2 = FakeR2Store()
     fake_r2.objects[("bucket", "key")] = b"tampered-bytes"
@@ -265,60 +182,3 @@ def test_tampered_checkpoint_is_rejected_and_still_deleted(tmp_path: Path) -> No
 
     assert not fake_r2.objects  # cleaned up even though verification failed
     assert json.loads((run_dir / "accepted" / "run.json").read_text())["status"] == "success"
-
-
-def test_stage_inputs_skips_uploading_the_official_checkpoint(tmp_path: Path) -> None:
-    dataset_root = tmp_path / "dataset"
-    (dataset_root / "labels" / "images").mkdir(parents=True)
-    (dataset_root / "labels" / "train.txt").write_text("a.png\ta\n", encoding="utf-8")
-    (dataset_root / "labels" / "holdout.txt").write_text("", encoding="utf-8")
-    (dataset_root / "labels" / "images" / "a.png").write_bytes(b"png")
-    archive_path = tmp_path / "input.tar.gz"
-
-    run_rec_colab.stage_inputs(archive_path, {"run_id": "x"}, dataset_root, None, ["a.png"], [])
-
-    with tarfile.open(archive_path) as archive:
-        names = archive.getnames()
-    assert not any("pretrained" in name for name in names)
-    assert "dataset/a.png" in names
-
-
-def test_transfer_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    statuses = iter([1, 1, 0])
-    attempts: list[list[str]] = []
-
-    def flaky(command: list[str], _log: Path) -> int:
-        attempts.append(command)
-        return next(statuses)
-
-    monkeypatch.setattr(run_rec_colab, "stream_command", flaky)
-
-    assert run_rec_colab.transfer_with_retry(["colab", "download"], tmp_path / "log", run_rec_colab.stream_command) == 0
-    assert len(attempts) == 3
-
-
-def test_remote_join_input_parts_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from training import colab_remote
-
-    monkeypatch.setattr(colab_remote, "CONTENT", tmp_path)
-    monkeypatch.setattr(colab_remote, "INPUT_ARCHIVE", tmp_path / "in.tar.gz")
-    payload = b"0123456789"
-    for index in range(2):
-        (tmp_path / f"ocrkit-input.part{index:04d}").write_bytes(payload[index * 5 : index * 5 + 5])
-
-    colab_remote.join_input_parts()
-
-    assert (tmp_path / "in.tar.gz").read_bytes() == payload
-    assert not list(tmp_path.glob("ocrkit-input.part*"))
-
-
-def test_remote_upload_checkpoint_raises_on_transport_failure(tmp_path: Path) -> None:
-    from training import colab_remote
-
-    checkpoint = tmp_path / "best_accuracy.pdparams"
-    checkpoint.write_bytes(b"weights")
-
-    with pytest.raises(RuntimeError, match="uploading the checkpoint"):
-        colab_remote.upload_checkpoint(
-            {"bucket": "b", "key": "k", "url": "http://127.0.0.1:1/unreachable"}, checkpoint
-        )

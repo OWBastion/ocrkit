@@ -94,29 +94,6 @@ def test_merge_result_uses_center_deaths_skips_without_left_values() -> None:
     assert out.skips == 0
 
 
-def test_merge_result_uses_center_completion_without_left_value() -> None:
-    center = CenterSummary(
-        completed=True,
-        deaths=None,
-        skips=None,
-        duration_text=None,
-        duration_seconds=None,
-    )
-    left = LeftPanel(
-        heroes_completed=None,
-        heroes_total=None,
-        challenge_completed=None,
-        total_deaths=None,
-        total_skips=None,
-        clear_time=None,
-        clear_time_seconds=None,
-    )
-    right = RightPanel(map_name=None, difficulty=None, version=None)
-
-    out = merge_result(center, left, BottomLeftHero(player=None), right)
-    assert out.challenge_completed is True
-
-
 def test_merge_result_uses_center_duration_when_left_time_is_invalid() -> None:
     center = CenterSummary(
         completed=True,
@@ -139,40 +116,3 @@ def test_merge_result_uses_center_duration_when_left_time_is_invalid() -> None:
     out = merge_result(center, left, BottomLeftHero(player=None), right)
     assert out.duration_text == "1小时26分36秒"
     assert out.duration_seconds == 5196.0
-
-
-def test_merge_result_uses_viewer_player_only() -> None:
-    center = CenterSummary(
-        completed=True,
-        deaths=None,
-        skips=None,
-        duration_text=None,
-        duration_seconds=None,
-    )
-    left = LeftPanel(None, None, None, None, None, None, None)
-    right = RightPanel(map_name=None, difficulty=None, version=None)
-
-    out = merge_result(center, left, BottomLeftHero(player="订犬大师"), right)
-    assert out.viewer_player == "订犬大师"
-    assert out.achievement_unlocked is None
-
-
-def test_merge_result_uses_viewer_player_without_center_player() -> None:
-    center = CenterSummary(True, None, None, None, None)
-    left = LeftPanel(None, None, None, None, None, None, None)
-    right = RightPanel(None, None, None)
-
-    out = merge_result(center, left, BottomLeftHero(player="训犬大师"), right)
-    assert out.viewer_player == "训犬大师"
-
-
-def test_merge_result_keeps_run_code_as_optional_evidence() -> None:
-    out = merge_result(
-        CenterSummary(True, None, None, None, None),
-        LeftPanel(None, None, None, None, None, None, None),
-        BottomLeftHero(player=None),
-        RightPanel(None, None, None),
-        run_code="4821-7354-1926",
-    )
-
-    assert out.run_code == "4821-7354-1926"

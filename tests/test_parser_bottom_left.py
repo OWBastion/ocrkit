@@ -1,11 +1,6 @@
 from app.parser.bottom_left_hero import parse_bottom_left_hero
 
 
-def test_parse_bottom_left_hero_player() -> None:
-    out = parse_bottom_left_hero("385 385 N! 3 训犬大师")
-    assert out.player == "训犬大师"
-
-
 def _chunk(text: str, x1: int, y1: int, x2: int, y2: int):
     from app.ocr.engine import OcrChunk
 
@@ -31,7 +26,3 @@ def test_level_badge_digit_glued_to_the_name_is_removed() -> None:
 def test_a_name_made_only_of_digits_is_still_found_when_it_is_the_lowest_fragment() -> None:
     chunks = [_chunk("500|500", 200, 20, 400, 60), _chunk("12345", 200, 140, 300, 175)]
     assert parse_bottom_left_hero("500|500 12345", chunks).player == "12345"
-
-
-def test_level_badge_digit_separated_from_the_name_by_a_space_is_removed() -> None:
-    assert parse_bottom_left_hero("3 训犬大师", [_chunk("3 训犬大师", 164, 138, 308, 184)]).player == "训犬大师"

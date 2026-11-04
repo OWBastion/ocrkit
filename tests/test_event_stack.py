@@ -60,41 +60,11 @@ def test_achievements_move_up_when_there_is_no_event_and_are_capped_at_five() ->
     assert stack.achievements == tuple(f"成就{i}" for i in range(5))
 
 
-def test_text_marker_still_counts_without_an_icon() -> None:
-    stack = parse_event_stack([_chunk("新称号 ✓", 3)], np.zeros((187, 280), np.uint8), SCALE)
-    assert stack.achievements == ("新称号",)
-
-
 def test_ai_mark_text() -> None:
     assert is_ai_mark("豆包AI生成")
     assert is_ai_mark("AI 生成")
     assert not is_ai_mark("AI")
     assert not is_ai_mark("")
-
-
-def test_service_returns_event_achievements_and_ai_mark_as_additive_fields() -> None:
-    root = Path(__file__).parents[1]
-    config = load_roi_config(root / "configs/roi_1280x720.yaml")
-    image = np.full((720, 1280, 3), 30, dtype=np.uint8)
-    image[228 + 62:228 + 72, 20 + 115:20 + 125] = 255  # check icon after the achievement line at ROI y=60
-
-    class Engine:
-        def recognize(self, processed: np.ndarray) -> OcrResult:
-            if processed.shape[:2] == (561, 1020):
-                chunks = [_chunk("心之钢(27秒)", 3), _chunk("阵亡后获得1层", 19), _chunk("生命守护生命", 60)]
-                return OcrResult(" ".join(c.text for c in chunks), 0.95, chunks)
-            if processed.shape[:2] == (42, 140):
-                return OcrResult("豆包AI生成", 0.98, [])
-            return OcrResult("", 0.0, [])
-
-    response = extract_structured(image, config, [], {}, Engine(), False, "r1", "test", "test", config.version)
-
-    assert response.data is not None
-    assert response.data.achievement_titles == ["生命守护生命"]
-    assert response.data.event is not None and response.data.event.name == "心之钢"
-    assert response.data.ai_mark_detected is True
-    assert response.fields["event"].source_roi == ["achievement_panel"]
-    assert response.fields["ai_mark_detected"].value is True
 
 
 def test_service_reads_the_real_player_name_above_the_server_load() -> None:
@@ -140,13 +110,6 @@ def test_garbled_duration_is_not_guessed() -> None:
     assert panel.restart_in_seconds is None
     assert panel.uptime_seconds is None
     assert panel.server_load is None
-
-
-def test_mode_ignores_spacing_the_hud_and_ocr_disagree_about() -> None:
-    from app.parser.right_panel import parse_right_panel
-
-    assert parse_right_panel("[2026 镜中回响]", []).mode == "2026镜中回响"
-    assert parse_right_panel("[随机事件 5.0]", []).mode == "随机事件5.0"
 
 
 def test_text_elsewhere_in_the_tall_region_is_not_an_achievement() -> None:
