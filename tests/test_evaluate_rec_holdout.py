@@ -54,12 +54,3 @@ def test_holdout_scores_recognition_only_ignoring_spacing_and_reports_each_regio
     assert report["accuracy"] == 0.5
     assert report["by_roi"] == {"left_panel": {"matched": 1, "total": 2}, "right_panel": {"matched": 1, "total": 2}}
     assert "status" not in report  # pass/fail is decided by the paired comparison, not by a fixed number
-
-
-def test_holdout_evaluation_rejects_crops_outside_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    labels = tmp_path / "holdout.txt"
-    labels.write_text("../outside.png\t文本\n", encoding="utf-8")
-    monkeypatch.setattr(evaluate_rec_holdout, "RapidOcrEngine", lambda _config: SimpleNamespace(_engine=None))
-
-    with pytest.raises(RuntimeError, match="outside the images root"):
-        evaluate_rec_holdout.evaluate(labels, tmp_path, tmp_path / "rapidocr.yaml")

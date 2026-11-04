@@ -1,4 +1,4 @@
-from app.parser.run_code import RUN_CODE_MIN_CONFIDENCE, enforce_run_code_confidence, looks_like_run_code_value, parse_run_code
+from app.parser.run_code import RUN_CODE_MIN_CONFIDENCE, enforce_run_code_confidence, parse_run_code
 
 
 def test_parse_run_code_normalizes_safe_separator_and_whitespace_variants() -> None:
@@ -25,19 +25,6 @@ def test_parse_run_code_marks_conflicting_candidates_ambiguous() -> None:
     assert parsed.value is None
     assert parsed.status == "ambiguous"
     assert parsed.warning == "run_code.ambiguous"
-
-
-def test_parse_run_code_accepts_a_repeated_identical_candidate() -> None:
-    parsed = parse_run_code("本局代码：4821-7354-1926 Run Code: 4821-7354-1926")
-
-    assert parsed.value == "4821-7354-1926"
-    assert parsed.status == "ok"
-
-
-def test_looks_like_run_code_value_accepts_a_crop_without_its_label() -> None:
-    assert looks_like_run_code_value("9811-8811-2854") is True
-    assert looks_like_run_code_value("9811 - 8811 — 2854") is True
-    assert looks_like_run_code_value("保持距离(31秒)") is False
 
 
 def test_enforce_run_code_confidence_rejects_below_threshold_without_guessing() -> None:

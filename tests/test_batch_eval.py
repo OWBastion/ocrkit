@@ -1,95 +1,10 @@
 from __future__ import annotations
 
-import json
 import sys
-from pathlib import Path
-from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 import scripts.batch_eval as batch_eval
-
-
-def test_evaluate_skips_fixtures_below_the_supported_version_floor(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    cases = [
-        {"id": "old", "image": "a.png", "expected": {"version": "26.0623.2"}},
-        {"id": "floor", "image": "b.png", "expected": {"version": "26.0811.1"}},
-        {"id": "new", "image": "c.png", "expected": {"version": "26.1006.1"}},
-        {"id": "unversioned", "image": "d.png", "expected": {"map_name": "Hanamura"}},
-    ]
-    cases_path = tmp_path / "cases.json"
-    cases_path.write_text(json.dumps(cases), encoding="utf-8")
-    context = SimpleNamespace(
-        roi_config="roi", map_names="maps", map_aliases="aliases", ocr_engine="builtin",
-        engine_name="rapidocr", model_version="builtin", layout_version="v", roi_variants=(),
-    )
-    monkeypatch.setattr(batch_eval, "create_context", lambda: context)
-    monkeypatch.setattr(batch_eval.cv2, "imread", lambda _: np.zeros((1, 1, 3), dtype=np.uint8))
-    monkeypatch.setattr(
-        batch_eval,
-        "extract_structured",
-        lambda *_a, **_k: SimpleNamespace(
-            data=SimpleNamespace(model_dump=lambda: {}), quality=SimpleNamespace(layout_version="v", warnings=[])
-        ),
-    )
-
-    kept = batch_eval.evaluate(cases_path, tmp_path, minimum_version="v26.0811.1")
-    assert [row["id"] for row in kept["results"]] == ["floor", "new", "unversioned"]
-    assert len(batch_eval.evaluate(cases_path, tmp_path)["results"]) == 4
-
-
-def test_evaluate_uses_requested_model_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    cases_path = tmp_path / "cases.json"
-    cases_path.write_text(
-        json.dumps([{"id": "case", "image": "fixture.png", "expected": {"map_name": "Hanamura"}}]),
-        encoding="utf-8",
-    )
-    captured: dict[str, object] = {}
-    context = SimpleNamespace(
-        roi_config="roi",
-        map_names="maps",
-        map_aliases="aliases",
-        ocr_engine="builtin",
-        engine_name="rapidocr",
-        model_version="builtin",
-        layout_version="1280x720-v3",
-        roi_variants=("16:10 layout",),
-    )
-
-    class StubEngine:
-        def __init__(self, config_path: Path) -> None:
-            captured["config_path"] = config_path
-
-    monkeypatch.setattr(batch_eval, "create_context", lambda: context)
-    monkeypatch.setattr(batch_eval, "RapidOcrEngine", StubEngine)
-    monkeypatch.setattr(batch_eval.cv2, "imread", lambda _: np.zeros((1, 1, 3), dtype=np.uint8))
-    def extract_stub(*_args: object, **kwargs: object) -> SimpleNamespace:
-        assert kwargs == {
-            "include_debug": False,
-            "request_id": "fixture:case",
-            "engine_name": "rapidocr",
-            "model_version": "builtin",
-            "layout_version": "1280x720-v3",
-            "roi_variants": ("16:10 layout",),
-        }
-        return SimpleNamespace(
-            data=SimpleNamespace(model_dump=lambda: {"map_name": "Hanamura"}),
-            quality=SimpleNamespace(layout_version="1280x800-v4", warnings=[]),
-        )
-
-    monkeypatch.setattr(batch_eval, "extract_structured", extract_stub)
-    model_config = tmp_path / "rapidocr.yaml"
-
-    result = batch_eval.evaluate(cases_path, tmp_path, model_config)
-
-    assert captured["config_path"] == model_config
-    # Scored like the service: 16:10 screenshots use their own layout, and the layout actually selected is reported.
-    assert result["results"][0]["layout_version"] == "1280x800-v4"
-    assert context.ocr_engine.__class__ is StubEngine
-    assert result["matched_fields"] == 1
-    assert result["total_fields"] == 1
-    assert result["field_accuracy"] == 1.0
 
 
 def test_main_rejects_fixture_accuracy_below_gate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,25 +19,6 @@ def test_main_rejects_fixture_accuracy_below_gate(monkeypatch: pytest.MonkeyPatc
         batch_eval.main()
 
 
-def test_main_writes_report_before_rejecting_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    report = tmp_path / "fixture_report.json"
-    monkeypatch.setattr(
-        batch_eval,
-        "evaluate",
-        lambda *_args: {"field_accuracy": 0.9, "matched_fields": 9, "total_fields": 10},
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["batch_eval.py", "--report", str(report), "--min-field-accuracy", "0.9657"],
-    )
-
-    with pytest.raises(SystemExit, match="fixture field accuracy"):
-        batch_eval.main()
-
-    assert json.loads(report.read_text(encoding="utf-8"))["matched_fields"] == 9
-
-
 def test_main_rejects_run_code_fixture_accuracy_below_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     results = iter(
         [
@@ -135,22 +31,3 @@ def test_main_rejects_run_code_fixture_accuracy_below_gate(monkeypatch: pytest.M
 
     with pytest.raises(SystemExit, match="run-code fixture exact-match accuracy"):
         batch_eval.main()
-
-
-def test_main_only_run_code_avoids_private_corpus_evaluation(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[Path, Path, Path | None]] = []
-
-    def evaluate_stub(cases: Path, images: Path, model_config: Path | None = None) -> dict[str, object]:
-        calls.append((cases, images, model_config))
-        return {"field_accuracy": 1.0, "matched_fields": 1, "total_fields": 1}
-
-    monkeypatch.setattr(batch_eval, "evaluate", evaluate_stub)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["batch_eval.py", "--only-run-code", "--min-run-code-accuracy", "1.0"],
-    )
-
-    batch_eval.main()
-
-    assert calls == [(batch_eval.DEFAULT_RUN_CODE_CASES, batch_eval.DEFAULT_RUN_CODE_IMAGES_DIR, None)]

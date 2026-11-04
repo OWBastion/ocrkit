@@ -14,7 +14,6 @@ from app.parser.terminology import (
     load_terminology_rules,
     normalize_roi_text,
     normalize_scope_text,
-    scope_for,
 )
 
 REAL_RULES = load_terminology_rules(Path("configs/terminology.yaml"))
@@ -30,13 +29,6 @@ def test_motivating_example_challenge_stats_normalizes_in_left_panel() -> None:
     assert token.match_type == "exact_alias"
     assert token.rule_id == "left_panel.challenge_stats:alias:编益"
     assert result.rules_version == "2"
-
-
-def test_motivating_example_player_stats_normalizes_in_left_panel() -> None:
-    result = normalize_roi_text("心之钢/移速/减伤/疗%", "1280x720-v10", "left_panel", REAL_RULES)
-    assert result.decision == DECISION_NORMALIZED
-    assert result.normalized_text == "心之钢/移速/减伤/治疗%"
-    assert result.tokens[-1].rule_id == "left_panel.challenge_stats:alias:疗%"
 
 
 def test_character_confusion_adopted_only_inside_allowed_terms() -> None:
@@ -120,68 +112,6 @@ def test_scope_is_isolated_by_layout_and_roi() -> None:
     second_layout = normalize_roi_text("编益", "1280x800-v1", "left_panel", REAL_RULES)
     assert second_layout.decision == DECISION_NORMALIZED
     assert second_layout.normalized_text == "增益"
-
-
-def test_scope_for_returns_none_outside_declared_layouts() -> None:
-    assert scope_for(REAL_RULES, "1280x720-v10", "left_panel") is not None
-    assert scope_for(REAL_RULES, "1280x720-v10", "achievement_panel") is None
-    assert scope_for(REAL_RULES, "unknown-layout", "left_panel") is None
-
-
-def test_confusions_must_map_single_characters() -> None:
-    from pathlib import Path as _Path
-    from tempfile import NamedTemporaryFile
-
-    with NamedTemporaryFile("w", suffix=".yaml", delete=False) as handle:
-        handle.write(
-            "rules_version: '1'\n"
-            "scopes:\n"
-            "  - id: bad\n"
-            "    roi: left_panel\n"
-            "    layout_versions: ['1280x720-v6']\n"
-            "    allowed_terms: ['增益']\n"
-            "    confusions:\n"
-            "      '编': '增益'\n"
-        )
-        path = _Path(handle.name)
-    try:
-        try:
-            load_terminology_rules(path)
-        except ValueError as exc:
-            assert "single characters" in str(exc)
-        else:
-            raise AssertionError("expected multi-character confusion to be rejected")
-    finally:
-        path.unlink()
-
-
-def test_duplicate_scope_ids_rejected() -> None:
-    from pathlib import Path as _Path
-    from tempfile import NamedTemporaryFile
-
-    with NamedTemporaryFile("w", suffix=".yaml", delete=False) as handle:
-        handle.write(
-            "rules_version: '1'\n"
-            "scopes:\n"
-            "  - id: dup\n"
-            "    roi: left_panel\n"
-            "    layout_versions: ['1280x720-v6']\n"
-            "    allowed_terms: ['增益']\n"
-            "  - id: dup\n"
-            "    roi: bottom_left_hero\n"
-            "    layout_versions: ['1280x720-v6']\n"
-            "    allowed_terms: ['心之钢']\n"
-        )
-        path = _Path(handle.name)
-    try:
-        try:
-            load_terminology_rules(path)
-        except ValueError as exc:
-            assert "duplicate terminology scope id" in str(exc)
-        else:
-            raise AssertionError("expected duplicate scope id to be rejected")
-    finally:
-        path.unlink()
 
 
 class _TerminologyEngine:

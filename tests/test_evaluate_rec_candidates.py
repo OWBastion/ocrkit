@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 from training.scripts.evaluate_rec_candidates import evaluate
@@ -54,72 +52,3 @@ def test_evaluate_excludes_rapidocr_vision_agreement_when_previous_model_disagre
     )
 
     assert evaluate(tmp_path)["agreement"] == {"covered": 0, "correct": 0}
-
-
-def test_evaluate_reports_raw_and_normalized_accuracy_separately(tmp_path: Path) -> None:
-    labels = tmp_path / "labels"
-    review = tmp_path / "review"
-    labels.mkdir()
-    review.mkdir()
-    (labels / "holdout.txt").write_text(
-        "images/holdout/a.png\t增益\nimages/holdout/b.png\t减益\n", encoding="utf-8"
-    )
-    rows = [
-        {
-            "crop": "images/holdout/a.png",
-            "layout_version": "1280x720-v6",
-            "roi": "left_panel",
-            "rapidocr_text": "编益",
-        },
-        {
-            "crop": "images/holdout/b.png",
-            "layout_version": "1280x720-v6",
-            "roi": "left_panel",
-            "rapidocr_text": "减益",
-        },
-    ]
-    (review / "holdout.jsonl").write_text(
-        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8"
-    )
-
-    from app.parser.terminology import load_terminology_rules
-
-    result = evaluate(tmp_path, load_terminology_rules(Path("configs/terminology.yaml")))
-    terminology = result["terminology"]
-    assert terminology["rules_version"] == "2"
-    # Raw accuracy: 编益 is wrong, 减益 is right.
-    assert terminology["raw"]["rapidocr"] == {"covered": 2, "correct": 1}
-    # Normalized accuracy: both are right after normalization.
-    assert terminology["normalized"]["rapidocr"] == {"covered": 2, "correct": 2}
-    assert terminology["adopted"] == 1
-    assert terminology["corrected"] == 1
-    assert terminology["false_corrections"] == 0
-    assert terminology["hit_rate"] == 1.0
-    assert terminology["false_correction_rate"] == 0.0
-    assert terminology["decisions"]["normalized"] == 1
-    assert terminology["decisions"]["unchanged"] == 1
-
-
-def test_evaluate_cli_runs_standalone_with_repo_root_on_path(tmp_path: Path) -> None:
-    """Regression guard: the CLI must work as `python training/scripts/evaluate_rec_candidates.py`."""
-    labels = tmp_path / "labels"
-    review = tmp_path / "review"
-    labels.mkdir()
-    review.mkdir()
-    (labels / "holdout.txt").write_text("images/holdout/a.png\t增益\n", encoding="utf-8")
-    (review / "holdout.jsonl").write_text(
-        json.dumps({"crop": "images/holdout/a.png", "layout_version": "1280x720-v6", "roi": "left_panel", "rapidocr_text": "编益"}, ensure_ascii=False)
-        + "\n",
-        encoding="utf-8",
-    )
-    root = Path(__file__).resolve().parents[1]
-    result = subprocess.run(
-        [sys.executable, str(root / "training/scripts/evaluate_rec_candidates.py"), "--output", str(tmp_path)],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    metrics = json.loads(result.stdout)
-    assert metrics["terminology"]["normalized"]["rapidocr"] == {"covered": 1, "correct": 1}

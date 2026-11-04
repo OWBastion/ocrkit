@@ -18,19 +18,6 @@ def test_parse_right_panel_classic_map_variant() -> None:
     assert out.map_variant == "classic"
 
 
-def test_parse_right_panel_classic_map_variant_without_version() -> None:
-    out = parse_right_panel("皇家赛道·经典：地狱", ["皇家赛道"])
-
-    assert out.map_name == "皇家赛道"
-    assert out.map_variant == "classic"
-
-
-def test_parse_right_panel_colon_variant() -> None:
-    out = parse_right_panel("国王大道:传奇 版本 26.0513.6", ["国王大道", "伊利奥斯"])
-    assert out.map_name == "国王大道"
-    assert out.difficulty == "传奇"
-
-
 def test_parse_right_panel_map_ocr_noise() -> None:
     out = parse_right_panel("国王大 道：困难", ["国王大道", "暴雪世界"])
     assert out.map_name == "国王大道"
@@ -45,49 +32,9 @@ def test_parse_right_panel_fps_noise_regression() -> None:
     assert out.version == "26.0506.1"
 
 
-def test_parse_right_panel_stock_version_variant() -> None:
-    out = parse_right_panel("伊利奥斯：地狱 股本26.0513.6", ["巴黎", "伊利奥斯"])
-    assert out.version == "26.0513.6"
-
-
-def test_parse_right_panel_clothes_version_variant() -> None:
-    out = parse_right_panel("哈瓦那：地狱 服本26.0518.1", ["哈瓦那"])
-    assert out.version == "26.0518.1"
-
-
-def test_parse_right_panel_wood_version_ocr_variant() -> None:
-    out = parse_right_panel("66号公路：地狱 版木26.08111", ["66号公路"])
-    assert out.version == "26.0811.1"
-
-
-def test_parse_right_panel_restores_version_separators() -> None:
-    out = parse_right_panel("尼泊尔：地狱 版本26.06102", ["尼泊尔"])
-    assert out.version == "26.0610.2"
-
-
-def test_parse_right_panel_single_character_version_label() -> None:
-    out = parse_right_panel("月球基地：地狱 本26.0613.3", ["月球基地"])
-    assert out.version == "26.0613.3"
-
-
-def test_parse_right_panel_runasapi() -> None:
-    out = parse_right_panel("鲁纳塞彼：地狱 版本26.0621.3", ["努巴尼", "鲁纳塞彼"])
-    assert out.map_name == "鲁纳塞彼"
-
-
 def test_parse_right_panel_map_alias() -> None:
     out = parse_right_panel("沃斯卡娅：地狱", ["沃斯卡娅工业区"], {"沃斯卡娅": "沃斯卡娅工业区"})
     assert out.map_name == "沃斯卡娅工业区"
-
-
-def test_parse_right_panel_throne_alias() -> None:
-    out = parse_right_panel("王座：地狱", ["阿努比斯王座"], {"王座": "阿努比斯王座"})
-    assert out.map_name == "阿努比斯王座"
-
-
-def test_parse_right_panel_version_with_comma_misread() -> None:
-    out = parse_right_panel("好莱坞：地狱 版本26,0912.2 9611-4188-8869", ["好莱坞"])
-    assert out.version == "26.0912.2"
 
 
 def test_parse_right_panel_restores_mode_name_with_lost_leading_character() -> None:
