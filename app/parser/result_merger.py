@@ -35,7 +35,7 @@ def merge_result(
         challenge_completed=left.challenge_completed if left.challenge_completed is not None else center.completed or card.completed,
         heroes_completed=left.heroes_completed,
         heroes_total=left.heroes_total,
-        viewer_player=bottom_left.player,
+        viewer_player=_first(card.player, bottom_left.player),
         achievement_title=left.achievement_title,
         achievement_titles=list(left.achievement_titles),
         achievement_unlocked=left.achievement_unlocked,

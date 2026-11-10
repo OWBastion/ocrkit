@@ -2,6 +2,7 @@ from app.parser.center_summary import CenterSummary
 from app.parser.bottom_left_hero import BottomLeftHero
 from app.parser.left_panel import LeftPanel
 from app.parser.result_merger import merge_result
+from app.parser.settlement_card import SettlementCard
 from app.parser.right_panel import RightPanel
 
 
@@ -116,3 +117,12 @@ def test_merge_result_uses_center_duration_when_left_time_is_invalid() -> None:
     out = merge_result(center, left, BottomLeftHero(player=None), right)
     assert out.duration_text == "1小时26分36秒"
     assert out.duration_seconds == 5196.0
+
+
+def test_merge_result_reads_viewer_player_from_card_before_hero_card() -> None:
+    center = CenterSummary(completed=True, deaths=None, skips=None, duration_text=None, duration_seconds=None)
+    left = LeftPanel(None, None, None, None, None, None, None)
+    args = (center, left, BottomLeftHero(player="hero-name"), RightPanel(None, None, None))
+
+    assert merge_result(*args, card=SettlementCard(completed=True, player="card-name")).viewer_player == "card-name"
+    assert merge_result(*args).viewer_player == "hero-name"
