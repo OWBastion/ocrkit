@@ -33,7 +33,7 @@ _FIELD_ROIS = {
     "challenge_completed": ("left_panel", "center_banner", "settlement_card"),
     "heroes_completed": ("left_panel",),
     "heroes_total": ("left_panel",),
-    "viewer_player": ("bottom_left_hero",),
+    "viewer_player": ("settlement_card", "bottom_left_hero"),
     "achievement_title": ("achievement_panel", "settlement_card"),
     "achievement_titles": ("achievement_panel", "settlement_card"),
     "achievement_unlocked": ("achievement_panel", "settlement_card"),

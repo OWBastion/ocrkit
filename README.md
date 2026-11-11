@@ -158,7 +158,7 @@ mark (for example `豆包AI生成`) and `false` otherwise; it is evidence, not a
 instead of guessed. `run_code` also accepts the unlabeled code printed by the current HUD
 (strict `dddd-dddd-dddd`, first digit 1-9) and marks it `label:absent`.
 
-`viewer_player` (bottom-left hero card) and `real_player` are the player identity fields
+`viewer_player` (the completion card player name, else the bottom-left hero card) and `real_player` are the player identity fields
 suitable for account matching. The hero card can show a streamer-mode name; newer HUDs also
 print the player's real in-game name above the server load, which `real_player` reads from
 `server_load_panel` and leaves `null` when the HUD prints none. OCRKit reports both as
