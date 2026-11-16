@@ -65,7 +65,6 @@ Configure the repository's GitHub `production` environment:
 | Type | Name | Value |
 | --- | --- | --- |
 | Secret | `DEPLOY_SSH_KEY` | Dedicated deployment SSH private key; install its public key on the server |
-| Secret | `DEPLOY_HOST_FINGERPRINT` | Server host key SHA256 fingerprint verified over trusted SSH, including the `SHA256:` prefix |
 | Variable | `DEPLOY_HOST` | Server address |
 | Variable | `DEPLOY_USER` | SSH user with Docker access and permission to update `.env` |
 | Variable | `DEPLOY_PORT` | SSH port; defaults to `22` |

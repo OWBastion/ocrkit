@@ -121,7 +121,6 @@ jobs:
           username: ${{ vars.DEPLOY_USER }}
           port: ${{ vars.DEPLOY_PORT || '22' }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          fingerprint: ${{ secrets.DEPLOY_HOST_FINGERPRINT || 'missing-host-fingerprint' }}
           envs: OCRKIT_IMAGE,COMPOSE_FILE
           script: |
             set -e
