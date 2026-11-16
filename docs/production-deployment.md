@@ -52,3 +52,36 @@ platform acknowledges, and ID hashes for up to 24 hours. Do not copy it into tra
 artifacts or public backups. Shutdown waits for current synchronous inference; it
 cannot safely hard-cancel the engine. See README for deadlines, admission limits,
 retry behavior, and restart semantics.
+
+## GitHub Actions application deployment
+
+`.github/workflows/ci.yml` runs tests, image build/publication, and deployment in
+order. PRs only test and build. A `v*` tag also publishes an image. Only pushes
+to `main` deploy. Runs on `main` are serialized and do not cancel an active
+deployment. The pinned `appleboy/ssh-action` deploys the current build's digest.
+
+Configure the repository's GitHub `production` environment:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Secret | `DEPLOY_SSH_KEY` | Dedicated deployment SSH private key; install its public key on the server |
+| Secret | `DEPLOY_HOST_FINGERPRINT` | Server host key SHA256 fingerprint verified over trusted SSH, including the `SHA256:` prefix |
+| Variable | `DEPLOY_HOST` | Server address |
+| Variable | `DEPLOY_USER` | SSH user with Docker access and permission to update `.env` |
+| Variable | `DEPLOY_PORT` | SSH port; defaults to `22` |
+| Variable | `DEPLOY_COMPOSE_FILE` | Existing Compose filename inside `/opt/ocrkit` |
+
+The server needs Docker Compose v2 with `--wait` support, GHCR image read access,
+and its existing `.env`. The `ocrkit` service must use `${OCRKIT_IMAGE}`, include
+an HTTP healthcheck, and retain the model/jobs volumes. The `.env` must contain
+an `OCRKIT_IMAGE=` entry. Select the actual host Compose file, such as
+`docker-compose.existing-tunnel.yml` for the existing-tunnel topology. Preserve
+the host's network/tunnel configuration. Runtime credentials stay on the server.
+
+Deployment updates only `ocrkit`, waits for its Compose healthcheck, and saves
+the successful image digest in `.env`. Failures mark the job failed without an
+automatic rollback. Model promotion remains a separate operation. After first
+enabling deployment, verify public health and authenticated OCR with a public
+smoke image. To roll back application code, set the previous verified
+`OCRKIT_IMAGE` digest in the host `.env`, then run
+`docker compose -f <host Compose file> --env-file .env up -d --no-build --no-deps --wait ocrkit`.
